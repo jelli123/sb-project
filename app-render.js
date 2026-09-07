@@ -704,6 +704,8 @@ function detailGa(ga) {
 
 function detailDev(d) {
   const room = d.roomId ? KNX.findNode(d.roomId) : null;
+  const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
+  const nSet = Object.keys(d.params || {}).length;
   return `
     <div class="detail-head">
       <span class="addr big">${KNX.paStr(d.addr)}</span>
@@ -715,11 +717,13 @@ function detailDev(d) {
     </div>
     <div class="detail-meta">
       <div class="meta-item"><span class="meta-num">${d.objs.length}</span><span class="meta-lbl">Objekte</span></div>
-      <div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>
+      ${item
+        ? `<div class="meta-item"><span class="meta-num">${nSet}</span><span class="meta-lbl">geänderte Einstellungen</span></div>`
+        : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>`}
     </div>
     <div class="detail-actions">
+      ${item ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
       <button class="btn btn-sm" id="d-addobj">+ Objekt</button>
-      ${d.catalogId ? '<button class="btn btn-sm" id="d-params">Parameter …</button>' : ''}
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
@@ -737,7 +741,10 @@ function detailDev(d) {
             <span class="dpt-tag">${o.dpt}</span>
             <span class="flags">${KNX.flagStr(o.flags)}</span></li>`;
         }).join('') + '</ul>'
-      : '<p class="hint">Noch keine Objekte angelegt.</p>'}`;
+      : item
+        ? '<p class="hint">Dieses Gerät arbeitet ohne Kommunikationsobjekte — es wird ' +
+          'allein über seine Eigenschaften eingestellt.</p>'
+        : '<p class="hint">Noch keine Objekte angelegt.</p>'}`;
 }
 
 function detailObj(dev, o) {

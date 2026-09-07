@@ -412,7 +412,7 @@ const KNX = (() => {
         objs: (objs && typeof objs === 'object') ? objs : {},
         dyn: Array.isArray(c.dyn) ? c.dyn : []
       };
-    }).filter(c => Object.keys(c.objs).length);
+    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length);
     const catIds = new Set(p.catalog.map(c => c.id));
     p.devices.forEach(d => {
       if (!catIds.has(d.catalogId)) { d.catalogId = null; d.params = {}; }
@@ -1148,9 +1148,11 @@ const KNX = (() => {
       if (l && a && (pa !== a.addr || pl !== l.addr))
         add('error', 'device', d.id,
           `Adresse ${paStr(d.addr)} passt nicht zur Linie ${a.addr}.${l.addr}.`);
-      if (pd === 0)
+      // Teilnehmer 0 gehört dem Koppler — bei Geräten mit Objekten ist das ein Fehlgriff
+      if (pd === 0 && d.objs.length)
         add('warn', 'device', d.id, 'Teilnehmernummer 0 ist dem Linienkoppler vorbehalten.');
-      if (!d.objs.length)
+      // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
+      if (!d.objs.length && !d.catalogId)
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
       d.objs.forEach(o => {
         if (o.flags.t && !o.gas.length)

@@ -144,8 +144,10 @@ function actNewDevice(ctx) {
       const p = c.params[ref];
       return p && String(p.t || '').trim() && (c.types[p.pt] || {}).k !== 'none';
     }).length, 0);
-    hint.innerHTML = `<b>${r.objs.length}</b> Kommunikationsobjekte und <b>${nParams}</b> ` +
-      `Parameter in der Grundeinstellung` +
+    hint.innerHTML = (r.objs.length
+        ? `<b>${r.objs.length}</b> Kommunikationsobjekte und <b>${nParams}</b> Parameter`
+        : `<b>${nParams}</b> Parameter, keine Kommunikationsobjekte`) +
+      ' in der Grundeinstellung' +
       (c.manufacturer ? ` · ${esc(c.manufacturer)}` : '') +
       (c.appName ? ` · ${esc(c.appName)}` : '');
     if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
@@ -228,8 +230,9 @@ function actCatalog(onPick) {
               <b>${esc(c.name)}</b>
               <span>${esc([c.manufacturer, c.order, c.appName].filter(Boolean).join(' · '))}</span>
             </div>
-            <span class="dpt-tag">${objCount(c)} KO</span>
-            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="Aus dem Katalog entfernen">
+            <span class="dpt-tag">${objCount(c)
+              ? objCount(c) + ' KO'
+              : Object.keys(c.params || {}).length + ' P'}</span>            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="Aus dem Katalog entfernen">
               ${A.IC_TRASH}</button>
           </div>`).join('')
           : '<p class="hint">Der Katalog ist leer. Oben eine <b>.knxprod</b>-Datei laden.</p>'}
@@ -355,6 +358,16 @@ function actParams(devId) {
         <input class="input mono prm-in" type="number" data-ref="${ref}"
                min="${type.min}" max="${type.max}" value="${esc(val)}"${dis}></label>`;
     }
+    if (type.k === 'ip') {
+      return `<label class="prm"><span>${esc(label)} <em>IPv4</em></span>
+        <input class="input mono prm-in" type="text" data-ref="${ref}" value="${esc(val)}"
+               inputmode="decimal" placeholder="192.168.1.10"
+               pattern="^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$"${dis}></label>`;
+    }
+    if (type.k === 'time' || type.k === 'date') {
+      return `<label class="prm"><span>${esc(label)}</span>
+        <input class="input mono prm-in" type="${type.k}" data-ref="${ref}" value="${esc(val)}"${dis}></label>`;
+    }
     return `<label class="prm"><span>${esc(label)}</span>
       <input class="input prm-in" type="text" data-ref="${ref}" value="${esc(val)}"
              maxlength="${type.max || 80}"${dis}></label>`;
@@ -370,7 +383,9 @@ function actParams(devId) {
     const n = r.groups.reduce((s, g) => s + g.params.filter(editable).length, 0);
     return `
       <p class="hint">${esc(item.name)}${item.appName ? ' · ' + esc(item.appName) : ''} —
-        <b>${n}</b> Parameter, <b>${r.objs.length}</b> Kommunikationsobjekte.
+        <b>${n}</b> Parameter${r.objs.length
+          ? `, <b>${r.objs.length}</b> Kommunikationsobjekte`
+          : ' — dieses Gerät arbeitet ohne Kommunikationsobjekte'}.
         Nicht jede Einstellung ist immer sichtbar; die Liste folgt der Auswahl.</p>
       <input class="input" id="m-search" placeholder="Parameter filtern …" value="${esc(lastFilter)}">
       <div class="prm-list" id="m-params">
@@ -414,13 +429,25 @@ function actParams(devId) {
   const redraw = () => { $('#modal-body').innerHTML = body(); wire(); };
 
   A.openModal(`Parameter — ${esc(dev.name)}`, body(), () => {
+    const bad = $('#m-params').querySelector('.prm-in:invalid');
+    if (bad) {
+      const grp = bad.closest('.prm-group');
+      if (grp) grp.hidden = false;
+      bad.focus();
+      bad.scrollIntoView({ block: 'center' });
+      A.warn('Ungültiger Wert bei „' +
+        bad.closest('.prm').querySelector('span').firstChild.textContent.trim() + '“.');
+      return false;
+    }
     dev.params = draft;
     const res = KNX.applyProduct(dev);
     A.commit();
     if (res && res.orphans.length)
       A.warn(`${res.orphans.length} ${res.orphans.length === 1 ? 'Objekt entfällt' : 'Objekte entfallen'} ` +
              'durch die neue Einstellung, tragen aber noch Gruppenadressen — sie bleiben als überzählig stehen.');
-    else A.status(`${dev.objs.length} Kommunikationsobjekte`);
+    else A.status(dev.objs.length
+      ? `${dev.objs.length} Kommunikationsobjekte`
+      : 'Einstellungen übernommen');
   });
   wire();
 }

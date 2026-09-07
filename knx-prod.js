@@ -183,6 +183,12 @@ function readApp(ap, lang) {
         e = { k: 'num', min: +attr(k, 'minInclusive') || 0, max: +attr(k, 'maxInclusive') || 0 };
       } else if (n === 'TypeText') {
         e = { k: 'text', max: +attr(k, 'SizeInBit') / 8 || 0 };
+      } else if (n === 'TypeIPAddress') {
+        e = { k: 'ip' };
+      } else if (n === 'TypeTime') {
+        e = { k: 'time' };
+      } else if (n === 'TypeDate') {
+        e = { k: 'date' };
       } else if (n === 'TypeNone' || n === 'TypePicture') {
         e = { k: 'none' };
       }
@@ -347,7 +353,8 @@ function collect(docs, prefer) {
   if (!out.length)
     apps.forEach((app, id) => out.push(entry(id, app.name, '', app)));
 
-  return out.filter(p => p.objCount)
+  // Koppler und IP-Schnittstellen haben oft keine Objekte, aber Einstellungen
+  return out.filter(p => p.objCount || p.paramCount)
             .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
@@ -371,7 +378,7 @@ async function read(file, prefer) {
 
   const products = collect(docs, prefer || ['de-DE', 'de-AT', 'de-CH', 'en-US', 'en-GB']);
   if (!products.length)
-    throw new Error('Keine Produkte mit Kommunikationsobjekten gefunden.');
+    throw new Error('Keine Produkte mit Objekten oder Parametern gefunden.');
   return products;
 }
 

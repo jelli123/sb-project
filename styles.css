@@ -657,6 +657,7 @@ table.ga tbody .cell-objs, table.ga tbody .cell-rooms { overflow: hidden; }
 }
 .prm > span em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 11px; }
 .prm .select, .prm .input { min-height: 30px; padding: 4px 8px; font-size: 12.5px; }
+.prm .input:invalid { border-color: var(--danger); background: oklch(98% 0.02 25); }
 .prm :disabled { background: var(--surface2); color: var(--muted); cursor: default; }
 
 .detail-list li.stale { opacity: 0.55; }
