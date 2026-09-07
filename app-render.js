@@ -702,11 +702,62 @@ function detailGa(ga) {
     ${ga.note ? '<p class="hint">Notiz: ' + esc(ga.note) + '</p>' : ''}`;
 }
 
+/* Die Filtertabelle ist kein Eingabewert, sondern folgt aus der Topologie —
+   deshalb wird sie nur angezeigt, so wie die ETS sie beim Programmieren bildet. */
+function filterSection(d) {
+  const f = KNX.filterTable(d);
+  if (!f) return '';
+  const show = state.filterView === 'local' ? f.local : f.pass;
+  const max = 40;
+  const rows = show.slice(0, max).map(g => `
+    <li class="jump" data-kind="ga" data-id="${g.id}">
+      <span class="addr">${KNX.addrStr(g)}</span>
+      <span class="grow">${esc(g.name)}</span>
+      <span class="dpt-tag">${g.dpt}</span></li>`).join('');
+  const tile = (key, n, label) =>
+    `<button class="meta-item pick${state.filterView === key ? ' on' : ''}" data-fv="${key}">
+       <span class="meta-num">${n}</span><span class="meta-lbl">${label}</span></button>`;
+  return `
+    <h3 class="detail-h">Filtertabelle · ${esc(f.scope.de)} ${esc(f.scope.label)}</h3>
+    <div class="detail-meta">
+      ${tile('pass', f.pass.length, 'durchgelassen')}
+      ${tile('local', f.local.length, 'gesperrt')}
+    </div>
+    <p class="hint">Wird aus den Geräteadressen berechnet: durchgelassen wird, was
+    Teilnehmer auf beiden Seiten hat. Die Weiterleitungsparameter des Kopplers
+    gehen zusätzlich ein.${f.high
+      ? ` <b>${f.high}</b> Adressen liegen in Hauptgruppe 14–31 — ältere Koppler führen
+        nur 0–13 in der Tabelle und behandeln den Rest über den Parameter.` : ''}</p>
+    ${show.length
+      ? `<ul class="detail-list">${rows}</ul>` +
+        (show.length > max ? `<p class="hint">… und ${show.length - max} weitere.</p>` : '')
+      : state.filterView === 'local'
+        ? '<p class="hint">Jede Adresse dieses Segments überschreitet die Grenze.</p>'
+        : '<p class="hint">Keine Adresse überschreitet diese Grenze — es gibt nichts weiterzuleiten.</p>'}`;
+}
+
+/* Busstrom einer Linie, sobald Verbraucher darauf sitzen. */
+function powerSection(lineId) {
+  const p = KNX.powerBudget(lineId);
+  if (!p || !p.loads.length) return '';
+  const pct = p.have ? Math.min(100, Math.round(p.need / p.have * 100)) : 100;
+  const cls = !p.have || p.need > p.have ? 'over' : (p.reserve < p.have * 0.1 ? 'tight' : 'ok');
+  return `
+    <h3 class="detail-h">Busstrom</h3>
+    <div class="power-bar ${cls}"><span style="width:${pct}%"></span></div>
+    <p class="hint"><b>${p.need} mA</b> Bedarf von ${p.loads.length} Teilnehmern ·
+      <b>${p.have} mA</b> eingespeist${p.supplies.length
+        ? ' (' + p.supplies.map(s => esc(s.name)).join(', ') + ')'
+        : ' — keine Spannungsversorgung eingeplant'}${p.have
+        ? ` · Reserve ${p.reserve} mA` : ''}</p>`;
+}
+
 function detailDev(d) {
   const room = d.roomId ? KNX.findNode(d.roomId) : null;
   const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
   const isIp = KNX.deviceIsIp(d);
   const ip = isIp ? KNX.ipConfig(d) : null;
+  const coupler = !!KNX.couplerScope(d);
   const nSet = Object.keys(d.params || {}).length;
   return `
     <div class="detail-head">
@@ -717,12 +768,13 @@ function detailDev(d) {
           · ${room ? esc(KNX.nodePath(room.id).sub) : '<b>kein Raum</b>'}</p>
       </div>
     </div>
+    ${coupler && !d.objs.length ? '' : `
     <div class="detail-meta">
       <div class="meta-item"><span class="meta-num">${d.objs.length}</span><span class="meta-lbl">Objekte</span></div>
       ${item || isIp
         ? `<div class="meta-item"><span class="meta-num">${nSet}</span><span class="meta-lbl">geänderte Einstellungen</span></div>`
         : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>`}
-    </div>
+    </div>`}
     <div class="detail-actions">
       ${item || isIp ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
       <button class="btn btn-sm" id="d-addobj">+ Objekt</button>
@@ -740,6 +792,7 @@ function detailDev(d) {
       <li><span class="grow">Routing-Multicast</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
       <li><span class="grow">Tunnelverbindungen</span><span class="addr">${esc(String(ip.tunnels))}</span></li>
     </ul>` : ''}
+    ${filterSection(d)}
     <h3 class="detail-h">Kommunikationsobjekte</h3>
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {
@@ -756,7 +809,10 @@ function detailDev(d) {
       : item
         ? '<p class="hint">Dieses Gerät arbeitet ohne Kommunikationsobjekte — es wird ' +
           'allein über seine Eigenschaften eingestellt.</p>'
-        : '<p class="hint">Noch keine Objekte angelegt.</p>'}`;
+        : coupler
+          ? '<p class="hint">Koppler arbeiten ohne Kommunikationsobjekte — sie leiten ' +
+            'nach ihrer Filtertabelle weiter.</p>'
+          : '<p class="hint">Noch keine Objekte angelegt.</p>'}`;
 }
 
 function detailObj(dev, o) {
@@ -814,6 +870,7 @@ function detailLine(l) {
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
     ${issueList(l.id)}
+    ${powerSection(l.id)}
     ${devs.length
       ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
         devs.slice().sort((x, y) => x.addr - y.addr).map(d =>
@@ -909,6 +966,8 @@ function renderDetail() {
     on('#d-params', () => T.actParams(target.id));
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
+    panel.querySelectorAll('[data-fv]').forEach(b =>
+      b.addEventListener('click', () => { state.filterView = b.dataset.fv; renderDetail(); }));
   } else if (sel.kind === 'obj') {
     panel.innerHTML = detailObj(target.dev, target.obj);
     on('#d-assign', () => T.actAssignObj(target.obj.id));

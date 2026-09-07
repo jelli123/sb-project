@@ -235,15 +235,46 @@ const KNX = (() => {
                         gw: '', mcast: '224.0.23.12', tunnels: 4 };
   const isIpV4 = s => /^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$/.test(String(s));
 
-  /* Gerät spricht IP, wenn das Produkt es sagt oder die Linie IP-Medium hat. */
-  function deviceIsIp(dev) {
+  /* Gerät bringt IP mit — unabhängig davon, wo es hängt. */
+  function deviceCanIp(dev) {
     if (!dev) return false;
+    if (dev.ip) return true;
     const item = dev.catalogId && catalogById(dev.catalogId);
-    if (item && item.ip) return true;
-    const l = lineById(dev.lineId);
+    return !!(item && item.ip);
+  }
+
+  /* Für die Darstellung zählt auch die Linie: Wer am IP-Strang hängt,
+     bekommt die IP-Felder.                                                */
+  function deviceIsIp(dev) {
+    if (deviceCanIp(dev)) return true;
+    const l = dev && lineById(dev.lineId);
     return !!l && l.medium === 'ip';
   }
   const ipConfig = dev => ({ ...IP_DEFAULTS, ...(dev.ip || {}) });
+
+  /* ---------- Busstrom ---------- *
+   * TP-Teilnehmer ziehen typisch 10 mA; die Produktdateien nennen den Wert
+   * als BusCurrent. Einspeisungen tragen ihren Nennstrom als `supply`.     */
+  const MA_DEFAULT = 10;
+  const deviceMa = d => {
+    if (Number.isInteger(d.ma) && d.ma >= 0) return d.ma;
+    const item = d.catalogId && catalogById(d.catalogId);
+    return (item && item.ma) || MA_DEFAULT;
+  };
+
+  /* Bedarf und Deckung einer Linie. */
+  function powerBudget(lineId) {
+    const line = lineById(lineId);
+    if (!line || line.medium !== 'tp') return null;
+    let need = 0, have = 0;
+    const supplies = [], loads = [];
+    devicesOnLine(lineId).forEach(d => {
+      const s = +d.supply || 0;
+      if (s > 0) { have += s; supplies.push(d); }
+      else { const ma = deviceMa(d); need += ma; loads.push(d); }
+    });
+    return { need, have, supplies, loads, reserve: have - need };
+  }
 
   /* ---------- Projekt (persistiert) ---------- */
   const SCHEMA = 3;
@@ -406,6 +437,8 @@ const KNX = (() => {
         catalogId: d.catalogId || null,
         params: (d.params && typeof d.params === 'object') ? d.params : {},
         ip: (d.ip && typeof d.ip === 'object') ? d.ip : null,
+        ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
+        supply: clamp(d.supply, 0, 5000, 0),
         objs: (Array.isArray(d.objs) ? d.objs : []).map((o, i) => ({
           id: takeId(o.id, 'o', seenObj),
           ref: o.ref || null,
@@ -443,7 +476,11 @@ const KNX = (() => {
         params: (c.params && typeof c.params === 'object') ? c.params : {},
         objs: (objs && typeof objs === 'object') ? objs : {},
         dyn: Array.isArray(c.dyn) ? c.dyn : [],
-        ip: !!c.ip
+        ip: !!c.ip,
+        medium: String(c.medium || ''),
+        ma: clamp(c.ma, 0, 5000, 0),
+        coupler: !!c.coupler,
+        powerSupply: !!c.powerSupply
       };
     }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length);
     const catIds = new Set(p.catalog.map(c => c.id));
@@ -550,11 +587,14 @@ const KNX = (() => {
     const aa = mk('outdoor', 'Außenanlagen', [rsts, rnts]);
     p.tree.children.push(hh, aa);
 
-    /* --- Topologie --- */
+    /* --- Topologie --- *
+     * Heute üblich: IP als Backbone, darunter TP-Linien. Der IP-Router sitzt
+     * mit seiner physikalischen Adresse auf der TP-Seite.                  */
+    const lHl  = { id: uid('l'), addr: 0, name: 'IP-Backbone', medium: 'ip' };
     const lEg  = { id: uid('l'), addr: 1, name: 'Linie EG',    medium: 'tp' };
     const lOg  = { id: uid('l'), addr: 2, name: 'Linie OG',    medium: 'tp' };
     const lAus = { id: uid('l'), addr: 3, name: 'Linie Außen', medium: 'tp' };
-    p.areas = [ { id: uid('a'), addr: 1, name: 'Haupthaus', lines: [lEg, lOg, lAus] } ];
+    p.areas = [ { id: uid('a'), addr: 1, name: 'Haupthaus', lines: [lHl, lEg, lOg, lAus] } ];
 
     /* --- Gruppenadress-Struktur --- */
     p.gaNames = {
@@ -624,19 +664,37 @@ const KNX = (() => {
     const R = { c: true, r: true,  w: false, t: true,  u: false };
 
     let objNum = 0;
-    const dev = (line, addr, name, product, room, objs) => {
+    const dev = (line, addr, name, product, room, objs, extra) => {
       objNum = 0;
-      p.devices.push({
+      const d = {
         id: uid('d'), name, product, lineId: line.id,
         addr: paJoin(1, line.addr, addr), roomId: room ? room.id : null,
+        catalogId: null, params: {}, ip: null, ma: null, supply: 0,
         objs: objs.map(o => ({
-          id: uid('o'), num: objNum++, name: o[0], dpt: o[1], flags: o[2],
+          id: uid('o'), ref: null, num: objNum++, name: o[0], dpt: o[1], flags: o[2],
           gas: o.slice(3).filter(Boolean)
         }))
-      });
+      };
+      if (extra) Object.assign(d, extra);
+      p.devices.push(d);
+      return d;
     };
 
-    dev(lEg, 1, 'Spannungsversorgung 640 mA', 'Netzteil', rhr, []);
+    // Teilnehmer 0 jeder TP-Linie ist ihr Koppler zum IP-Backbone. Die
+    // Filtertabellen ergeben sich aus den Adressen über die Liniengrenze.
+    const ipRouter = (line, name, room) => dev(line, 0, name, 'REG, KNXnet/IP', room, [], {
+      ma: 10,
+      ip: { name, mode: 'dhcp', addr: '', mask: '255.255.255.0', gw: '',
+            mcast: '224.0.23.12', tunnels: 4 }
+    });
+    ipRouter(lEg,  'IP-Router EG',    rhr);
+    ipRouter(lOg,  'IP-Router OG',    rvo);
+    ipRouter(lAus, 'IP-Router Außen', rhr);
+
+    // Einspeisungen brauchen am Bus keine Adresse; hier hinten einsortiert
+    dev(lEg, 250, 'Spannungsversorgung 640 mA', 'REG, Drossel', rhr, [], { supply: 640, ma: 0 });
+    dev(lOg, 250, 'Spannungsversorgung 320 mA', 'REG, Drossel', rvo, [], { supply: 320, ma: 0 });
+    dev(lAus, 250, 'Spannungsversorgung 160 mA', 'REG, Drossel', rhr, [], { supply: 160, ma: 0 });
     dev(lEg, 2, 'Schaltaktor 8-fach', 'REG, 16 A', rhr, [
       ['A1 Schalten Küche',      '1.001', E, G.liKuS, G.liZeA],
       ['A1 Status',              '1.011', R, G.liKuR],
@@ -868,6 +926,53 @@ const KNX = (() => {
     return `${a.addr}.${l.addr}  ${l.name}`;
   }
 
+  /* ---------- Koppler und Filtertabelle ---------- *
+   * Teilnehmer 0 einer Linie ist der Koppler. Sitzt er auf der Hauptlinie
+   * (Linie 0), koppelt er den ganzen Bereich, sonst nur seine Linie.       */
+  function couplerScope(dev) {
+    if (!dev || paSplit(dev.addr)[2] !== 0) return null;
+    const line = lineById(dev.lineId), area = areaOfLine(dev.lineId);
+    if (!line || !area) return null;
+    return line.addr === 0
+      ? { kind: 'area', area, line: null, de: 'Bereichskoppler',
+          label: `Bereich ${area.addr}` }
+      : { kind: 'line', area, line, de: 'Linienkoppler',
+          label: `Linie ${area.addr}.${line.addr}` };
+  }
+
+  /* Linien-Ids, die hinter dem Koppler liegen. */
+  function couplerInside(dev, scope) {
+    const inside = new Set();
+    if (!scope) return inside;
+    if (scope.kind === 'line') inside.add(dev.lineId);
+    else scope.area.lines.forEach(l => inside.add(l.id));
+    return inside;
+  }
+
+  /* Die Filtertabelle enthält genau die Gruppenadressen, deren Teilnehmer auf
+     beiden Seiten des Kopplers sitzen — alles andere bleibt im Segment.
+     Die ETS berechnet sie beim Programmieren aus derselben Information.     */
+  function filterTable(dev) {
+    const scope = couplerScope(dev);
+    if (!scope) return null;
+    const inside = couplerInside(dev, scope);
+    const pass = [], local = [];
+    project.groups.forEach(g => {
+      let hasIn = false, hasOut = false;
+      gaLinks(g.id).forEach(l => {
+        if (l.dev.id === dev.id) return;         // der Koppler selbst zählt nicht
+        if (inside.has(l.dev.lineId)) hasIn = true; else hasOut = true;
+      });
+      if (hasIn && hasOut) pass.push(g);
+      else if (hasIn) local.push(g);
+    });
+    pass.sort((a, b) => a.raw - b.raw);
+    local.sort((a, b) => a.raw - b.raw);
+    // Ältere Koppler führen nur Hauptgruppe 0–13 in der Tabelle
+    const high = pass.filter(g => gaSplit(g.raw, GA_STYLES.three)[0] >= 14).length;
+    return { scope, inside, pass, local, high };
+  }
+
   /* Kleinste freie Teilnehmernummer auf einer Linie (0 bleibt dem Koppler). */
   function freePa(lineId, exceptDevId) {
     const l = lineById(lineId), a = areaOfLine(lineId);
@@ -1069,7 +1174,11 @@ const KNX = (() => {
         params: it.params || {},
         objs: it.objs || {},
         dyn: it.dyn || [],
-        ip: !!it.ip
+        ip: !!it.ip,
+        medium: String(it.medium || ''),
+        ma: +it.ma || 0,
+        coupler: !!it.coupler,
+        powerSupply: !!it.powerSupply
       };
       const old = known.get(key(c));
       if (old) {
@@ -1187,7 +1296,7 @@ const KNX = (() => {
       if (pd === 0 && d.objs.length)
         add('warn', 'device', d.id, 'Teilnehmernummer 0 ist dem Linienkoppler vorbehalten.');
       // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
-      if (!d.objs.length && !d.catalogId)
+      if (!d.objs.length && !d.catalogId && !couplerScope(d))
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
 
       if (deviceIsIp(d)) {
@@ -1218,11 +1327,58 @@ const KNX = (() => {
     });
 
     project.areas.forEach(a => a.lines.forEach(l => {
-      const n = devicesOnLine(l.id).length;
-      if (l.medium === 'tp' && n > 64)
+      const devs = devicesOnLine(l.id);
+      if (l.medium === 'tp' && devs.length > 64)
         add('warn', 'line', l.id,
-          `${n} Teilnehmer auf ${a.addr}.${l.addr} — ein TP-Segment trägt 64; Linienverstärker einplanen.`);
+          `${devs.length} Teilnehmer auf ${a.addr}.${l.addr} — ein TP-Segment trägt 64; Linienverstärker einplanen.`);
+
+      /* Auf einer IP-Linie hat nur IP-fähige Technik etwas verloren. Der
+         umgekehrte Fall ist normal: Ein IP-Router sitzt mit seiner
+         physikalischen Adresse auf der TP-Seite.                          */
+      if (l.medium === 'ip')
+        devs.filter(d => !deviceCanIp(d)).forEach(d =>
+          add('warn', 'device', d.id,
+            `Sitzt auf dem IP-Strang ${a.addr}.${l.addr}, ist aber nicht als IP-Gerät hinterlegt.`));
+
+      /* Busstrom: Einspeisung muss den Bedarf tragen. */
+      const p = powerBudget(l.id);
+      if (!p || !p.loads.length) return;
+      if (!p.supplies.length) {
+        add('warn', 'line', l.id,
+          `Keine Spannungsversorgung auf ${a.addr}.${l.addr} eingeplant — ` +
+          `${p.loads.length} Teilnehmer brauchen ${p.need} mA.`);
+      } else if (p.need > p.have) {
+        add('error', 'line', l.id,
+          `Busstrom reicht nicht: ${p.need} mA Bedarf, ${p.have} mA eingespeist ` +
+          `(${p.supplies.length === 1 ? 'ein Netzteil' : p.supplies.length + ' Netzteile'}).`);
+      } else if (p.have - p.need < p.have * 0.1) {
+        add('warn', 'line', l.id,
+          `Busstrom knapp: ${p.need} von ${p.have} mA belegt — unter 10 % Reserve.`);
+      }
     }));
+
+    /* Adressen, die Liniengrenzen überschreiten, brauchen dort einen Koppler —
+       sonst kommt das Telegramm nie an. Die Filtertabelle des Kopplers
+       entsteht aus genau dieser Information. */
+    const couplerOn = new Set();
+    project.devices.forEach(d => { if (paSplit(d.addr)[2] === 0) couplerOn.add(d.lineId); });
+    if (couplerOn.size) {
+      project.groups.forEach(g => {
+        const lines = new Set();
+        gaLinks(g.id).forEach(l => {
+          if (paSplit(l.dev.addr)[2] !== 0) lines.add(l.dev.lineId);
+        });
+        if (lines.size < 2) return;
+        const gaps = [...lines].filter(id => {
+          const l = ix.lines.get(id);
+          return l && l.addr !== 0 && !couplerOn.has(id);
+        });
+        if (gaps.length)
+          add('warn', 'ga', g.id, 'Wirkt über mehrere Linien, aber ' +
+            gaps.map(id => lineLabel(id)).join(', ') +
+            ' hat keinen Koppler — Telegramme überschreiten die Liniengrenze nicht.');
+      });
+    }
 
     return out;
   }
@@ -1283,7 +1439,7 @@ const KNX = (() => {
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
-    IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, ipConfig,
+    IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
     project: () => project,
     setProject: p => { project = p; dirty = true; invalidate(); },
     newProject, seedProject, migrate, save, load,
@@ -1294,6 +1450,7 @@ const KNX = (() => {
     walk, findNode, parentOf, nodePath, rooms, roomIdsUnder,
     lineById, areaOfLine, lineLabel, deviceById, objById,
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
+    couplerScope, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, deleteLine, deleteArea,
     catalogById, addCatalogItems, deleteCatalogItem,
     resolveProduct, applyProduct, paramValue,

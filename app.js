@@ -39,6 +39,7 @@ const state = {
   sel: null,                 // { kind, id } — node | ga | dev | obj | line | area | grp
   filter: null,              // { kind, id } — schränkt die mittlere Tabelle ein
   search: '',
+  filterView: 'pass',        // Filtertabelle: 'pass' | 'local'
   sort: { key: 'addr', dir: 1 },
   collapsed: new Set(),      // im Seed-Status: alles offen
   checked: new Set(),        // GA-IDs in der Tabellen-Markierung

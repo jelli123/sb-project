@@ -69,6 +69,15 @@ function deviceForm(d, opt) {
     <label class="field"><span>Verbaut in</span>
       <select class="select" id="m-room">${roomOptions(d.roomId)}</select>
     </label>
+    <div class="addr-grid" style="grid-template-columns:1fr 1fr">
+      <label class="field"><span>Busstrom <em>mA</em></span>
+        <input class="input mono" id="m-ma" type="number" min="0" max="5000"
+               value="${d.ma == null ? '' : d.ma}" placeholder="${KNX.deviceMa(d)}">
+      </label>
+      <label class="field"><span>Einspeisung <em>mA, 0 = keine</em></span>
+        <input class="input mono" id="m-supply" type="number" min="0" max="5000" value="${+d.supply || 0}">
+      </label>
+    </div>
     <div id="m-err"></div>`;
 }
 function readDevice(exceptId) {
@@ -82,8 +91,11 @@ function readDevice(exceptId) {
   const addr = KNX.paJoin(area.addr, line.addr, n);
   if (!KNX.paFree(addr, exceptId))
     return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
+  const ma = $('#m-ma').value.trim();
   return { name, product: $('#m-product').value.trim(), lineId, addr,
-           roomId: $('#m-room').value || null };
+           roomId: $('#m-room').value || null,
+           ma: ma === '' ? null : Math.max(0, parseInt(ma, 10) || 0),
+           supply: Math.max(0, $('#m-supply').valueAsNumber || 0) };
 }
 
 /* Merkt den Formularstand, damit ein Ausflug in den Katalog nichts verwirft. */
@@ -97,6 +109,8 @@ function readDraft() {
     lineId,
     addr: line && area ? KNX.paJoin(area.addr, line.addr, Number.isInteger(n) ? n : 0) : 0,
     roomId: ($('#m-room') && $('#m-room').value) || null,
+    ma: $('#m-ma') && $('#m-ma').value !== '' ? parseInt($('#m-ma').value, 10) : null,
+    supply: ($('#m-supply') && $('#m-supply').valueAsNumber) || 0,
     catalogId: ($('#m-cat') && $('#m-cat').value) || ''
   };
 }
@@ -107,7 +121,8 @@ function actNewDevice(ctx) {
   const roomId = ctx?.roomId
     || (state.sel?.kind === 'node' && KNX.DEVICE_HOSTS.has(KNX.findNode(state.sel.id)?.kind || '')
         ? state.sel.id : null);
-  const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId };
+  const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId,
+                                ma: null, supply: 0 };
   if (ctx?.catalogId) draft.catalogId = ctx.catalogId;
   if (!draft.addr) draft.addr = KNX.freePa(draft.lineId || lineId);
 
@@ -152,6 +167,8 @@ function actNewDevice(ctx) {
       (c.appName ? ` · ${esc(c.appName)}` : '');
     if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
     if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
+    // Busstrom aus der Produktdatei als Vorbelegung anbieten
+    if (c.ma) $('#m-ma').placeholder = String(c.ma);
   };
   $('#m-cat').addEventListener('change', applyCat);
   $('#m-cat-open').addEventListener('click', () => {

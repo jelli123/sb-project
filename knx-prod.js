@@ -294,6 +294,7 @@ function readApp(ap, lang) {
   const ip = tags(ap, 'Property').some(p => attr(p, 'ObjectType') === '11');
 
   return { name: lang.get(appId + '|Name') || attr(ap, 'Name'),
+           mask: attr(ap, 'MaskVersion'),
            types, params, objs, dyn, ip };
 }
 
@@ -302,8 +303,12 @@ function readApp(ap, lang) {
 function collect(docs, prefer) {
   const apps = new Map();          // AppProgram-Id → Modell
   const h2p = new Map();           // Hardware2Program-Id → AppProgram-Id
-  const products = new Map();      // Product-Id → { text, order }
+  const hwOf = new Map();          // Hardware2Program-Id → Hardware-Daten
+  const products = new Map();      // Product-Id → { text, order, hw }
   const manufacturers = new Map(); // M-xxxx → Name
+  const media = new Map();         // MaskVersion-Id → 'tp' | 'ip' | 'rf' | 'pl'
+
+  const MEDIUM = { 'MT-0': 'tp', 'MT-1': 'pl', 'MT-2': 'rf', 'MT-5': 'ip' };
 
   docs.forEach(doc => {
     tags(doc, 'Manufacturer').forEach(m => {
@@ -311,12 +316,36 @@ function collect(docs, prefer) {
       const name = attr(m, 'Name');
       if (id && name) manufacturers.set(id, name);
     });
+    // Die Masken-Tabelle der Stammdaten sagt, auf welchem Medium ein Gerät läuft
+    tags(doc, 'MaskVersion').forEach(mv => {
+      const id = attr(mv, 'Id'), mt = attr(mv, 'MediumTypeRefId');
+      if (id && MEDIUM[mt]) media.set(id, MEDIUM[mt]);
+    });
 
     const lang = buildTranslations(doc, prefer);
     tags(doc, 'ApplicationProgram').forEach(ap => {
       const id = attr(ap, 'Id');
       if (!id || apps.has(id)) return;
       apps.set(id, readApp(ap, lang));
+    });
+
+    /* Die Hardware trägt Busstrom und Kopplerfähigkeit. */
+    tags(doc, 'Hardware').forEach(hw => {
+      if (!attr(hw, 'SerialNumber') && !attr(hw, 'Name')) return;
+      const info = {
+        ma: parseInt(attr(hw, 'BusCurrent'), 10) || 0,
+        coupler: attr(hw, 'IsCoupler') === 'true',
+        ipEnabled: attr(hw, 'IsIPEnabled') === 'true',
+        powerSupply: attr(hw, 'IsPowerSupply') === 'true',
+        noAddress: attr(hw, 'HasIndividualAddress') === 'false'
+      };
+      tags(hw, 'Product').forEach(pr => {
+        const id = attr(pr, 'Id');
+        if (id) products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber'), hw: info });
+      });
+      tags(hw, 'Hardware2Program').forEach(h => {
+        if (attr(h, 'Id')) hwOf.set(attr(h, 'Id'), info);
+      });
     });
 
     tags(doc, 'Hardware2Program').forEach(h => {
@@ -327,7 +356,8 @@ function collect(docs, prefer) {
 
     tags(doc, 'Product').forEach(pr => {
       const id = attr(pr, 'Id');
-      if (id) products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber') });
+      if (id && !products.has(id))
+        products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber'), hw: null });
     });
   });
 
@@ -337,15 +367,21 @@ function collect(docs, prefer) {
     const m = String(id).match(/^(M-[0-9A-Fa-f]+)/);
     return m ? (manufacturers.get(m[1]) || m[1]) : '';
   };
-  const entry = (key, name, order, app) => ({
+  const entry = (key, name, order, app, hw) => ({
     key, name, order, manufacturer: manuOf(key), appName: app.name,
-    types: app.types, params: app.params, objs: app.objs, dyn: app.dyn, ip: app.ip,
+    types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
+    medium: media.get(app.mask) || '',
+    ma: (hw && hw.ma) || 0,
+    coupler: !!(hw && hw.coupler),
+    ip: app.ip || !!(hw && hw.ipEnabled),
+    powerSupply: !!(hw && hw.powerSupply),
     objCount: Object.keys(app.objs).length,
     paramCount: Object.keys(app.params).length
   });
 
   docs.forEach(doc => tags(doc, 'CatalogItem').forEach(ci => {
-    const appId = h2p.get(attr(ci, 'Hardware2ProgramRefId'));
+    const h2pId = attr(ci, 'Hardware2ProgramRefId');
+    const appId = h2p.get(h2pId);
     const app = appId && apps.get(appId);
     if (!app) return;
     const prod = products.get(attr(ci, 'ProductRefId')) || {};
@@ -353,12 +389,12 @@ function collect(docs, prefer) {
     if (seen.has(key)) return;
     seen.add(key);
     out.push(entry(key, attr(ci, 'Name') || prod.text || app.name,
-      attr(ci, 'OrderNumber') || prod.order || '', app));
+      attr(ci, 'OrderNumber') || prod.order || '', app, hwOf.get(h2pId) || prod.hw));
   }));
 
   // Ohne Katalogeinträge bleibt der Weg über die Programme selbst
   if (!out.length)
-    apps.forEach((app, id) => out.push(entry(id, app.name, '', app)));
+    apps.forEach((app, id) => out.push(entry(id, app.name, '', app, null)));
 
   // Koppler und IP-Schnittstellen haben oft keine Objekte, aber Einstellungen
   return out.filter(p => p.objCount || p.paramCount)
