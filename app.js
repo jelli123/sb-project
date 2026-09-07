@@ -24,7 +24,8 @@ const IC = {
   area:     svg('<rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M2.5 8h11M8 2.5v11"/>'),
   line:     svg('<path d="M2.5 8h11"/><circle cx="5" cy="8" r="1.4"/><circle cx="11" cy="8" r="1.4"/>'),
   device:   svg('<rect x="2.5" y="4.5" width="11" height="7" rx="1"/><path d="M5 11.5v2M11 11.5v2M5 4.5v-2M11 4.5v-2"/>'),
-  obj:      svg('<circle cx="8" cy="8" r="4.5"/><path d="M8 3.5v9"/>')
+  obj:      svg('<circle cx="8" cy="8" r="4.5"/><path d="M8 3.5v9"/>'),
+  params:   '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.6" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="5" cy="11.5" r="1.6" fill="currentColor" stroke="none"/></svg>'
 };
 const IC_PENCIL = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M11.2 2.8l2 2L5 13H3v-2z"/></svg>';
 const IC_TRASH  = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M6.5 4V3h3v1M4.5 4.5 5 13h6l.5-8.5"/></svg>';

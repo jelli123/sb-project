@@ -183,7 +183,9 @@ function deviceNode(d, depth) {
     hasKids: d.objs.length > 0, collapsed: state.collapsed.has(d.id),
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gerät löschen', () => T.actDeleteDevice(d.id)),
-      iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id))
+      d.catalogId
+        ? iconBtn(A.IC.params, 'Parameter', () => T.actParams(d.id))
+        : iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id))
     ],
     onSelect: () => { state.filter = { kind: 'dev', id: d.id }; A.select('dev', d.id); },
     onEdit: () => T.actEditDevice(d.id),
@@ -514,7 +516,10 @@ function devRow(d) {
 
   const tdX = document.createElement('td');
   tdX.className = 'cell-act';
-  tdX.appendChild(iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id)));
+  if (d.catalogId)
+    tdX.appendChild(iconBtn(A.IC.params, 'Parameter', () => T.actParams(d.id)));
+  else
+    tdX.appendChild(iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id)));
   tdX.appendChild(iconBtn(A.IC_PENCIL, 'Bearbeiten', () => T.actEditDevice(d.id)));
   tdX.appendChild(iconBtn(A.IC_TRASH, 'Löschen', () => T.actDeleteDevice(d.id)));
 
@@ -714,6 +719,7 @@ function detailDev(d) {
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-addobj">+ Objekt</button>
+      ${d.catalogId ? '<button class="btn btn-sm" id="d-params">Parameter …</button>' : ''}
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
@@ -722,7 +728,8 @@ function detailDev(d) {
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {
           const send = o.gas[0] ? KNX.gaById(o.gas[0]) : null;
-          return `<li class="jump" data-kind="obj" data-id="${o.id}">
+          return `<li class="jump${o.stale ? ' stale' : ''}" data-kind="obj" data-id="${o.id}"
+            ${o.stale ? 'title="Durch die aktuelle Parametrierung nicht mehr vorgesehen"' : ''}>
             <span class="onum">${o.num}</span>
             <span class="grow">${esc(o.name)}</span>
             ${send ? '<span class="addr">' + KNX.addrStr(send) + '</span>'
@@ -880,6 +887,7 @@ function renderDetail() {
   } else if (sel.kind === 'dev') {
     panel.innerHTML = detailDev(target);
     on('#d-addobj', () => T.actNewObj(target.id));
+    on('#d-params', () => T.actParams(target.id));
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
   } else if (sel.kind === 'obj') {

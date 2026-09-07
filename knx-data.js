@@ -372,12 +372,16 @@ const KNX = (() => {
         lineId: lineIds.has(d.lineId) ? d.lineId : firstLine,
         addr: pa,
         roomId: roomIds.has(d.roomId) ? d.roomId : null,
+        catalogId: d.catalogId || null,
+        params: (d.params && typeof d.params === 'object') ? d.params : {},
         objs: (Array.isArray(d.objs) ? d.objs : []).map((o, i) => ({
           id: takeId(o.id, 'o', seenObj),
+          ref: o.ref || null,
           num: clamp(o.num, 0, 65535, i),
           name: String(o.name || 'Objekt'),
           dpt: dptById(o.dpt).id,
           flags: normFlags(o.flags),
+          stale: !!o.stale,
           gas: (Array.isArray(o.gas) ? o.gas : []).filter(x => gaIds.has(x))
         }))
       };
@@ -386,19 +390,33 @@ const KNX = (() => {
 
     // Produktkatalog
     const seenCat = new Set();
-    p.catalog = (Array.isArray(p.catalog) ? p.catalog : []).map(c => ({
-      id: takeId(c.id, 'c', seenCat),
-      name: String(c.name || 'Produkt'),
-      order: String(c.order || ''),
-      manufacturer: String(c.manufacturer || ''),
-      appName: String(c.appName || ''),
-      objs: (Array.isArray(c.objs) ? c.objs : []).map((o, i) => ({
-        num: clamp(o.num, 0, 65535, i),
-        name: String(o.name || 'Objekt'),
-        dpt: dptById(o.dpt).id,
-        flags: normFlags(o.flags)
-      }))
-    })).filter(c => c.objs.length);
+    p.catalog = (Array.isArray(p.catalog) ? p.catalog : []).map(c => {
+      // Früher war objs eine Liste; jetzt sind es Referenzen mit Sichtbarkeit
+      let objs = c.objs;
+      if (Array.isArray(objs)) {
+        const o = {};
+        objs.forEach((x, i) => {
+          o['O-' + i] = { num: clamp(x.num, 0, 65535, i), name: String(x.name || 'Objekt'),
+                          dpt: dptById(x.dpt).id, f: flagStr2(x.flags) };
+        });
+        objs = o;
+      }
+      return {
+        id: takeId(c.id, 'c', seenCat),
+        name: String(c.name || 'Produkt'),
+        order: String(c.order || ''),
+        manufacturer: String(c.manufacturer || ''),
+        appName: String(c.appName || ''),
+        types: (c.types && typeof c.types === 'object') ? c.types : {},
+        params: (c.params && typeof c.params === 'object') ? c.params : {},
+        objs: (objs && typeof objs === 'object') ? objs : {},
+        dyn: Array.isArray(c.dyn) ? c.dyn : []
+      };
+    }).filter(c => Object.keys(c.objs).length);
+    const catIds = new Set(p.catalog.map(c => c.id));
+    p.devices.forEach(d => {
+      if (!catIds.has(d.catalogId)) { d.catalogId = null; d.params = {}; }
+    });
 
     // Schema ≤ 2: Raumzuordnungen in Planungsgeräte überführen — sonst ginge
     // die einzige Verknüpfungsinformation des Altprojekts verloren.
@@ -451,6 +469,7 @@ const KNX = (() => {
     if (!f) { out.c = true; out.w = true; }
     return out;
   }
+  const flagStr2 = f => KO_FLAGS.map(x => f && f[x.key] ? x.key : '').join('');
   function findNodeIn(node, id) {
     if (node.id === id) return node;
     for (const c of node.children || []) {
@@ -869,6 +888,137 @@ const KNX = (() => {
   /* ---------- Produktkatalog ---------- */
   const catalogById = id => project.catalog.find(c => c.id === id) || null;
 
+  /* Wirksamer Parameterwert: eingestellt, sonst der Vorgabewert des Produkts. */
+  function paramValue(item, values, ref) {
+    if (values && Object.prototype.hasOwnProperty.call(values, ref)) return String(values[ref]);
+    const p = item.params && item.params[ref];
+    return p && p.d != null ? String(p.d) : '';
+  }
+
+  /* `test` kann mehrere zulässige Werte durch Leerzeichen getrennt nennen. */
+  const testHits = (test, val) =>
+    String(test).trim().split(/\s+/).some(x => x === val);
+
+  /* Löst auf, welche Parameter und Objekte bei der gegebenen Parametrierung
+     sichtbar sind — dieselbe Mechanik wie die Produktansicht der ETS.      */
+  function resolveProduct(item, values) {
+    const groups = [];
+    const byPath = new Map();
+    const objs = [];
+    const seenObj = new Set();
+    const seenParam = new Set();
+
+    const group = path => {
+      const label = path.map(s => String(s || '').trim())
+        .filter(s => s && s !== 'Generic').join(' · ') || 'Allgemein';
+      let g = byPath.get(label);
+      if (!g) { g = { label, params: [] }; byPath.set(label, g); groups.push(g); }
+      return g;
+    };
+
+    const walk = (nodes, path) => {
+      for (const n of nodes || []) {
+        if (n.c !== undefined) {
+          const val = paramValue(item, values, n.c);
+          let hit = null;
+          for (const w of n.w || []) {
+            if (w.t != null && w.t !== '' && testHits(w.t, val)) { hit = w; break; }
+          }
+          if (!hit) hit = (n.w || []).find(w => w.d);
+          if (hit) walk(hit.k, path);
+        } else if (n.p) {
+          if (seenParam.has(n.p)) continue;
+          seenParam.add(n.p);
+          const p = item.params[n.p];
+          if (p) group(path).params.push(n.p);
+        } else if (n.o) {
+          if (!seenObj.has(n.o) && item.objs[n.o]) { seenObj.add(n.o); objs.push(n.o); }
+        } else if (n.b !== undefined) {
+          walk(n.k, path.concat(n.b));
+        } else if (n.k) {
+          walk(n.k, path);
+        }
+      }
+    };
+
+    if (item.dyn && item.dyn.length) {
+      walk(item.dyn, []);
+    } else {
+      // Ohne Sichtbarkeitsangaben alles zeigen, aber je Objektnummer nur einmal
+      const byNum = new Set();
+      Object.keys(item.objs || {}).forEach(k => {
+        const n = item.objs[k].num;
+        if (byNum.has(n)) return;
+        byNum.add(n);
+        objs.push(k);
+      });
+      Object.keys(item.params || {}).forEach(k => group([]).params.push(k));
+    }
+
+    objs.sort((a, b) => item.objs[a].num - item.objs[b].num);
+
+    /* Kanalblöcke heißen intern CHANNEL_1000 … und teilen sich oft denselben
+       Überschriftsparameter („A: Funktion“). Der Buchstabe wird deshalb aus
+       der Position des Blocks abgeleitet, sonst hießen alle Kanäle gleich.  */
+    const isHead = ref => {
+      const p = item.params[ref];
+      return p && (item.types[p.pt] || {}).k === 'none' && p.t && p.t.trim();
+    };
+    let ch = 0;
+    groups.forEach(g => {
+      if (!/CHANNEL[_ ]?\d+/i.test(g.label)) return;
+      ch++;
+      const head = g.params.find(isHead);
+      const text = head ? item.params[head].t.trim() : '';
+      const m = text.match(/^([A-Za-z]):\s*(.+)$/);
+      g.label = m ? `${ch <= 26 ? String.fromCharCode(64 + ch) : ch}: ${m[2]}`
+        : text ? `${text} ${ch}` : `Kanal ${ch}`;
+    });
+    return { groups: groups.filter(g => g.params.length), objs };
+  }
+
+  /* Kommunikationsobjekte eines Geräts aus Produkt und Parametrierung neu
+     ableiten. Bestehende Adresszuordnungen bleiben über die Referenz-Id
+     erhalten; wegfallende Objekte mit Adressen werden nicht verworfen,
+     sondern als überzählig zurückgemeldet.                                 */
+  function applyProduct(dev) {
+    const item = dev.catalogId && catalogById(dev.catalogId);
+    if (!item) return null;
+    const { objs } = resolveProduct(item, dev.params);
+    const byRef = new Map();
+    dev.objs.forEach(o => { if (o.ref) byRef.set(o.ref, o); });
+
+    const next = objs.map(ref => {
+      const src = item.objs[ref];
+      const old = byRef.get(ref);
+      byRef.delete(ref);
+      return {
+        id: old ? old.id : nid('o'),
+        ref,
+        num: src.num,
+        name: src.name || ('Objekt ' + src.num),
+        dpt: dptById(src.dpt).id,
+        flags: flagsFrom(src.f),
+        gas: old ? old.gas : []
+      };
+    });
+
+    // Nicht mehr sichtbare Objekte: nur die ohne Adressen verschwinden
+    const orphans = [...byRef.values()].filter(o => o.gas.length);
+    orphans.forEach(o => { o.stale = true; next.push(o); });
+    dev.objs.filter(o => !o.ref).forEach(o => next.push(o));
+
+    dev.objs = next;
+    invalidate();
+    return { added: objs.length, orphans };
+  }
+
+  const flagsFrom = s => ({
+    c: String(s || '').includes('c'), r: String(s || '').includes('r'),
+    w: String(s || '').includes('w'), t: String(s || '').includes('t'),
+    u: String(s || '').includes('u')
+  });
+
   /* Produkte aus einer Produktdatei aufnehmen; gleiche Bestellnummer und
      gleicher Name gelten als dasselbe Produkt und werden aufgefrischt.     */
   function addCatalogItems(items) {
@@ -882,12 +1032,10 @@ const KNX = (() => {
         order: String(it.order || ''),
         manufacturer: String(it.manufacturer || ''),
         appName: String(it.appName || ''),
-        objs: it.objs.map((o, i) => ({
-          num: Number.isInteger(o.num) ? o.num : i,
-          name: String(o.name || 'Objekt'),
-          dpt: dptById(o.dpt).id,
-          flags: normFlags(o.flags)
-        }))
+        types: it.types || {},
+        params: it.params || {},
+        objs: it.objs || {},
+        dyn: it.dyn || []
       };
       const old = known.get(key(c));
       if (old) {
@@ -907,6 +1055,7 @@ const KNX = (() => {
     const i = project.catalog.findIndex(c => c.id === id);
     if (i < 0) return false;
     project.catalog.splice(i, 1);
+    project.devices.forEach(d => { if (d.catalogId === id) d.catalogId = null; });
     invalidate();
     return true;
   }
@@ -1006,6 +1155,9 @@ const KNX = (() => {
       d.objs.forEach(o => {
         if (o.flags.t && !o.gas.length)
           add('warn', 'device', d.id, `Objekt „${o.name}“ sendet, hat aber keine Adresse.`);
+        if (o.stale)
+          add('warn', 'device', d.id, `Objekt „${o.name}“ ist durch die Parametrierung nicht mehr ` +
+            'vorgesehen, trägt aber noch Adressen.');
       });
     });
 
@@ -1087,6 +1239,7 @@ const KNX = (() => {
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
     addDevice, deleteDevice, deleteLine, deleteArea,
     catalogById, addCatalogItems, deleteCatalogItem,
+    resolveProduct, applyProduct, paramValue,
     gaTree, issues,
     gaById, addGa, deleteGa, freeAddress, suggestAddress,
     deleteNode, uid: nid

@@ -33,11 +33,13 @@ const readFlags = () => {
 };
 
 /* ---------- Geräte ---------- */
+const objCount = c => Object.keys(c.objs || {}).length;
+
 function catalogOptions(sel) {
   const items = KNX.project().catalog;
   return '<option value="">— frei definiert —</option>' + items.map(c =>
     `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>` +
-    `${esc(c.name)}${c.order ? ' · ' + esc(c.order) : ''} (${c.objs.length} KO)</option>`).join('');
+    `${esc(c.name)}${c.order ? ' · ' + esc(c.order) : ''}</option>`).join('');
 }
 
 function deviceForm(d, opt) {
@@ -115,11 +117,11 @@ function actNewDevice(ctx) {
     const cat = KNX.catalogById($('#m-cat').value);
     const d = KNX.addDevice({
       id: KNX.uid('d'), ...r,
-      objs: cat ? cat.objs.map(o => ({
-        id: KNX.uid('o'), num: o.num, name: o.name, dpt: o.dpt,
-        flags: { ...o.flags }, gas: []
-      })) : []
+      catalogId: cat ? cat.id : null,
+      params: {},
+      objs: []
     });
+    if (cat) KNX.applyProduct(d);
     state.sel = { kind: 'dev', id: d.id };
     A.commit();
     if (cat) A.status(`${d.objs.length} Kommunikationsobjekte aus „${cat.name}“ übernommen`);
@@ -137,7 +139,13 @@ function actNewDevice(ctx) {
       hint.textContent = 'Ohne Produkt entsteht ein leeres Gerät — Objekte legt man später einzeln an.';
       return;
     }
-    hint.innerHTML = `<b>${c.objs.length}</b> Kommunikationsobjekte werden mit angelegt` +
+    const r = KNX.resolveProduct(c, {});
+    const nParams = r.groups.reduce((s, g) => s + g.params.filter(ref => {
+      const p = c.params[ref];
+      return p && String(p.t || '').trim() && (c.types[p.pt] || {}).k !== 'none';
+    }).length, 0);
+    hint.innerHTML = `<b>${r.objs.length}</b> Kommunikationsobjekte und <b>${nParams}</b> ` +
+      `Parameter in der Grundeinstellung` +
       (c.manufacturer ? ` · ${esc(c.manufacturer)}` : '') +
       (c.appName ? ` · ${esc(c.appName)}` : '');
     if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
@@ -220,7 +228,7 @@ function actCatalog(onPick) {
               <b>${esc(c.name)}</b>
               <span>${esc([c.manufacturer, c.order, c.appName].filter(Boolean).join(' · '))}</span>
             </div>
-            <span class="dpt-tag">${c.objs.length} KO</span>
+            <span class="dpt-tag">${objCount(c)} KO</span>
             <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="Aus dem Katalog entfernen">
               ${A.IC_TRASH}</button>
           </div>`).join('')
@@ -279,7 +287,7 @@ function actImportPick(products, fileName, onDone) {
         ${p.order || p.manufacturer
           ? `<span class="cat-sub">${esc([p.manufacturer, p.order].filter(Boolean).join(' · '))}</span>` : ''}
       </span>
-      <span class="dpt-tag">${p.objs.length} KO</span>
+      <span class="dpt-tag" title="Objekte und Parameter der Produktdatei">${p.objCount} KO · ${p.paramCount} P</span>
     </label>`).join('');
 
   A.openModal(`${products.length} Produkte in ${fileName}`, `
@@ -311,6 +319,110 @@ function actImportPick(products, fileName, onDone) {
       r.hidden = !!q && !r.dataset.name.includes(q);
     });
   });
+}
+
+/* ---------- Geräteparameter ---------- *
+ * Wie in der ETS bestimmen die Parameter, welche weiteren Parameter und
+ * welche Kommunikationsobjekte überhaupt existieren. Der Dialog rechnet
+ * deshalb nach jeder Änderung neu.                                        */
+function actParams(devId) {
+  const dev = KNX.deviceById(devId);
+  if (!dev) return;
+  const item = dev.catalogId && KNX.catalogById(dev.catalogId);
+  if (!item) { A.warn('Diesem Gerät liegt kein Produkt aus einer .knxprod zugrunde.'); return; }
+
+  const draft = { ...dev.params };
+  let focusRef = null;
+
+  const field = ref => {
+    const p = item.params[ref];
+    const type = item.types[p.pt] || { k: 'text' };
+    const label = String(p.t || '').trim();
+    // Parameter ohne Beschriftung sind interne Hilfsgrößen der Produktdatei
+    if (!label) return '';
+    // Parameter ohne Wert sind in der ETS Zwischenüberschriften
+    if (type.k === 'none') return `<h5 class="prm-head">${esc(label)}</h5>`;
+    const val = KNX.paramValue(item, draft, ref);
+    const dis = p.ro ? ' disabled' : '';
+    if (type.k === 'enum') {
+      const opts = (type.v || []).map(([v, t]) =>
+        `<option value="${esc(v)}"${String(v) === val ? ' selected' : ''}>${esc(t || v)}</option>`).join('');
+      return `<label class="prm"><span>${esc(label)}</span>
+        <select class="select prm-in" data-ref="${ref}"${dis}>${opts}</select></label>`;
+    }
+    if (type.k === 'num') {
+      return `<label class="prm"><span>${esc(label)} <em>${type.min}–${type.max}</em></span>
+        <input class="input mono prm-in" type="number" data-ref="${ref}"
+               min="${type.min}" max="${type.max}" value="${esc(val)}"${dis}></label>`;
+    }
+    return `<label class="prm"><span>${esc(label)}</span>
+      <input class="input prm-in" type="text" data-ref="${ref}" value="${esc(val)}"
+             maxlength="${type.max || 80}"${dis}></label>`;
+  };
+
+  const editable = ref => {
+    const p = item.params[ref];
+    return !!(p && String(p.t || '').trim() && (item.types[p.pt] || {}).k !== 'none');
+  };
+
+  const body = () => {
+    const r = KNX.resolveProduct(item, draft);
+    const n = r.groups.reduce((s, g) => s + g.params.filter(editable).length, 0);
+    return `
+      <p class="hint">${esc(item.name)}${item.appName ? ' · ' + esc(item.appName) : ''} —
+        <b>${n}</b> Parameter, <b>${r.objs.length}</b> Kommunikationsobjekte.
+        Nicht jede Einstellung ist immer sichtbar; die Liste folgt der Auswahl.</p>
+      <input class="input" id="m-search" placeholder="Parameter filtern …" value="${esc(lastFilter)}">
+      <div class="prm-list" id="m-params">
+        ${r.groups.map(g => `
+          <section class="prm-group" data-name="${esc((g.label + ' ' +
+              g.params.map(x => item.params[x].t || '').join(' ')).toLowerCase())}">
+            <h4>${esc(g.label)}</h4>
+            ${g.params.map(field).join('')}
+          </section>`).join('') || '<p class="hint">Keine einstellbaren Parameter.</p>'}
+      </div>`;
+  };
+
+  let lastFilter = '';
+
+  const wire = () => {
+    const list = $('#m-params');
+    list.querySelectorAll('.prm-in').forEach(el => {
+      el.addEventListener('change', () => {
+        draft[el.dataset.ref] = el.value;
+        focusRef = el.dataset.ref;
+        redraw();
+      });
+    });
+    const box = $('#m-search');
+    box.addEventListener('input', e => {
+      lastFilter = e.target.value.trim().toLowerCase();
+      applyFilter();
+    });
+    applyFilter();
+    if (focusRef) {
+      const el = list.querySelector(`[data-ref="${focusRef}"]`);
+      if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
+      focusRef = null;
+    }
+  };
+  const applyFilter = () => {
+    $('#m-params').querySelectorAll('.prm-group').forEach(g => {
+      g.hidden = !!lastFilter && !g.dataset.name.includes(lastFilter);
+    });
+  };
+  const redraw = () => { $('#modal-body').innerHTML = body(); wire(); };
+
+  A.openModal(`Parameter — ${esc(dev.name)}`, body(), () => {
+    dev.params = draft;
+    const res = KNX.applyProduct(dev);
+    A.commit();
+    if (res && res.orphans.length)
+      A.warn(`${res.orphans.length} ${res.orphans.length === 1 ? 'Objekt entfällt' : 'Objekte entfallen'} ` +
+             'durch die neue Einstellung, tragen aber noch Gruppenadressen — sie bleiben als überzählig stehen.');
+    else A.status(`${dev.objs.length} Kommunikationsobjekte`);
+  });
+  wire();
 }
 
 /* ---------- Kommunikationsobjekte ---------- */
@@ -618,7 +730,7 @@ function actRenameGaGroup(key) {
 }
 
 window.KNXTopo = {
-  actNewDevice, actEditDevice, actDeleteDevice,
+  actNewDevice, actEditDevice, actDeleteDevice, actParams,
   actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending,
   actNewArea, actEditArea, actDeleteArea,
   actNewLine, actEditLine, actDeleteLine,
