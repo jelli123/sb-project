@@ -259,10 +259,14 @@ const KNX = (() => {
   const deviceMa = d => {
     if (Number.isInteger(d.ma) && d.ma >= 0) return d.ma;
     const item = d.catalogId && catalogById(d.catalogId);
-    return (item && item.ma) || MA_DEFAULT;
+    if (item && item.ma) return item.ma;
+    // Eine reine Einspeisung zieht selbst nichts; programmierbare Netzteile
+    // sind zugleich Teilnehmer und bekommen dann einen eigenen Wert.
+    return (+d.supply > 0) ? 0 : MA_DEFAULT;
   };
 
-  /* Bedarf und Deckung einer Linie. */
+  /* Bedarf und Deckung einer Linie. Ein Gerät kann beides sein: einspeisen
+     und als Teilnehmer Strom ziehen.                                       */
   function powerBudget(lineId) {
     const line = lineById(lineId);
     if (!line || line.medium !== 'tp') return null;
@@ -271,7 +275,8 @@ const KNX = (() => {
     devicesOnLine(lineId).forEach(d => {
       const s = +d.supply || 0;
       if (s > 0) { have += s; supplies.push(d); }
-      else { const ma = deviceMa(d); need += ma; loads.push(d); }
+      const ma = deviceMa(d);
+      if (ma > 0) { need += ma; loads.push(d); }
     });
     return { need, have, supplies, loads, reserve: have - need };
   }

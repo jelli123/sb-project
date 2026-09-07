@@ -359,7 +359,7 @@ function moveTreeSel(delta) {
    ============================================================ *
  * Statt aller Zeilen wird nur der sichtbare Ausschnitt erzeugt; die
  * fehlende Höhe tragen zwei Platzhalterzeilen.                            */
-const TBL_ROW_H = 33;
+const TBL_ROW_H = 34;
 const TBL_PAD = 6;
 let tableRows = [], tablePainted = { from: -1, to: -1 };
 
@@ -766,6 +766,11 @@ function detailDev(d) {
         <h2 data-pt-id="detail-dev-title">${esc(d.name)}</h2>
         <p class="detail-sub">${esc(d.product || 'ohne Produktangabe')} · Linie ${esc(KNX.lineLabel(d.lineId))}
           · ${room ? esc(KNX.nodePath(room.id).sub) : '<b>kein Raum</b>'}</p>
+        <p class="detail-sub"><span class="src-tag${item ? ' prog' : ''}"
+          title="${item
+            ? 'Produktdatei vorhanden — Objekte und Parameter stammen daraus'
+            : 'Frei angelegt — dient der Dokumentation und den Filtertabellen'}">${
+          item ? 'aus .knxprod' : 'frei definiert'}</span></p>
       </div>
     </div>
     ${coupler && !d.objs.length ? '' : `
@@ -777,7 +782,7 @@ function detailDev(d) {
     </div>`}
     <div class="detail-actions">
       ${item || isIp ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
-      <button class="btn btn-sm" id="d-addobj">+ Objekt</button>
+      ${item ? '' : '<button class="btn btn-sm" id="d-addobj">+ Objekt</button>'}
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>

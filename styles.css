@@ -440,9 +440,10 @@ body.resizing .resizer { background: var(--accent); }
 
 .issue-dot {
   flex: 0 0 auto;
+  display: inline-grid;
   width: 14px; height: 14px;
+  margin-left: 5px;
   border-radius: 50%;
-  display: grid;
   place-items: center;
   font-size: 10px;
   font-weight: 700;
@@ -498,25 +499,28 @@ table.ga thead .col-objs { width: 132px; }
 table.ga thead .col-rooms { width: 144px; }
 table.ga thead .col-line { width: 128px; }
 
+table.ga tbody tr { cursor: pointer; height: 34px; }
 table.ga tbody td {
-  padding: 6px 10px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
-  height: 33px;
+  height: 34px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-table.ga tbody tr { cursor: pointer; }
 table.ga tbody tr:hover { background: var(--surface2); }
 table.ga tbody tr.sel { background: var(--accent-weak); }
 table.ga tbody tr.checked { background: oklch(96% 0.02 240); }
 table.ga tbody tr.checked:hover { background: oklch(94% 0.025 240); }
-table.ga tbody tr.row-spacer { cursor: default; }
+table.ga tbody tr.row-spacer { cursor: default; height: auto; }
 table.ga tbody tr.row-spacer:hover { background: transparent; }
-table.ga tbody tr.row-spacer td { padding: 0; border: none; }
-table.ga tbody .cell-addr { display: flex; align-items: center; gap: 5px; }
+table.ga tbody tr.row-spacer td { padding: 0; border: none; height: auto; }
 table.ga tbody .cell-objs, table.ga tbody .cell-rooms { overflow: hidden; }
+table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
+/* Adresse und Prüfzeichen teilen sich die Zelle — kein Flex, das bricht
+   die Zeilenhöhe der Tabelle. */
+.cell-addr .addr, .cell-addr .issue-dot { vertical-align: middle; }
 
 .row-chk, #chk-all { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
 .cell-chk { width: 32px; }
@@ -544,6 +548,19 @@ table.ga tbody .cell-objs, table.ga tbody .cell-rooms { overflow: hidden; }
 .room-chip.send { color: var(--ok); border-color: oklch(82% 0.06 150); background: var(--ok-weak); font-family: var(--mono); }
 
 .dpt-tag.bad { color: var(--danger); border-color: oklch(85% 0.05 25); background: oklch(96% 0.02 25); }
+.src-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--faint);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+}
+.src-tag.prog { color: var(--accent); background: var(--accent-weak); border-color: oklch(85% 0.05 245); }
 .flags { font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: 1px; flex: 0 0 auto; }
 .onum {
   font-family: var(--mono);

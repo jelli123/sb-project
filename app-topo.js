@@ -19,6 +19,21 @@ function roomOptions(sel) {
   return '<option value="">— kein Raum —</option>' + KNX.rooms().map(r =>
     `<option value="${r.node.id}"${r.node.id === sel ? ' selected' : ''}>${esc(r.trail)}</option>`).join('');
 }
+
+/* Nur Nummern anbieten, die auf der Linie noch frei sind — die eigene bleibt
+   beim Bearbeiten wählbar. */
+function deviceOptions(lineId, sel, exceptId) {
+  const line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
+  if (!line || !area) return '';
+  const out = [];
+  for (let n = 0; n <= KNX.PA_MAX.device; n++) {
+    const raw = KNX.paJoin(area.addr, line.addr, n);
+    if (n !== sel && !KNX.paFree(raw, exceptId)) continue;
+    out.push(`<option value="${n}"${n === sel ? ' selected' : ''}>${area.addr}.${line.addr}.${n}` +
+      (n === 0 ? ' — Koppler' : '') + '</option>');
+  }
+  return out.join('');
+}
 function flagBoxes(flags) {
   return '<div class="flag-grid">' + KNX.KO_FLAGS.map(f => `
     <label class="flag-box" title="${esc(f.desc)}">
@@ -45,6 +60,7 @@ function catalogOptions(sel) {
 function deviceForm(d, opt) {
   const [, , dev] = KNX.paSplit(d.addr);
   const cat = opt && opt.catalog;
+  const except = opt && opt.exceptId;
   return `
     ${cat ? `
     <div class="field"><span>Produkt</span>
@@ -63,8 +79,8 @@ function deviceForm(d, opt) {
     <label class="field"><span>Linie</span>
       <select class="select" id="m-line">${lineOptions(d.lineId)}</select>
     </label>
-    <label class="field"><span>Teilnehmer <em>0–255, 0 = Linienkoppler</em></span>
-      <input class="input mono" id="m-dev" type="number" min="0" max="255" value="${dev}">
+    <label class="field"><span>Physikalische Adresse <em>nur freie</em></span>
+      <select class="select mono" id="m-dev">${deviceOptions(d.lineId, dev, except)}</select>
     </label>
     <label class="field"><span>Verbaut in</span>
       <select class="select" id="m-room">${roomOptions(d.roomId)}</select>
@@ -85,9 +101,8 @@ function readDevice(exceptId) {
   if (!name) return { err: 'Bitte einen Namen vergeben.' };
   const lineId = $('#m-line').value;
   const line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
-  const n = $('#m-dev').valueAsNumber;
-  if (!Number.isInteger(n) || n < 0 || n > KNX.PA_MAX.device)
-    return { err: 'Teilnehmernummer muss zwischen 0 und 255 liegen.' };
+  const n = parseInt($('#m-dev').value, 10);
+  if (!Number.isInteger(n)) return { err: 'Auf dieser Linie ist keine Adresse mehr frei.' };
   const addr = KNX.paJoin(area.addr, line.addr, n);
   if (!KNX.paFree(addr, exceptId))
     return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
@@ -102,7 +117,7 @@ function readDevice(exceptId) {
 function readDraft() {
   const lineId = $('#m-line') ? $('#m-line').value : null;
   const line = lineId && KNX.lineById(lineId), area = lineId && KNX.areaOfLine(lineId);
-  const n = $('#m-dev') ? $('#m-dev').valueAsNumber : 0;
+  const n = $('#m-dev') ? parseInt($('#m-dev').value, 10) : 0;
   return {
     name: $('#m-name') ? $('#m-name').value : '',
     product: $('#m-product') ? $('#m-product').value : '',
@@ -114,7 +129,6 @@ function readDraft() {
     catalogId: ($('#m-cat') && $('#m-cat').value) || ''
   };
 }
-
 function actNewDevice(ctx) {
   const p = KNX.project();
   const lineId = ctx?.lineId || (state.filter?.kind === 'line' ? state.filter.id : p.areas[0].lines[0]?.id);
@@ -142,9 +156,10 @@ function actNewDevice(ctx) {
     if (cat) A.status(`${d.objs.length} Kommunikationsobjekte aus „${cat.name}“ übernommen`);
   });
 
-  // Linienwechsel schlägt die nächste freie Nummer auf der neuen Linie vor
+  // Linienwechsel bietet die freien Nummern der neuen Linie an
   $('#m-line').addEventListener('change', e => {
-    $('#m-dev').value = KNX.paSplit(KNX.freePa(e.target.value))[2];
+    const next = KNX.paSplit(KNX.freePa(e.target.value))[2];
+    $('#m-dev').innerHTML = deviceOptions(e.target.value, next);
   });
 
   const applyCat = () => {
@@ -183,12 +198,19 @@ function actNewDevice(ctx) {
 function actEditDevice(id) {
   const d = KNX.deviceById(id);
   if (!d) return;
-  A.openModal(`Gerät bearbeiten — ${KNX.paStr(d.addr)}`, deviceForm(d), () => {
+  A.openModal(`Gerät bearbeiten — ${KNX.paStr(d.addr)}`, deviceForm(d, { exceptId: id }), () => {
     const r = readDevice(id);
     if (r.err) { showErr(r.err); return false; }
     Object.assign(d, r);
     KNX.touch();
     A.commit();
+  });
+  $('#m-line').addEventListener('change', e => {
+    const keep = KNX.paSplit(d.addr)[2];
+    const free = KNX.paSplit(KNX.freePa(e.target.value, id))[2];
+    $('#m-dev').innerHTML = deviceOptions(e.target.value,
+      KNX.paFree(KNX.paJoin(KNX.areaOfLine(e.target.value).addr,
+        KNX.lineById(e.target.value).addr, keep), id) ? keep : free, id);
   });
 }
 
@@ -546,6 +568,11 @@ function objForm(o) {
 function actNewObj(devId) {
   const d = KNX.deviceById(devId);
   if (!d) return;
+  if (d.catalogId) {
+    A.warn('Die Objektliste kommt aus der Produktdatei — sie folgt der Parametrierung. ' +
+           'Über „Parameter …“ anpassen.');
+    return;
+  }
   const draft = { num: d.objs.length ? Math.max(...d.objs.map(o => o.num)) + 1 : 0,
                   name: '', dpt: '1.001',
                   flags: { c: true, r: false, w: true, t: false, u: false } };
@@ -586,6 +613,11 @@ function actDeleteObj(objId) {
   const e = KNX.objById(objId);
   if (!e) return;
   const { dev: d, obj: o } = e;
+  if (d.catalogId && o.ref && !o.stale) {
+    A.warn('Dieses Objekt gehört zur Produktdatei. Über „Parameter …“ abwählen, ' +
+           'statt es zu löschen.');
+    return;
+  }
   A.openModal('Kommunikationsobjekt löschen?', `
     <p>„${esc(o.name)}“ von <b>${esc(d.name)}</b> wird entfernt.</p>
     ${o.gas.length ? `<p class="hint warn">${o.gas.length} Adresszuordnungen gehen verloren.</p>` : ''}
