@@ -649,6 +649,15 @@ table.ga tbody .cell-objs, table.ga tbody .cell-rooms { overflow: hidden; }
   font-weight: 650;
   color: var(--muted);
 }
+.prm-note {
+  margin: 0;
+  padding: 6px 9px;
+  border-left: 3px solid var(--border2);
+  background: var(--surface2);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 .prm > span {
   font-size: 12.5px;
   color: var(--fg);

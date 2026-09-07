@@ -183,7 +183,7 @@ function deviceNode(d, depth) {
     hasKids: d.objs.length > 0, collapsed: state.collapsed.has(d.id),
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gerät löschen', () => T.actDeleteDevice(d.id)),
-      d.catalogId
+      (d.catalogId || KNX.deviceIsIp(d))
         ? iconBtn(A.IC.params, 'Parameter', () => T.actParams(d.id))
         : iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id))
     ],
@@ -516,7 +516,7 @@ function devRow(d) {
 
   const tdX = document.createElement('td');
   tdX.className = 'cell-act';
-  if (d.catalogId)
+  if (d.catalogId || KNX.deviceIsIp(d))
     tdX.appendChild(iconBtn(A.IC.params, 'Parameter', () => T.actParams(d.id)));
   else
     tdX.appendChild(iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id)));
@@ -705,6 +705,8 @@ function detailGa(ga) {
 function detailDev(d) {
   const room = d.roomId ? KNX.findNode(d.roomId) : null;
   const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
+  const isIp = KNX.deviceIsIp(d);
+  const ip = isIp ? KNX.ipConfig(d) : null;
   const nSet = Object.keys(d.params || {}).length;
   return `
     <div class="detail-head">
@@ -717,17 +719,27 @@ function detailDev(d) {
     </div>
     <div class="detail-meta">
       <div class="meta-item"><span class="meta-num">${d.objs.length}</span><span class="meta-lbl">Objekte</span></div>
-      ${item
+      ${item || isIp
         ? `<div class="meta-item"><span class="meta-num">${nSet}</span><span class="meta-lbl">geänderte Einstellungen</span></div>`
         : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>`}
     </div>
     <div class="detail-actions">
-      ${item ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
+      ${item || isIp ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
       <button class="btn btn-sm" id="d-addobj">+ Objekt</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
     ${issueList(d.id)}
+    ${isIp ? `<h3 class="detail-h">IP-Konfiguration</h3><ul class="detail-list">
+      <li><span class="grow">Adressvergabe</span><span class="addr">${
+        ip.mode === 'manual' ? 'manuell' : 'DHCP / AutoIP'}</span></li>
+      ${ip.mode === 'manual' ? `
+      <li><span class="grow">IP-Adresse</span><span class="addr">${esc(ip.addr || '—')}</span></li>
+      <li><span class="grow">Subnetzmaske</span><span class="addr">${esc(ip.mask || '—')}</span></li>
+      <li><span class="grow">Standardgateway</span><span class="addr">${esc(ip.gw || '—')}</span></li>` : ''}
+      <li><span class="grow">Routing-Multicast</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
+      <li><span class="grow">Tunnelverbindungen</span><span class="addr">${esc(String(ip.tunnels))}</span></li>
+    </ul>` : ''}
     <h3 class="detail-h">Kommunikationsobjekte</h3>
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {

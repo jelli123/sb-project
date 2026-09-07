@@ -331,11 +331,43 @@ function actImportPick(products, fileName, onDone) {
 function actParams(devId) {
   const dev = KNX.deviceById(devId);
   if (!dev) return;
-  const item = dev.catalogId && KNX.catalogById(dev.catalogId);
-  if (!item) { A.warn('Diesem Gerät liegt kein Produkt aus einer .knxprod zugrunde.'); return; }
+  const item = (dev.catalogId && KNX.catalogById(dev.catalogId)) || null;
+  const hasIp = KNX.deviceIsIp(dev);
+  if (!item && !hasIp) {
+    A.warn('Diesem Gerät liegt kein Produkt aus einer .knxprod zugrunde.');
+    return;
+  }
 
   const draft = { ...dev.params };
+  const ip = KNX.ipConfig(dev);
   let focusRef = null;
+  let lastFilter = '';
+
+  /* IP-Adresse, Maske und Multicast stehen nicht in der Produktdatei —
+     die ETS führt sie im Eigenschaftsfenster des Geräts.                  */
+  const ipField = f => {
+    if (f.manualOnly && ip.mode !== 'manual') return '';
+    const val = ip[f.key] == null ? '' : String(ip[f.key]);
+    if (f.kind === 'enum') {
+      return `<label class="prm"><span>${esc(f.label)}</span>
+        <select class="select ip-in" data-key="${f.key}">${f.v.map(([v, t]) =>
+          `<option value="${v}"${v === val ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+    }
+    if (f.kind === 'num') {
+      return `<label class="prm"><span>${esc(f.label)} <em>${f.min}–${f.max}</em></span>
+        <input class="input mono ip-in" type="number" data-key="${f.key}"
+               min="${f.min}" max="${f.max}" value="${esc(val)}"></label>`;
+    }
+    if (f.kind === 'ip') {
+      return `<label class="prm"><span>${esc(f.label)} <em>IPv4</em></span>
+        <input class="input mono ip-in" type="text" data-key="${f.key}" value="${esc(val)}"
+               inputmode="decimal" placeholder="192.168.1.10"
+               pattern="^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$"></label>`;
+    }
+    return `<label class="prm"><span>${esc(f.label)}</span>
+      <input class="input ip-in" type="text" data-key="${f.key}" value="${esc(val)}"
+             placeholder="${esc(dev.name)}" maxlength="${f.max || 60}"></label>`;
+  };
 
   const field = ref => {
     const p = item.params[ref];
@@ -345,6 +377,9 @@ function actParams(devId) {
     if (!label) return '';
     // Parameter ohne Wert sind in der ETS Zwischenüberschriften
     if (type.k === 'none') return `<h5 class="prm-head">${esc(label)}</h5>`;
+    // Feste Einwert-Auswahl ohne Schreibrecht ist ein Hinweistext, kein Feld
+    if (p.ro && type.k === 'enum' && (type.v || []).length <= 1)
+      return `<p class="prm-note">${esc(label)}</p>`;
     const val = KNX.paramValue(item, draft, ref);
     const dis = p.ro ? ' disabled' : '';
     if (type.k === 'enum') {
@@ -375,38 +410,55 @@ function actParams(devId) {
 
   const editable = ref => {
     const p = item.params[ref];
-    return !!(p && String(p.t || '').trim() && (item.types[p.pt] || {}).k !== 'none');
+    if (!p || !String(p.t || '').trim()) return false;
+    const t = item.types[p.pt] || {};
+    if (t.k === 'none') return false;
+    return !(p.ro && t.k === 'enum' && (t.v || []).length <= 1);
   };
 
   const body = () => {
-    const r = KNX.resolveProduct(item, draft);
+    const r = item ? KNX.resolveProduct(item, draft) : { groups: [], objs: [] };
     const n = r.groups.reduce((s, g) => s + g.params.filter(editable).length, 0);
+    const ipGroup = hasIp ? `
+      <section class="prm-group" data-name="ip netzwerk adresse ${esc(KNX.IP_FIELDS.map(f => f.label.toLowerCase()).join(' '))}">
+        <h4>IP-Konfiguration</h4>
+        <p class="prm-note">Diese Angaben stehen nicht in der Produktdatei — die ETS
+        führt sie im Eigenschaftsfenster des Geräts.</p>
+        ${KNX.IP_FIELDS.map(ipField).join('')}
+      </section>` : '';
     return `
-      <p class="hint">${esc(item.name)}${item.appName ? ' · ' + esc(item.appName) : ''} —
+      <p class="hint">${esc(item ? item.name : dev.name)}${item && item.appName ? ' · ' + esc(item.appName) : ''} —
         <b>${n}</b> Parameter${r.objs.length
           ? `, <b>${r.objs.length}</b> Kommunikationsobjekte`
           : ' — dieses Gerät arbeitet ohne Kommunikationsobjekte'}.
         Nicht jede Einstellung ist immer sichtbar; die Liste folgt der Auswahl.</p>
       <input class="input" id="m-search" placeholder="Parameter filtern …" value="${esc(lastFilter)}">
       <div class="prm-list" id="m-params">
+        ${ipGroup}
         ${r.groups.map(g => `
           <section class="prm-group" data-name="${esc((g.label + ' ' +
               g.params.map(x => item.params[x].t || '').join(' ')).toLowerCase())}">
             <h4>${esc(g.label)}</h4>
             ${g.params.map(field).join('')}
-          </section>`).join('') || '<p class="hint">Keine einstellbaren Parameter.</p>'}
+          </section>`).join('')}
+        ${!ipGroup && !r.groups.length ? '<p class="hint">Keine einstellbaren Parameter.</p>' : ''}
       </div>`;
   };
-
-  let lastFilter = '';
 
   const wire = () => {
     const list = $('#m-params');
     list.querySelectorAll('.prm-in').forEach(el => {
       el.addEventListener('change', () => {
         draft[el.dataset.ref] = el.value;
-        focusRef = el.dataset.ref;
+        focusRef = '[data-ref="' + el.dataset.ref + '"]';
         redraw();
+      });
+    });
+    list.querySelectorAll('.ip-in').forEach(el => {
+      el.addEventListener('change', () => {
+        ip[el.dataset.key] = el.value;
+        // Der Wechsel auf „manuell“ blendet weitere Felder ein
+        if (el.dataset.key === 'mode') { focusRef = '[data-key="mode"]'; redraw(); }
       });
     });
     const box = $('#m-search');
@@ -416,7 +468,7 @@ function actParams(devId) {
     });
     applyFilter();
     if (focusRef) {
-      const el = list.querySelector(`[data-ref="${focusRef}"]`);
+      const el = list.querySelector(focusRef);
       if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
       focusRef = null;
     }
@@ -429,7 +481,7 @@ function actParams(devId) {
   const redraw = () => { $('#modal-body').innerHTML = body(); wire(); };
 
   A.openModal(`Parameter — ${esc(dev.name)}`, body(), () => {
-    const bad = $('#m-params').querySelector('.prm-in:invalid');
+    const bad = $('#m-params').querySelector('.prm-in:invalid, .ip-in:invalid');
     if (bad) {
       const grp = bad.closest('.prm-group');
       if (grp) grp.hidden = false;
@@ -440,6 +492,10 @@ function actParams(devId) {
       return false;
     }
     dev.params = draft;
+    if (hasIp) {
+      ip.tunnels = Math.max(0, Math.min(8, parseInt(ip.tunnels, 10) || 0));
+      dev.ip = ip;
+    }
     const res = KNX.applyProduct(dev);
     A.commit();
     if (res && res.orphans.length)

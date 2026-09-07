@@ -212,10 +212,12 @@ function readApp(ap, lang) {
     const base = defs[cut(attr(pr, 'RefId'))];
     if (!base) return;
     const text = lang.get(attr(pr, 'Id') + '|Text') || attr(pr, 'Text') || base.t;
+    // Access am Ref schlaegt den des Parameters
+    const acc = attr(pr, 'Access');
     params[cut(attr(pr, 'Id'))] = {
       t: text, pt: base.pt,
       d: attr(pr, 'Value') || base.d,
-      ro: base.ro
+      ro: acc ? (acc === 'Read' || acc === 'None') : base.ro
     };
   });
 
@@ -286,8 +288,13 @@ function readApp(ap, lang) {
   const dynEl = tags(ap, 'Dynamic')[0];
   const dyn = dynEl ? (node(dynEl).k || []) : [];
 
+  /* Objekttyp 11 ist das IP-Parameterobjekt — solche Geräte haben in der ETS
+     ein eigenes Eigenschaftsfenster für Adresse, Maske und Multicast, das
+     nicht in der Produktdatei steht.                                       */
+  const ip = tags(ap, 'Property').some(p => attr(p, 'ObjectType') === '11');
+
   return { name: lang.get(appId + '|Name') || attr(ap, 'Name'),
-           types, params, objs, dyn };
+           types, params, objs, dyn, ip };
 }
 
 /* Sammelt Produkte über Katalog → Produkt → Hardware2Program → Programm.
@@ -332,7 +339,7 @@ function collect(docs, prefer) {
   };
   const entry = (key, name, order, app) => ({
     key, name, order, manufacturer: manuOf(key), appName: app.name,
-    types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
+    types: app.types, params: app.params, objs: app.objs, dyn: app.dyn, ip: app.ip,
     objCount: Object.keys(app.objs).length,
     paramCount: Object.keys(app.params).length
   });

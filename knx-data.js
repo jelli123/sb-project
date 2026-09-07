@@ -214,6 +214,37 @@ const KNX = (() => {
 
   const MEDIA = { tp: 'TP (Twisted Pair)', ip: 'IP', rf: 'RF (Funk)', pl: 'PL (Powerline)' };
 
+  /* ---------- IP-Konfiguration ---------- *
+   * KNXnet/IP-Geräte bekommen Adresse, Maske und Multicast nicht aus der
+   * Produktdatei, sondern aus dem Eigenschaftsfenster der ETS. Das Schema
+   * ist deshalb fest verdrahtet.                                           */
+  const IP_MODES = [
+    ['dhcp',   'Automatisch (DHCP / AutoIP)'],
+    ['manual', 'Manuell']
+  ];
+  const IP_FIELDS = [
+    { key: 'name',    label: 'Gerätename',        kind: 'text', max: 30 },
+    { key: 'mode',    label: 'IP-Adresse beziehen', kind: 'enum', v: IP_MODES },
+    { key: 'addr',    label: 'IP-Adresse',        kind: 'ip', manualOnly: true },
+    { key: 'mask',    label: 'Subnetzmaske',      kind: 'ip', manualOnly: true },
+    { key: 'gw',      label: 'Standardgateway',   kind: 'ip', manualOnly: true },
+    { key: 'mcast',   label: 'Routing-Multicast', kind: 'ip' },
+    { key: 'tunnels', label: 'Tunnelverbindungen', kind: 'num', min: 0, max: 8 }
+  ];
+  const IP_DEFAULTS = { name: '', mode: 'dhcp', addr: '', mask: '255.255.255.0',
+                        gw: '', mcast: '224.0.23.12', tunnels: 4 };
+  const isIpV4 = s => /^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$/.test(String(s));
+
+  /* Gerät spricht IP, wenn das Produkt es sagt oder die Linie IP-Medium hat. */
+  function deviceIsIp(dev) {
+    if (!dev) return false;
+    const item = dev.catalogId && catalogById(dev.catalogId);
+    if (item && item.ip) return true;
+    const l = lineById(dev.lineId);
+    return !!l && l.medium === 'ip';
+  }
+  const ipConfig = dev => ({ ...IP_DEFAULTS, ...(dev.ip || {}) });
+
   /* ---------- Projekt (persistiert) ---------- */
   const SCHEMA = 3;
   let project = null;
@@ -374,6 +405,7 @@ const KNX = (() => {
         roomId: roomIds.has(d.roomId) ? d.roomId : null,
         catalogId: d.catalogId || null,
         params: (d.params && typeof d.params === 'object') ? d.params : {},
+        ip: (d.ip && typeof d.ip === 'object') ? d.ip : null,
         objs: (Array.isArray(d.objs) ? d.objs : []).map((o, i) => ({
           id: takeId(o.id, 'o', seenObj),
           ref: o.ref || null,
@@ -410,7 +442,8 @@ const KNX = (() => {
         types: (c.types && typeof c.types === 'object') ? c.types : {},
         params: (c.params && typeof c.params === 'object') ? c.params : {},
         objs: (objs && typeof objs === 'object') ? objs : {},
-        dyn: Array.isArray(c.dyn) ? c.dyn : []
+        dyn: Array.isArray(c.dyn) ? c.dyn : [],
+        ip: !!c.ip
       };
     }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length);
     const catIds = new Set(p.catalog.map(c => c.id));
@@ -1035,7 +1068,8 @@ const KNX = (() => {
         types: it.types || {},
         params: it.params || {},
         objs: it.objs || {},
-        dyn: it.dyn || []
+        dyn: it.dyn || [],
+        ip: !!it.ip
       };
       const old = known.get(key(c));
       if (old) {
@@ -1135,6 +1169,7 @@ const KNX = (() => {
     });
 
     const paSeen = new Map();
+    const ipSeen = new Map();
     project.devices.forEach(d => {
       if (!d.roomId)
         add('warn', 'device', d.id, 'Keinem Raum zugeordnet — die Gebäudesicht bleibt unvollständig.');
@@ -1154,6 +1189,25 @@ const KNX = (() => {
       // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
       if (!d.objs.length && !d.catalogId)
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
+
+      if (deviceIsIp(d)) {
+        const c = ipConfig(d);
+        if (c.mode === 'manual') {
+          ['addr', 'mask'].forEach(k => {
+            if (!isIpV4(c[k]))
+              add('error', 'device', d.id,
+                `IP-Konfiguration: ${k === 'addr' ? 'Adresse' : 'Subnetzmaske'} fehlt oder ist ungültig.`);
+          });
+          if (c.gw && !isIpV4(c.gw))
+            add('error', 'device', d.id, 'IP-Konfiguration: Standardgateway ist ungültig.');
+        }
+        if (c.mcast && !isIpV4(c.mcast))
+          add('error', 'device', d.id, 'IP-Konfiguration: Multicast-Adresse ist ungültig.');
+        const dup = c.mode === 'manual' && isIpV4(c.addr) && ipSeen.get(c.addr);
+        if (dup)
+          add('error', 'device', d.id, `IP-Adresse ${c.addr} ist doppelt vergeben (auch: ${dup.name}).`);
+        else if (c.mode === 'manual' && isIpV4(c.addr)) ipSeen.set(c.addr, d);
+      }
       d.objs.forEach(o => {
         if (o.flags.t && !o.gas.length)
           add('warn', 'device', d.id, `Objekt „${o.name}“ sendet, hat aber keine Adresse.`);
@@ -1229,6 +1283,7 @@ const KNX = (() => {
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
+    IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, ipConfig,
     project: () => project,
     setProject: p => { project = p; dirty = true; invalidate(); },
     newProject, seedProject, migrate, save, load,
