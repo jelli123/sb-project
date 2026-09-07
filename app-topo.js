@@ -1,0 +1,627 @@
+/* ============================================================
+   KNX-Struktur — Topologie, Geräte, Kommunikationsobjekte
+   ============================================================ */
+'use strict';
+
+(() => {
+const A = window.KNXApp, G = window.KNXGA, $ = s => document.querySelector(s);
+const state = A.state, esc = A.esc;
+
+const showErr = msg => { $('#m-err').innerHTML = msg ? `<span class="hint warn">${esc(msg)}</span>` : ''; };
+
+function lineOptions(sel) {
+  return KNX.project().areas.map(a =>
+    `<optgroup label="${esc(a.addr + '  ' + a.name)}">` + a.lines.map(l =>
+      `<option value="${l.id}"${l.id === sel ? ' selected' : ''}>` +
+      `${a.addr}.${l.addr} — ${esc(l.name)}</option>`).join('') + '</optgroup>').join('');
+}
+function roomOptions(sel) {
+  return '<option value="">— kein Raum —</option>' + KNX.rooms().map(r =>
+    `<option value="${r.node.id}"${r.node.id === sel ? ' selected' : ''}>${esc(r.trail)}</option>`).join('');
+}
+function flagBoxes(flags) {
+  return '<div class="flag-grid">' + KNX.KO_FLAGS.map(f => `
+    <label class="flag-box" title="${esc(f.desc)}">
+      <input type="checkbox" id="m-f-${f.key}"${flags[f.key] ? ' checked' : ''}>
+      <b>${f.short}</b><span>${esc(f.de)}</span>
+    </label>`).join('') + '</div>';
+}
+const readFlags = () => {
+  const out = {};
+  KNX.KO_FLAGS.forEach(f => { out[f.key] = $('#m-f-' + f.key).checked; });
+  return out;
+};
+
+/* ---------- Geräte ---------- */
+function catalogOptions(sel) {
+  const items = KNX.project().catalog;
+  return '<option value="">— frei definiert —</option>' + items.map(c =>
+    `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>` +
+    `${esc(c.name)}${c.order ? ' · ' + esc(c.order) : ''} (${c.objs.length} KO)</option>`).join('');
+}
+
+function deviceForm(d, opt) {
+  const [, , dev] = KNX.paSplit(d.addr);
+  const cat = opt && opt.catalog;
+  return `
+    ${cat ? `
+    <div class="field"><span>Produkt</span>
+      <div class="pick-row">
+        <select class="select" id="m-cat">${catalogOptions(d.catalogId)}</select>
+        <button type="button" class="btn btn-sm" id="m-cat-open">Katalog …</button>
+      </div>
+      <p class="hint" id="m-cat-hint"></p>
+    </div>` : ''}
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="60" value="${esc(d.name)}" placeholder="z. B. Schaltaktor 8-fach">
+    </label>
+    <label class="field"><span>Produkt / Bauform</span>
+      <input class="input" id="m-product" maxlength="60" value="${esc(d.product)}" placeholder="z. B. REG, 16 A">
+    </label>
+    <label class="field"><span>Linie</span>
+      <select class="select" id="m-line">${lineOptions(d.lineId)}</select>
+    </label>
+    <label class="field"><span>Teilnehmer <em>0–255, 0 = Linienkoppler</em></span>
+      <input class="input mono" id="m-dev" type="number" min="0" max="255" value="${dev}">
+    </label>
+    <label class="field"><span>Verbaut in</span>
+      <select class="select" id="m-room">${roomOptions(d.roomId)}</select>
+    </label>
+    <div id="m-err"></div>`;
+}
+function readDevice(exceptId) {
+  const name = $('#m-name').value.trim();
+  if (!name) return { err: 'Bitte einen Namen vergeben.' };
+  const lineId = $('#m-line').value;
+  const line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
+  const n = $('#m-dev').valueAsNumber;
+  if (!Number.isInteger(n) || n < 0 || n > KNX.PA_MAX.device)
+    return { err: 'Teilnehmernummer muss zwischen 0 und 255 liegen.' };
+  const addr = KNX.paJoin(area.addr, line.addr, n);
+  if (!KNX.paFree(addr, exceptId))
+    return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
+  return { name, product: $('#m-product').value.trim(), lineId, addr,
+           roomId: $('#m-room').value || null };
+}
+
+/* Merkt den Formularstand, damit ein Ausflug in den Katalog nichts verwirft. */
+function readDraft() {
+  const lineId = $('#m-line') ? $('#m-line').value : null;
+  const line = lineId && KNX.lineById(lineId), area = lineId && KNX.areaOfLine(lineId);
+  const n = $('#m-dev') ? $('#m-dev').valueAsNumber : 0;
+  return {
+    name: $('#m-name') ? $('#m-name').value : '',
+    product: $('#m-product') ? $('#m-product').value : '',
+    lineId,
+    addr: line && area ? KNX.paJoin(area.addr, line.addr, Number.isInteger(n) ? n : 0) : 0,
+    roomId: ($('#m-room') && $('#m-room').value) || null,
+    catalogId: ($('#m-cat') && $('#m-cat').value) || ''
+  };
+}
+
+function actNewDevice(ctx) {
+  const p = KNX.project();
+  const lineId = ctx?.lineId || (state.filter?.kind === 'line' ? state.filter.id : p.areas[0].lines[0]?.id);
+  const roomId = ctx?.roomId
+    || (state.sel?.kind === 'node' && KNX.DEVICE_HOSTS.has(KNX.findNode(state.sel.id)?.kind || '')
+        ? state.sel.id : null);
+  const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId };
+  if (ctx?.catalogId) draft.catalogId = ctx.catalogId;
+  if (!draft.addr) draft.addr = KNX.freePa(draft.lineId || lineId);
+
+  A.openModal('Neues Gerät anlegen', deviceForm(draft, { catalog: true }), () => {
+    const r = readDevice();
+    if (r.err) { showErr(r.err); return false; }
+    const cat = KNX.catalogById($('#m-cat').value);
+    const d = KNX.addDevice({
+      id: KNX.uid('d'), ...r,
+      objs: cat ? cat.objs.map(o => ({
+        id: KNX.uid('o'), num: o.num, name: o.name, dpt: o.dpt,
+        flags: { ...o.flags }, gas: []
+      })) : []
+    });
+    state.sel = { kind: 'dev', id: d.id };
+    A.commit();
+    if (cat) A.status(`${d.objs.length} Kommunikationsobjekte aus „${cat.name}“ übernommen`);
+  });
+
+  // Linienwechsel schlägt die nächste freie Nummer auf der neuen Linie vor
+  $('#m-line').addEventListener('change', e => {
+    $('#m-dev').value = KNX.paSplit(KNX.freePa(e.target.value))[2];
+  });
+
+  const applyCat = () => {
+    const c = KNX.catalogById($('#m-cat').value);
+    const hint = $('#m-cat-hint');
+    if (!c) {
+      hint.textContent = 'Ohne Produkt entsteht ein leeres Gerät — Objekte legt man später einzeln an.';
+      return;
+    }
+    hint.innerHTML = `<b>${c.objs.length}</b> Kommunikationsobjekte werden mit angelegt` +
+      (c.manufacturer ? ` · ${esc(c.manufacturer)}` : '') +
+      (c.appName ? ` · ${esc(c.appName)}` : '');
+    if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
+    if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
+  };
+  $('#m-cat').addEventListener('change', applyCat);
+  $('#m-cat-open').addEventListener('click', () => {
+    const draftNow = readDraft();
+    A.closeModal();
+    actCatalog(id => actNewDevice({ ...ctx, draft: draftNow, catalogId: id || draftNow.catalogId }));
+  });
+  applyCat();
+  $('#m-name').focus();
+}
+
+function actEditDevice(id) {
+  const d = KNX.deviceById(id);
+  if (!d) return;
+  A.openModal(`Gerät bearbeiten — ${KNX.paStr(d.addr)}`, deviceForm(d), () => {
+    const r = readDevice(id);
+    if (r.err) { showErr(r.err); return false; }
+    Object.assign(d, r);
+    KNX.touch();
+    A.commit();
+  });
+}
+
+function actDeleteDevice(id) {
+  const d = KNX.deviceById(id);
+  if (!d) return;
+  const n = d.objs.reduce((s, o) => s + o.gas.length, 0);
+  A.openModal(`Gerät „${esc(d.name)}“ löschen?`, `
+    <p><b>${KNX.paStr(d.addr)}</b> wird mit allen ${d.objs.length} Kommunikationsobjekten entfernt.</p>
+    ${n ? `<p class="hint warn">${n} Adresszuordnungen gehen verloren. Die Gruppenadressen
+           selbst bleiben erhalten.</p>` : ''}
+  `, () => {
+    KNX.deleteDevice(id);
+    if (state.sel?.kind === 'dev' && state.sel.id === id) state.sel = null;
+    if (state.filter?.kind === 'dev' && state.filter.id === id) state.filter = null;
+    A.commit();
+  });
+}
+
+/* ---------- Produktkatalog aus .knxprod ---------- */
+
+/* Öffnet den Dateidialog und liefert die enthaltenen Produkte. */
+function pickProdFile(onProducts) {
+  const input = $('#prod-file');
+  input.onchange = async () => {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    A.status('Lese ' + file.name + ' …');
+    try {
+      const products = await KNXProd.read(file);
+      onProducts(products, file.name);
+    } catch (e) {
+      A.warn('Produktdatei nicht lesbar: ' + (e && e.message ? e.message : e));
+    }
+  };
+  input.click();
+}
+
+/* Katalogverwaltung; `onPick` bekommt die Id des gewählten Produkts. */
+function actCatalog(onPick) {
+  const render = () => {
+    const items = KNX.project().catalog;
+    return `
+      <p class="hint">Produkte aus ETS-Produktdateien (<b>.knxprod</b>). Ein gewähltes
+      Produkt legt beim Anlegen eines Geräts alle Kommunikationsobjekte mit an.</p>
+      <div class="pick-row">
+        <button type="button" class="btn btn-sm btn-primary" id="m-load">Produktdatei laden …</button>
+        <input class="input" id="m-search" placeholder="Katalog durchsuchen …">
+      </div>
+      <div class="chk-list tall" id="m-cat-list">
+        ${items.length ? items.map(c => `
+          <div class="cat-row" data-id="${c.id}"
+               data-name="${esc((c.name + ' ' + c.order + ' ' + c.manufacturer).toLowerCase())}">
+            <div class="cat-main">
+              <b>${esc(c.name)}</b>
+              <span>${esc([c.manufacturer, c.order, c.appName].filter(Boolean).join(' · '))}</span>
+            </div>
+            <span class="dpt-tag">${c.objs.length} KO</span>
+            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="Aus dem Katalog entfernen">
+              ${A.IC_TRASH}</button>
+          </div>`).join('')
+          : '<p class="hint">Der Katalog ist leer. Oben eine <b>.knxprod</b>-Datei laden.</p>'}
+      </div>`;
+  };
+
+  let picked = '';
+  A.openModal('Produktkatalog', render(), () => {
+    if (onPick) A.nextModal(() => onPick(picked));
+  });
+
+  const wire = () => {
+    const list = $('#m-cat-list');
+    list.querySelectorAll('.cat-row').forEach(row => {
+      row.addEventListener('click', e => {
+        if (e.target.closest('.cat-del')) return;
+        picked = row.dataset.id;
+        list.querySelectorAll('.cat-row').forEach(r => r.classList.toggle('sel', r === row));
+      });
+      row.addEventListener('dblclick', () => { picked = row.dataset.id; A.modalConfirm(); });
+    });
+    list.querySelectorAll('.cat-del').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const c = KNX.catalogById(b.dataset.id);
+      KNX.deleteCatalogItem(b.dataset.id);
+      if (picked === b.dataset.id) picked = '';
+      A.commit();
+      $('#modal-body').innerHTML = render();
+      wire();
+      A.status(`„${c ? c.name : 'Produkt'}“ aus dem Katalog entfernt`);
+    }));
+    $('#m-search').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      list.querySelectorAll('.cat-row').forEach(r => {
+        r.hidden = !!q && !r.dataset.name.includes(q);
+      });
+    });
+    $('#m-load').addEventListener('click', () => {
+      pickProdFile((products, fileName) => {
+        A.closeModal();
+        actImportPick(products, fileName, () => actCatalog(onPick));
+      });
+    });
+  };
+  wire();
+}
+
+/* Auswahl aus einer frisch geladenen Produktdatei. */
+function actImportPick(products, fileName, onDone) {
+  const rows = products.map((p, i) => `
+    <label class="chk-row" data-name="${esc((p.name + ' ' + p.order + ' ' + p.manufacturer).toLowerCase())}">
+      <input type="checkbox" class="chk" data-i="${i}"${products.length === 1 ? ' checked' : ''}>
+      <span class="chk-label">
+        <b>${esc(p.name)}</b>
+        ${p.order || p.manufacturer
+          ? `<span class="cat-sub">${esc([p.manufacturer, p.order].filter(Boolean).join(' · '))}</span>` : ''}
+      </span>
+      <span class="dpt-tag">${p.objs.length} KO</span>
+    </label>`).join('');
+
+  A.openModal(`${products.length} Produkte in ${fileName}`, `
+    <p class="hint">Produkte auswählen, die in den Katalog übernommen werden sollen.</p>
+    <div class="pick-row">
+      <input class="input" id="m-search" placeholder="Filtern …">
+      <button type="button" class="btn btn-sm" id="m-all">Alle</button>
+      <button type="button" class="btn btn-sm" id="m-none">Keine</button>
+    </div>
+    <div class="chk-list tall" id="m-prods">${rows}</div>
+    <div id="m-err"></div>
+  `, () => {
+    const sel = [...$('#m-prods').querySelectorAll('.chk:checked')].map(c => products[+c.dataset.i]);
+    if (!sel.length) { showErr('Mindestens ein Produkt auswählen.'); return false; }
+    const added = KNX.addCatalogItems(sel);
+    A.commit();
+    A.status(`${added.length} ${added.length === 1 ? 'Produkt' : 'Produkte'} im Katalog`);
+    if (onDone) A.nextModal(onDone);
+  });
+
+  const visible = () => [...$('#m-prods').querySelectorAll('.chk-row')].filter(r => !r.hidden);
+  $('#m-all').addEventListener('click', () =>
+    visible().forEach(r => { r.querySelector('.chk').checked = true; }));
+  $('#m-none').addEventListener('click', () =>
+    visible().forEach(r => { r.querySelector('.chk').checked = false; }));
+  $('#m-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    $('#m-prods').querySelectorAll('.chk-row').forEach(r => {
+      r.hidden = !!q && !r.dataset.name.includes(q);
+    });
+  });
+}
+
+/* ---------- Kommunikationsobjekte ---------- */
+function objForm(o) {
+  return `
+    <div class="addr-grid" style="grid-template-columns:1fr 3fr">
+      <label class="field"><span>Nr.</span>
+        <input class="input mono" id="m-num" type="number" min="0" max="65535" value="${o.num}">
+      </label>
+      <label class="field"><span>Name</span>
+        <input class="input" id="m-name" maxlength="60" value="${esc(o.name)}" placeholder="z. B. A1 Schalten">
+      </label>
+    </div>
+    <label class="field"><span>Datenpunkttyp</span>
+      <select class="select" id="m-dpt">${G.dptOptions(o.dpt)}</select>
+    </label>
+    <div class="field"><span>Flags</span>${flagBoxes(o.flags)}</div>
+    <div id="m-err"></div>`;
+}
+
+function actNewObj(devId) {
+  const d = KNX.deviceById(devId);
+  if (!d) return;
+  const draft = { num: d.objs.length ? Math.max(...d.objs.map(o => o.num)) + 1 : 0,
+                  name: '', dpt: '1.001',
+                  flags: { c: true, r: false, w: true, t: false, u: false } };
+  A.openModal(`Neues Objekt — ${esc(d.name)}`, objForm(draft), () => {
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    const o = { id: KNX.uid('o'), num: $('#m-num').valueAsNumber || 0, name,
+                dpt: $('#m-dpt').value, flags: readFlags(), gas: [] };
+    d.objs.push(o);
+    KNX.touch();
+    state.sel = { kind: 'obj', id: o.id };
+    A.commit();
+  });
+}
+
+function actEditObj(objId) {
+  const e = KNX.objById(objId);
+  if (!e) return;
+  const { dev: d, obj: o } = e;
+  A.openModal(`Objekt bearbeiten — ${esc(d.name)}`, objForm(o), () => {
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    const dpt = $('#m-dpt').value;
+    const clash = o.gas.map(x => KNX.gaById(x)).filter(g => g && g.dpt !== dpt);
+    if (clash.length && !$('#m-force')) {
+      showErr(`Weicht vom DPT der Adresse ${KNX.addrStr(clash[0])} (${clash[0].dpt}) ab. ` +
+              'Erneut bestätigen, um es trotzdem zu übernehmen.');
+      $('#m-err').insertAdjacentHTML('beforeend', '<input type="hidden" id="m-force">');
+      return false;
+    }
+    Object.assign(o, { num: $('#m-num').valueAsNumber || 0, name, dpt, flags: readFlags() });
+    KNX.touch();
+    A.commit();
+  });
+}
+
+function actDeleteObj(objId) {
+  const e = KNX.objById(objId);
+  if (!e) return;
+  const { dev: d, obj: o } = e;
+  A.openModal('Kommunikationsobjekt löschen?', `
+    <p>„${esc(o.name)}“ von <b>${esc(d.name)}</b> wird entfernt.</p>
+    ${o.gas.length ? `<p class="hint warn">${o.gas.length} Adresszuordnungen gehen verloren.</p>` : ''}
+  `, () => {
+    d.objs = d.objs.filter(x => x.id !== objId);
+    KNX.touch();
+    if (state.sel?.kind === 'obj' && state.sel.id === objId) state.sel = { kind: 'dev', id: d.id };
+    A.commit();
+  });
+}
+
+/* Adressen eines Objekts festlegen — die erste ist die sendende. */
+function actAssignObj(objId) {
+  const e = KNX.objById(objId);
+  if (!e) return;
+  const { dev: d, obj: o } = e;
+  const gs = KNX.project().groups.slice().sort((a, b) => a.raw - b.raw);
+  A.openModal(`Adressen — ${esc(o.name)}`, `
+    <p class="hint">${esc(d.name)} · ${KNX.paStr(d.addr)} · Objekt-DPT <b>${o.dpt}</b>.
+    Die <b>erste</b> markierte Adresse ist die sendende.</p>
+    <input class="input" id="m-search" placeholder="Adressen filtern …">
+    <div class="chk-list tall" id="m-gas">
+      ${gs.map(g => `
+        <label class="chk-row" data-name="${esc((g.name + ' ' + KNX.addrStr(g)).toLowerCase())}">
+          <input type="checkbox" class="chk" data-ga="${g.id}"${o.gas.includes(g.id) ? ' checked' : ''}>
+          <span class="addr">${KNX.addrStr(g)}</span>
+          <span class="chk-label">${esc(g.name)}</span>
+          <span class="dpt-tag${g.dpt === o.dpt ? '' : ' bad'}">${g.dpt}</span>
+        </label>`).join('') || '<p class="hint">Noch keine Gruppenadressen angelegt.</p>'}
+    </div>
+  `, () => {
+    const picked = [...$('#m-gas').querySelectorAll('.chk:checked')].map(c => c.dataset.ga);
+    // bestehende Reihenfolge beibehalten, damit die sendende Adresse stabil bleibt
+    o.gas = o.gas.filter(x => picked.includes(x)).concat(picked.filter(x => !o.gas.includes(x)));
+    KNX.touch();
+    A.commit();
+  });
+  $('#m-search').addEventListener('input', ev => {
+    const q = ev.target.value.trim().toLowerCase();
+    $('#m-gas').querySelectorAll('.chk-row').forEach(el => {
+      el.hidden = !!q && !el.dataset.name.includes(q);
+    });
+  });
+}
+
+/* Sendende Adresse eines Objekts wechseln. */
+function actSetSending(objId, gaId) {
+  const e = KNX.objById(objId);
+  if (!e) return;
+  e.obj.gas = [gaId, ...e.obj.gas.filter(x => x !== gaId)];
+  if (!e.obj.flags.t) e.obj.flags.t = true;
+  KNX.touch();
+  A.commit();
+}
+
+/* ---------- Bereiche und Linien ---------- */
+function actNewArea() {
+  const used = new Set(KNX.project().areas.map(a => a.addr));
+  let free = 1;
+  while (free <= KNX.PA_MAX.area && used.has(free)) free++;
+  A.openModal('Neuen Bereich anlegen', `
+    <label class="field"><span>Bereichsnummer <em>0–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${Math.min(free, 15)}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" placeholder="z. B. Nebengebäude">
+    </label>
+    <div id="m-err"></div>
+  `, () => {
+    const addr = $('#m-addr').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.area)
+      { showErr('Bereichsnummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (used.has(addr)) { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
+    const a = { id: KNX.uid('a'), addr, name,
+                lines: [ { id: KNX.uid('l'), addr: 1, name: 'Hauptlinie', medium: 'tp' } ] };
+    KNX.project().areas.push(a);
+    KNX.touch();
+    state.sel = { kind: 'area', id: a.id };
+    A.commit();
+  });
+}
+
+function actEditArea(id) {
+  const a = KNX.project().areas.find(x => x.id === id);
+  if (!a) return;
+  A.openModal('Bereich bearbeiten', `
+    <label class="field"><span>Bereichsnummer <em>0–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${a.addr}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" value="${esc(a.name)}">
+    </label>
+    <p class="hint">Beim Ändern der Nummer werden die physikalischen Adressen aller
+    Geräte dieses Bereichs mitgezogen.</p>
+    <div id="m-err"></div>
+  `, () => {
+    const addr = $('#m-addr').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.area)
+      { showErr('Bereichsnummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (KNX.project().areas.some(x => x.id !== id && x.addr === addr))
+      { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
+    if (addr !== a.addr) {
+      const ids = new Set(a.lines.map(l => l.id));
+      KNX.project().devices.forEach(d => {
+        if (!ids.has(d.lineId)) return;
+        const [, l, n] = KNX.paSplit(d.addr);
+        d.addr = KNX.paJoin(addr, l, n);
+      });
+    }
+    a.addr = addr;
+    a.name = name;
+    KNX.touch();
+    A.commit();
+  });
+}
+
+function actDeleteArea(id) {
+  const a = KNX.project().areas.find(x => x.id === id);
+  if (!a) return;
+  if (KNX.project().areas.length < 2) { A.warn('Der letzte Bereich kann nicht gelöscht werden.'); return; }
+  const n = a.lines.reduce((s, l) => s + KNX.devicesOnLine(l.id).length, 0);
+  A.openModal(`Bereich „${esc(a.name)}“ löschen?`, `
+    <p>Der Bereich mit ${a.lines.length} Linien wird entfernt.</p>
+    ${n ? `<p class="hint warn">${n} Geräte werden auf die erste verbleibende Linie verschoben —
+           ihre physikalischen Adressen passen dann nicht mehr und werden als Fehler markiert.</p>` : ''}
+  `, () => {
+    KNX.deleteArea(id);
+    if (state.sel?.kind === 'area' && state.sel.id === id) state.sel = null;
+    A.commit();
+  });
+}
+
+function actNewLine(areaId) {
+  const a = KNX.project().areas.find(x => x.id === areaId);
+  if (!a) return;
+  const used = new Set(a.lines.map(l => l.addr));
+  let free = 1;
+  while (free <= KNX.PA_MAX.line && used.has(free)) free++;
+  A.openModal(`Neue Linie in „${esc(a.name)}“`, `
+    <label class="field"><span>Liniennummer <em>0–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${Math.min(free, 15)}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" placeholder="z. B. Linie Keller">
+    </label>
+    <label class="field"><span>Medium</span>
+      <select class="select" id="m-medium">${Object.entries(KNX.MEDIA).map(([k, v]) =>
+        `<option value="${k}">${esc(v)}</option>`).join('')}</select>
+    </label>
+    <div id="m-err"></div>
+  `, () => {
+    const addr = $('#m-addr').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.line)
+      { showErr('Liniennummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (used.has(addr)) { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
+    const l = { id: KNX.uid('l'), addr, name, medium: $('#m-medium').value };
+    a.lines.push(l);
+    KNX.touch();
+    state.sel = { kind: 'line', id: l.id };
+    A.commit();
+  });
+}
+
+function actEditLine(id) {
+  const l = KNX.lineById(id), a = KNX.areaOfLine(id);
+  if (!l || !a) return;
+  A.openModal('Linie bearbeiten', `
+    <label class="field"><span>Liniennummer <em>0–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${l.addr}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" value="${esc(l.name)}">
+    </label>
+    <label class="field"><span>Medium</span>
+      <select class="select" id="m-medium">${Object.entries(KNX.MEDIA).map(([k, v]) =>
+        `<option value="${k}"${k === l.medium ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select>
+    </label>
+    <p class="hint">Beim Ändern der Nummer werden die Adressen der Geräte auf dieser
+    Linie mitgezogen.</p>
+    <div id="m-err"></div>
+  `, () => {
+    const addr = $('#m-addr').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.line)
+      { showErr('Liniennummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (a.lines.some(x => x.id !== id && x.addr === addr))
+      { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
+    if (addr !== l.addr) {
+      KNX.devicesOnLine(id).forEach(d => {
+        const [, , n] = KNX.paSplit(d.addr);
+        d.addr = KNX.paJoin(a.addr, addr, n);
+      });
+    }
+    l.addr = addr;
+    l.name = name;
+    l.medium = $('#m-medium').value;
+    KNX.touch();
+    A.commit();
+  });
+}
+
+function actDeleteLine(id) {
+  const l = KNX.lineById(id), a = KNX.areaOfLine(id);
+  if (!l || !a) return;
+  const n = KNX.devicesOnLine(id).length;
+  A.openModal(`Linie ${a.addr}.${l.addr} „${esc(l.name)}“ löschen?`, `
+    ${n ? `<p class="hint warn">${n} Geräte werden auf eine andere Linie verschoben —
+           ihre physikalischen Adressen passen dann nicht mehr und werden als Fehler markiert.</p>`
+        : '<p>Auf dieser Linie sind keine Geräte.</p>'}
+  `, () => {
+    if (!KNX.deleteLine(id)) { A.warn('Die letzte Linie kann nicht gelöscht werden.'); return; }
+    if (state.sel?.kind === 'line' && state.sel.id === id) state.sel = null;
+    if (state.filter?.kind === 'line' && state.filter.id === id) state.filter = null;
+    A.commit();
+  });
+}
+
+/* ---------- Haupt-/Mittelgruppen benennen ---------- */
+function actRenameGaGroup(key) {
+  const p = KNX.project();
+  const style = KNX.gaStyle();
+  const level = String(key).split('/').length - 1;
+  const label = style.parts[level]?.label || 'Gruppe';
+  A.openModal(`${label} ${key} benennen`, `
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" value="${esc(p.gaNames[key] || '')}"
+             placeholder="z. B. Beleuchtung">
+    </label>
+    <p class="hint">Leer lassen entfernt den Namen. Die Adressen bleiben unverändert.</p>
+  `, () => {
+    const name = $('#m-name').value.trim();
+    if (name) p.gaNames[key] = name; else delete p.gaNames[key];
+    A.commit();
+  });
+}
+
+window.KNXTopo = {
+  actNewDevice, actEditDevice, actDeleteDevice,
+  actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending,
+  actNewArea, actEditArea, actDeleteArea,
+  actNewLine, actEditLine, actDeleteLine,
+  actRenameGaGroup, actCatalog
+};
+})();
