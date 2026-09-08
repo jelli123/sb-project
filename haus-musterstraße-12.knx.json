@@ -1,0 +1,1667 @@
+{
+  "schema": 3,
+  "name": "Haus Musterstraße 12",
+  "isSample": true,
+  "gaStyle": "three",
+  "seq": 133,
+  "tree": {
+    "id": "n1",
+    "kind": "site",
+    "name": "Haus Musterstraße 12",
+    "children": [
+      {
+        "id": "n16",
+        "kind": "building",
+        "name": "Haupthaus",
+        "children": [
+          {
+            "id": "n14",
+            "kind": "floor",
+            "name": "Erdgeschoss",
+            "children": [
+              {
+                "id": "n5",
+                "kind": "corridor",
+                "name": "Flur EG",
+                "children": []
+              },
+              {
+                "id": "n2",
+                "kind": "room",
+                "name": "Wohnzimmer",
+                "children": []
+              },
+              {
+                "id": "n3",
+                "kind": "room",
+                "name": "Küche",
+                "children": []
+              },
+              {
+                "id": "n4",
+                "kind": "room",
+                "name": "Hausbad",
+                "children": []
+              },
+              {
+                "id": "n6",
+                "kind": "cabinet",
+                "name": "Verteiler EG",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "n15",
+            "kind": "floor",
+            "name": "Obergeschoss",
+            "children": [
+              {
+                "id": "n7",
+                "kind": "corridor",
+                "name": "Flur OG",
+                "children": []
+              },
+              {
+                "id": "n8",
+                "kind": "room",
+                "name": "Schlafen",
+                "children": []
+              },
+              {
+                "id": "n9",
+                "kind": "room",
+                "name": "Kind",
+                "children": []
+              },
+              {
+                "id": "n10",
+                "kind": "room",
+                "name": "Badezimmer",
+                "children": []
+              },
+              {
+                "id": "n11",
+                "kind": "cabinet",
+                "name": "Verteiler OG",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "n17",
+        "kind": "outdoor",
+        "name": "Außenanlagen",
+        "children": [
+          {
+            "id": "n12",
+            "kind": "room",
+            "name": "Südterrasse",
+            "children": []
+          },
+          {
+            "id": "n13",
+            "kind": "room",
+            "name": "Nordseite",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "areas": [
+    {
+      "id": "a22",
+      "addr": 1,
+      "name": "Haupthaus",
+      "lines": [
+        {
+          "id": "l18",
+          "addr": 0,
+          "name": "IP-Backbone",
+          "medium": "ip"
+        },
+        {
+          "id": "l19",
+          "addr": 1,
+          "name": "Linie EG",
+          "medium": "tp"
+        },
+        {
+          "id": "l20",
+          "addr": 2,
+          "name": "Linie OG",
+          "medium": "tp"
+        },
+        {
+          "id": "l21",
+          "addr": 3,
+          "name": "Linie Außen",
+          "medium": "tp"
+        }
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "id": "d59",
+      "name": "IP-Router EG",
+      "product": "REG, KNXnet/IP",
+      "lineId": "l19",
+      "addr": 4352,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": {
+        "name": "IP-Router EG",
+        "mode": "dhcp",
+        "addr": "",
+        "mask": "255.255.255.0",
+        "gw": "",
+        "mcast": "224.0.23.12",
+        "tunnels": 4
+      },
+      "ma": 10,
+      "supply": 0,
+      "objs": []
+    },
+    {
+      "id": "d60",
+      "name": "IP-Router OG",
+      "product": "REG, KNXnet/IP",
+      "lineId": "l20",
+      "addr": 4608,
+      "roomId": "n11",
+      "catalogId": null,
+      "params": {},
+      "ip": {
+        "name": "IP-Router OG",
+        "mode": "dhcp",
+        "addr": "",
+        "mask": "255.255.255.0",
+        "gw": "",
+        "mcast": "224.0.23.12",
+        "tunnels": 4
+      },
+      "ma": 10,
+      "supply": 0,
+      "objs": []
+    },
+    {
+      "id": "d61",
+      "name": "IP-Router Außen",
+      "product": "REG, KNXnet/IP",
+      "lineId": "l21",
+      "addr": 4864,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": {
+        "name": "IP-Router Außen",
+        "mode": "dhcp",
+        "addr": "",
+        "mask": "255.255.255.0",
+        "gw": "",
+        "mcast": "224.0.23.12",
+        "tunnels": 4
+      },
+      "ma": 10,
+      "supply": 0,
+      "objs": []
+    },
+    {
+      "id": "d62",
+      "name": "Spannungsversorgung 640 mA",
+      "product": "REG, Drossel",
+      "lineId": "l19",
+      "addr": 4602,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": 0,
+      "supply": 640,
+      "objs": []
+    },
+    {
+      "id": "d63",
+      "name": "Spannungsversorgung 320 mA",
+      "product": "REG, Drossel",
+      "lineId": "l20",
+      "addr": 4858,
+      "roomId": "n11",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": 0,
+      "supply": 320,
+      "objs": []
+    },
+    {
+      "id": "d64",
+      "name": "Spannungsversorgung 160 mA",
+      "product": "REG, Drossel",
+      "lineId": "l21",
+      "addr": 5114,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": 0,
+      "supply": 160,
+      "objs": []
+    },
+    {
+      "id": "d65",
+      "name": "Schaltaktor 8-fach",
+      "product": "REG, 16 A",
+      "lineId": "l19",
+      "addr": 4354,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o66",
+          "ref": null,
+          "num": 0,
+          "name": "A1 Schalten Küche",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g27",
+            "g35"
+          ]
+        },
+        {
+          "id": "o67",
+          "ref": null,
+          "num": 1,
+          "name": "A1 Status",
+          "dpt": "1.011",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g28"
+          ]
+        },
+        {
+          "id": "o68",
+          "ref": null,
+          "num": 2,
+          "name": "A2 Schalten Flur EG",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g29",
+            "g35"
+          ]
+        },
+        {
+          "id": "o69",
+          "ref": null,
+          "num": 3,
+          "name": "A3 Schalten Hausbad",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g30",
+            "g35"
+          ]
+        },
+        {
+          "id": "o70",
+          "ref": null,
+          "num": 4,
+          "name": "A4 Schalten Terrasse",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g34",
+            "g35"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d71",
+      "name": "Dimmaktor 2-fach",
+      "product": "REG, 250 W",
+      "lineId": "l19",
+      "addr": 4355,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o72",
+          "ref": null,
+          "num": 0,
+          "name": "A1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g23"
+          ]
+        },
+        {
+          "id": "o73",
+          "ref": null,
+          "num": 1,
+          "name": "A1 Dimmen",
+          "dpt": "3.007",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g24"
+          ]
+        },
+        {
+          "id": "o74",
+          "ref": null,
+          "num": 2,
+          "name": "A1 Helligkeit",
+          "dpt": "5.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g25"
+          ]
+        },
+        {
+          "id": "o75",
+          "ref": null,
+          "num": 3,
+          "name": "A1 Status",
+          "dpt": "1.011",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g26"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d76",
+      "name": "Jalousieaktor 4-fach",
+      "product": "REG",
+      "lineId": "l19",
+      "addr": 4356,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o77",
+          "ref": null,
+          "num": 0,
+          "name": "A1 Auf/Ab",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g36",
+            "g42"
+          ]
+        },
+        {
+          "id": "o78",
+          "ref": null,
+          "num": 1,
+          "name": "A1 Stopp/Schritt",
+          "dpt": "1.010",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g37"
+          ]
+        },
+        {
+          "id": "o79",
+          "ref": null,
+          "num": 2,
+          "name": "A1 Position",
+          "dpt": "5.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g38"
+          ]
+        },
+        {
+          "id": "o80",
+          "ref": null,
+          "num": 3,
+          "name": "A1 Positionsrückm.",
+          "dpt": "5.001",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g39"
+          ]
+        },
+        {
+          "id": "o81",
+          "ref": null,
+          "num": 4,
+          "name": "A2 Auf/Ab",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g40",
+            "g42"
+          ]
+        },
+        {
+          "id": "o82",
+          "ref": null,
+          "num": 5,
+          "name": "A3 Markise Auf/Ab",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g41",
+            "g42"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d83",
+      "name": "Heizungsaktor 6-fach",
+      "product": "REG, Ventilantriebe",
+      "lineId": "l19",
+      "addr": 4357,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o84",
+          "ref": null,
+          "num": 0,
+          "name": "A1 Stellgröße Wohnzimmer",
+          "dpt": "5.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g45"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d85",
+      "name": "Taster 4-fach Wohnzimmer",
+      "product": "UP, Wippe",
+      "lineId": "l19",
+      "addr": 4362,
+      "roomId": "n2",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o86",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g23"
+          ]
+        },
+        {
+          "id": "o87",
+          "ref": null,
+          "num": 1,
+          "name": "T1 Dimmen",
+          "dpt": "3.007",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g24"
+          ]
+        },
+        {
+          "id": "o88",
+          "ref": null,
+          "num": 2,
+          "name": "T2 Auf/Ab",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g36"
+          ]
+        },
+        {
+          "id": "o89",
+          "ref": null,
+          "num": 3,
+          "name": "T2 Stopp",
+          "dpt": "1.010",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g37"
+          ]
+        },
+        {
+          "id": "o90",
+          "ref": null,
+          "num": 4,
+          "name": "T3 Szene",
+          "dpt": "18.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g49"
+          ]
+        },
+        {
+          "id": "o91",
+          "ref": null,
+          "num": 5,
+          "name": "T4 Zentral AUS",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g35"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d92",
+      "name": "Raumtemperaturregler Wohnzimmer",
+      "product": "UP, Display",
+      "lineId": "l19",
+      "addr": 4363,
+      "roomId": "n2",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o93",
+          "ref": null,
+          "num": 0,
+          "name": "Isttemperatur",
+          "dpt": "9.001",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g43"
+          ]
+        },
+        {
+          "id": "o94",
+          "ref": null,
+          "num": 1,
+          "name": "Solltemperatur",
+          "dpt": "9.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g44"
+          ]
+        },
+        {
+          "id": "o95",
+          "ref": null,
+          "num": 2,
+          "name": "Stellgröße",
+          "dpt": "5.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g45"
+          ]
+        },
+        {
+          "id": "o96",
+          "ref": null,
+          "num": 3,
+          "name": "Betriebsart",
+          "dpt": "20.102",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g48"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d97",
+      "name": "Taster 2-fach Küche",
+      "product": "UP",
+      "lineId": "l19",
+      "addr": 4364,
+      "roomId": "n3",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o98",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g27"
+          ]
+        },
+        {
+          "id": "o99",
+          "ref": null,
+          "num": 1,
+          "name": "T1 Status",
+          "dpt": "1.011",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g28"
+          ]
+        },
+        {
+          "id": "o100",
+          "ref": null,
+          "num": 2,
+          "name": "T2 Auf/Ab",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g40"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d101",
+      "name": "Präsenzmelder Flur EG",
+      "product": "Decke, 360°",
+      "lineId": "l19",
+      "addr": 4365,
+      "roomId": "n5",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o102",
+          "ref": null,
+          "num": 0,
+          "name": "Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g29"
+          ]
+        },
+        {
+          "id": "o103",
+          "ref": null,
+          "num": 1,
+          "name": "Helligkeit",
+          "dpt": "9.004",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g56"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d104",
+      "name": "Taster 1-fach Hausbad",
+      "product": "UP",
+      "lineId": "l19",
+      "addr": 4366,
+      "roomId": "n4",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o105",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g30"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d106",
+      "name": "Wärmezähler M-Bus-Gateway",
+      "product": "REG",
+      "lineId": "l19",
+      "addr": 4372,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o107",
+          "ref": null,
+          "num": 0,
+          "name": "Zählerstand",
+          "dpt": "13.013",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g51"
+          ]
+        },
+        {
+          "id": "o108",
+          "ref": null,
+          "num": 1,
+          "name": "Leistung",
+          "dpt": "14.056",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g52"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d109",
+      "name": "Schaltaktor 4-fach OG",
+      "product": "REG, 16 A",
+      "lineId": "l20",
+      "addr": 4609,
+      "roomId": "n11",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o110",
+          "ref": null,
+          "num": 0,
+          "name": "A1 Schalten Kind",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g31",
+            "g35"
+          ]
+        },
+        {
+          "id": "o111",
+          "ref": null,
+          "num": 1,
+          "name": "A2 Schalten Schlafen",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g32",
+            "g35"
+          ]
+        },
+        {
+          "id": "o112",
+          "ref": null,
+          "num": 2,
+          "name": "A3 Schalten Badezimmer",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": true,
+            "t": false,
+            "u": false
+          },
+          "gas": [
+            "g33",
+            "g35"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d113",
+      "name": "Taster 2-fach Schlafen",
+      "product": "UP",
+      "lineId": "l20",
+      "addr": 4618,
+      "roomId": "n8",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o114",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g32"
+          ]
+        },
+        {
+          "id": "o115",
+          "ref": null,
+          "num": 1,
+          "name": "T2 Solltemperatur",
+          "dpt": "9.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g47"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d116",
+      "name": "Temperatursensor Schlafen",
+      "product": "UP",
+      "lineId": "l20",
+      "addr": 4619,
+      "roomId": "n8",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o117",
+          "ref": null,
+          "num": 0,
+          "name": "Isttemperatur",
+          "dpt": "9.001",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g46"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d118",
+      "name": "Taster 1-fach Kind",
+      "product": "UP",
+      "lineId": "l20",
+      "addr": 4620,
+      "roomId": "n9",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o119",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g31"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d120",
+      "name": "Taster 1-fach Badezimmer",
+      "product": "UP",
+      "lineId": "l20",
+      "addr": 4621,
+      "roomId": "n10",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o121",
+          "ref": null,
+          "num": 0,
+          "name": "T1 Schalten",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g33"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d122",
+      "name": "Wetterstation",
+      "product": "Mast, Süd",
+      "lineId": "l21",
+      "addr": 4865,
+      "roomId": "n13",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o123",
+          "ref": null,
+          "num": 0,
+          "name": "Außentemperatur",
+          "dpt": "9.001",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g53"
+          ]
+        },
+        {
+          "id": "o124",
+          "ref": null,
+          "num": 1,
+          "name": "Windgeschwindigkeit",
+          "dpt": "9.005",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g54"
+          ]
+        },
+        {
+          "id": "o125",
+          "ref": null,
+          "num": 2,
+          "name": "Helligkeit Süd",
+          "dpt": "9.004",
+          "flags": {
+            "c": true,
+            "r": true,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g55"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d126",
+      "name": "Zeitschaltuhr / Logikmodul",
+      "product": "REG",
+      "lineId": "l21",
+      "addr": 4866,
+      "roomId": "n6",
+      "catalogId": null,
+      "params": {},
+      "ip": null,
+      "ma": null,
+      "supply": 0,
+      "objs": [
+        {
+          "id": "o127",
+          "ref": null,
+          "num": 0,
+          "name": "Systemzeit",
+          "dpt": "10.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g57"
+          ]
+        },
+        {
+          "id": "o128",
+          "ref": null,
+          "num": 1,
+          "name": "Systemdatum",
+          "dpt": "11.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g58"
+          ]
+        },
+        {
+          "id": "o129",
+          "ref": null,
+          "num": 2,
+          "name": "Beschattung Tagesprg.",
+          "dpt": "1.008",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g42"
+          ]
+        },
+        {
+          "id": "o130",
+          "ref": null,
+          "num": 3,
+          "name": "Betriebsart",
+          "dpt": "20.102",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g48"
+          ]
+        },
+        {
+          "id": "o131",
+          "ref": null,
+          "num": 4,
+          "name": "Szene Anwesenheit",
+          "dpt": "17.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g50"
+          ]
+        },
+        {
+          "id": "o132",
+          "ref": null,
+          "num": 5,
+          "name": "Zentral AUS",
+          "dpt": "1.001",
+          "flags": {
+            "c": true,
+            "r": false,
+            "w": false,
+            "t": true,
+            "u": false
+          },
+          "gas": [
+            "g35"
+          ]
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "g23",
+      "raw": 2305,
+      "name": "Licht Wohnzimmer schalten",
+      "dpt": "1.001",
+      "note": "Deckenlicht"
+    },
+    {
+      "id": "g24",
+      "raw": 2306,
+      "name": "Licht Wohnzimmer dimmen",
+      "dpt": "3.007",
+      "note": ""
+    },
+    {
+      "id": "g25",
+      "raw": 2307,
+      "name": "Licht Wohnzimmer Helligkeit",
+      "dpt": "5.001",
+      "note": "Absolutwert"
+    },
+    {
+      "id": "g26",
+      "raw": 2308,
+      "name": "Licht Wohnzimmer Status",
+      "dpt": "1.011",
+      "note": ""
+    },
+    {
+      "id": "g27",
+      "raw": 2314,
+      "name": "Licht Küche schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g28",
+      "raw": 2315,
+      "name": "Licht Küche Status",
+      "dpt": "1.011",
+      "note": ""
+    },
+    {
+      "id": "g29",
+      "raw": 2324,
+      "name": "Licht Flur EG schalten",
+      "dpt": "1.001",
+      "note": "Präsenzmelder"
+    },
+    {
+      "id": "g30",
+      "raw": 2334,
+      "name": "Licht Hausbad schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g31",
+      "raw": 2561,
+      "name": "Licht Kinderzimmer schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g32",
+      "raw": 2562,
+      "name": "Nachttischlampe schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g33",
+      "raw": 2570,
+      "name": "Licht Badezimmer schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g34",
+      "raw": 2817,
+      "name": "Licht Südterrasse schalten",
+      "dpt": "1.001",
+      "note": ""
+    },
+    {
+      "id": "g35",
+      "raw": 2049,
+      "name": "Licht ZENTRAL AUS",
+      "dpt": "1.001",
+      "note": "Zentralfunktion"
+    },
+    {
+      "id": "g36",
+      "raw": 4353,
+      "name": "Rollladen Wohnzimmer Auf/Ab",
+      "dpt": "1.008",
+      "note": ""
+    },
+    {
+      "id": "g37",
+      "raw": 4354,
+      "name": "Rollladen Wohnzimmer Stopp",
+      "dpt": "1.010",
+      "note": "Lamellenverstellung"
+    },
+    {
+      "id": "g38",
+      "raw": 4355,
+      "name": "Rollladen Wohnzimmer Position",
+      "dpt": "5.001",
+      "note": ""
+    },
+    {
+      "id": "g39",
+      "raw": 4356,
+      "name": "Rollladen Wohnzimmer Rückmeldung",
+      "dpt": "5.001",
+      "note": ""
+    },
+    {
+      "id": "g40",
+      "raw": 4362,
+      "name": "Rollladen Küche Auf/Ab",
+      "dpt": "1.008",
+      "note": ""
+    },
+    {
+      "id": "g41",
+      "raw": 4865,
+      "name": "Markise Südterrasse Auf/Ab",
+      "dpt": "1.008",
+      "note": ""
+    },
+    {
+      "id": "g42",
+      "raw": 4097,
+      "name": "Beschattung ZENTRAL Auf/Ab",
+      "dpt": "1.008",
+      "note": "Tagesprogramm"
+    },
+    {
+      "id": "g43",
+      "raw": 6401,
+      "name": "Wohnzimmer Isttemperatur",
+      "dpt": "9.001",
+      "note": ""
+    },
+    {
+      "id": "g44",
+      "raw": 6402,
+      "name": "Wohnzimmer Solltemperatur",
+      "dpt": "9.001",
+      "note": ""
+    },
+    {
+      "id": "g45",
+      "raw": 6403,
+      "name": "Wohnzimmer Stellgröße",
+      "dpt": "5.001",
+      "note": "Ventilantrieb"
+    },
+    {
+      "id": "g46",
+      "raw": 6657,
+      "name": "Schlafen Isttemperatur",
+      "dpt": "9.001",
+      "note": ""
+    },
+    {
+      "id": "g47",
+      "raw": 6658,
+      "name": "Schlafen Solltemperatur",
+      "dpt": "9.001",
+      "note": ""
+    },
+    {
+      "id": "g48",
+      "raw": 6145,
+      "name": "HVAC-Betriebsart ZENTRAL",
+      "dpt": "20.102",
+      "note": "Komfort/Nacht/Frost"
+    },
+    {
+      "id": "g49",
+      "raw": 8449,
+      "name": "Szene Wohnzimmer",
+      "dpt": "18.001",
+      "note": "Szene 1–4"
+    },
+    {
+      "id": "g50",
+      "raw": 8193,
+      "name": "Szene ZENTRAL",
+      "dpt": "17.001",
+      "note": "Anwesend/Abwesend"
+    },
+    {
+      "id": "g51",
+      "raw": 10497,
+      "name": "Wärmezähler Arbeit",
+      "dpt": "13.013",
+      "note": ""
+    },
+    {
+      "id": "g52",
+      "raw": 10498,
+      "name": "Wärmezähler Leistung",
+      "dpt": "14.056",
+      "note": ""
+    },
+    {
+      "id": "g53",
+      "raw": 11009,
+      "name": "Außentemperatur",
+      "dpt": "9.001",
+      "note": "Wetterstation"
+    },
+    {
+      "id": "g54",
+      "raw": 11010,
+      "name": "Windgeschwindigkeit",
+      "dpt": "9.005",
+      "note": "Wetterstation"
+    },
+    {
+      "id": "g55",
+      "raw": 11011,
+      "name": "Helligkeit Süd",
+      "dpt": "9.004",
+      "note": "Wetterstation"
+    },
+    {
+      "id": "g56",
+      "raw": 11012,
+      "name": "Helligkeit Flur EG",
+      "dpt": "9.004",
+      "note": "Präsenzmelder"
+    },
+    {
+      "id": "g57",
+      "raw": 1,
+      "name": "Systemzeit",
+      "dpt": "10.001",
+      "note": "Broadcast"
+    },
+    {
+      "id": "g58",
+      "raw": 2,
+      "name": "Systemdatum",
+      "dpt": "11.001",
+      "note": "Broadcast"
+    }
+  ],
+  "gaNames": {
+    "0": "Zentralfunktionen",
+    "1": "Beleuchtung",
+    "2": "Beschattung",
+    "3": "Heizung / Klima",
+    "4": "Szenen",
+    "5": "Messwerte",
+    "0/0": "Uhrzeit & Datum",
+    "1/0": "Zentral",
+    "1/1": "Erdgeschoss",
+    "1/2": "Obergeschoss",
+    "1/3": "Außen",
+    "2/0": "Zentral",
+    "2/1": "Erdgeschoss",
+    "2/3": "Außen",
+    "3/0": "Zentral",
+    "3/1": "Erdgeschoss",
+    "3/2": "Obergeschoss",
+    "4/0": "Zentral",
+    "4/1": "Erdgeschoss",
+    "5/1": "Energie",
+    "5/3": "Wetter"
+  },
+  "catalog": []
+}

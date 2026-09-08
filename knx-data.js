@@ -796,26 +796,46 @@ const KNX = (() => {
 
   function save() {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(project));
+      const json = JSON.stringify(project);
+      const backend = window.KNXBackend;
+      if (backend) {
+        // Der Dienst schreibt gebuendelt im Hintergrund; Fehler kommen ueber saveError() zurueck.
+        backend.saveProject(json);
+        dirty = false;
+        lastSaveError = backend.saveError();
+        return !lastSaveError;
+      }
+      localStorage.setItem(LS_KEY, json);
       dirty = false;
       lastSaveError = '';
       return true;
     } catch (e) {
       lastSaveError = e && e.name === 'QuotaExceededError'
-        ? 'Der Browserspeicher ist voll — das Projekt wurde NICHT gespeichert. Bitte exportieren.'
+        ? 'Der Browserspeicher ist voll — das Projekt wurde NICHT gespeichert. '
+          + 'Bitte exportieren oder den lokalen Dienst starten.'
         : 'Speichern fehlgeschlagen: ' + (e && e.message ? e.message : 'unbekannter Fehler');
       return false;
     }
   }
 
   function load() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const p = migrate(JSON.parse(raw));
+    // Im Dienstbetrieb liegt das Projekt schon vor, bevor diese Datei geladen wird.
+    const boot = window.KNXBoot;
+    if (boot && boot.project) {
+      try {
+        const p = migrate(boot.project);
         if (p) { project = p; return true; }
-      }
-    } catch (e) { /* beschädigter Eintrag — Musterprojekt laden */ }
+      } catch (e) { /* beschaedigte Datei — Musterprojekt laden */ }
+    }
+    if (!boot || boot.mode !== 'server') {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          const p = migrate(JSON.parse(raw));
+          if (p) { project = p; return true; }
+        }
+      } catch (e) { /* beschaedigter Eintrag — Musterprojekt laden */ }
+    }
     project = seedProject();
     save();
     return false;

@@ -616,7 +616,9 @@ function detailEmpty() {
     <b>Kommunikationsobjekte</b> von Geräten. Der Raumbezug ergibt sich daraus, wo das
     Gerät verbaut ist. Deshalb prüft die Statusleiste laufend, ob jede Adresse genau
     ein sendendes Objekt und einen einheitlichen Datenpunkttyp hat.</p>
-    <p class="hint">Alles wird lokal im Browser gespeichert. Doppelklick auf einen
+    <p class="hint">${window.KNXBackend
+      ? 'Das Projekt liegt als Datei auf diesem Rechner — der lokale Dienst speichert jede Änderung.'
+      : 'Alles wird lokal im Browser gespeichert.'} Doppelklick auf einen
     Baumeintrag öffnet den Bearbeiten-Dialog, Strg+Z macht Änderungen rückgängig.</p>`;
 }
 
