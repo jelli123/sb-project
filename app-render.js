@@ -629,6 +629,46 @@ function noteSection(note) {
     : '';
 }
 
+/* Was die Produktdatei über das Laden sagt. Geschrieben wird noch nichts —
+   die Anzeige zeigt, was ein späterer Download brauchen würde. */
+function progSection(item) {
+  const p = item && item.prog;
+  if (!p) return '';
+  const rows = [];
+  const add = (k, v) => { if (v) rows.push(`<li><span class="grow">${k}</span>
+    <span class="addr">${esc(String(v))}</span></li>`); };
+  const tab = t => t ? `Offset ${t.off}${t.max ? ', max. ' + t.max + ' Einträge' : ''}` : 'nicht beschrieben';
+
+  add('Maskenversion', p.mask || '—');
+  add('Applikation', p.appNumber ? `Nr. ${p.appNumber}, Version ${p.appVersion}` : '');
+  add('Ladeverfahren', p.style || '—');
+  add('Adresstabelle', tab(p.addrTab));
+  add('Assoziationstabelle', tab(p.assocTab));
+  add('Objekttabelle', tab(p.comTab));
+  if (p.segments.length) {
+    const bytes = p.segments.reduce((s, x) => s + (x.size || 0), 0);
+    add('Speichersegmente', `${p.segments.length} · zusammen ${bytes} Byte`);
+  }
+  if (p.properties.length) add('Eigenschaften', p.properties.length + ' Einträge');
+  if (p.procedures.length) {
+    const steps = p.procedures.reduce((s, x) => s + x.count, 0);
+    add('Ladeprozeduren', `${p.procedures.length} · ${steps} Schritte`);
+  }
+
+  const blocked = [];
+  if (p.plugin) blocked.push('Die Produktdatei verweist auf ein herstellereigenes Programm. '
+    + 'Solche Programme laufen nur unter Windows in der ETS und werden hier übergangen.');
+  if (p.unsupported.length) blocked.push('Unbekannte Ladeschritte: ' + p.unsupported.join(', ') + '.');
+  if (!p.procedures.length) blocked.push('Die Produktdatei enthält keine Ladeprozeduren.');
+
+  return `<h3 class="detail-h">Programmierdaten</h3>
+    <ul class="detail-list">${rows.join('')}</ul>
+    ${blocked.length
+      ? '<p class="hint warn">' + blocked.map(esc).join(' ') + '</p>'
+      : '<p class="hint">Die Angaben sind vollständig genug für einen späteren Download. '
+        + 'Programmiert wird derzeit nur die physikalische Adresse.</p>'}`;
+}
+
 function issueList(id) {
   const is = issuesOf(id);
   if (!is.length) return '';
@@ -811,6 +851,7 @@ function detailDev(d) {
       <li><span class="grow">6 Byte, für die Adressvergabe ohne Programmiertaste</span>
         <span class="addr">${esc(d.serial)}</span></li></ul>` : ''}
     ${noteSection(d.note)}
+    ${progSection(item)}
     ${filterSection(d)}
     <h3 class="detail-h">Kommunikationsobjekte</h3>
     ${d.objs.length

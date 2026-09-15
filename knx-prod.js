@@ -157,6 +157,97 @@ function buildTranslations(doc, prefer) {
   return out;
 }
 
+/* ---------- Programmierdaten ---------- *
+ * Was ein späterer Download braucht: Speicherlayout, Tabellen und die
+ * Ladeprozeduren. Gelesen wird hier alles, geschrieben nichts.             */
+
+/* Die Schritte, die eine Ladeprozedur der ETS kennt. Alles andere gilt als
+   nicht unterstützt und wird am Produkt vermerkt. */
+const LDCTRL = new Set([
+  'LdCtrlConnect', 'LdCtrlDisconnect', 'LdCtrlUnload', 'LdCtrlLoad', 'LdCtrlLoadCompleted',
+  'LdCtrlAbsSegment', 'LdCtrlRelSegment', 'LdCtrlTaskSegment', 'LdCtrlTaskPtr',
+  'LdCtrlWriteMem', 'LdCtrlWriteRelMem', 'LdCtrlWriteRelMemSameArea', 'LdCtrlReadMem',
+  'LdCtrlCompareMem', 'LdCtrlWriteProp', 'LdCtrlReadProp', 'LdCtrlCompareProp',
+  'LdCtrlMerge', 'LdCtrlInvalidate', 'LdCtrlDelay', 'LdCtrlRestart', 'LdCtrlMasterReset',
+  'LdCtrlSetControlVariable'
+]);
+
+const localName = el => el.localName || el.nodeName.split(':').pop();
+const num = (el, name) => {
+  const v = attr(el, name);
+  if (!v) return 0;
+  return /^0x/i.test(v) ? parseInt(v, 16) : parseInt(v, 10) || 0;
+};
+
+function readProgramming(ap, cut) {
+  /* Speichersegmente: absolute liegen an fester Adresse, relative im Ladebereich. */
+  const segments = [];
+  tags(ap, 'AbsoluteSegment').forEach(s => segments.push({
+    k: 'abs', id: cut(attr(s, 'Id')),
+    at: num(s, 'Address'), size: num(s, 'Size'),
+    user: attr(s, 'UserMemory') === 'true'
+  }));
+  tags(ap, 'RelativeSegment').forEach(s => segments.push({
+    k: 'rel', id: cut(attr(s, 'Id')),
+    at: num(s, 'Offset'), size: num(s, 'Size')
+  }));
+
+  const table = name => {
+    const t = tags(ap, name)[0];
+    if (!t) return null;
+    return {
+      off: num(t, 'Offset'),
+      max: num(t, 'MaxEntries'),
+      seg: cut(attr(t, 'CodeSegment')) || ''
+    };
+  };
+
+  /* Eigenschaften der Interface-Objekte — bei Kopplern und IP-Geräten steht
+     hier, was nicht im Speicher, sondern über Properties geladen wird. */
+  const properties = tags(ap, 'Property').map(p => ({
+    ot: num(p, 'ObjectType'), oi: num(p, 'ObjectIndex'), pid: num(p, 'PropertyId'),
+    name: attr(p, 'Name')
+  })).filter(p => p.pid || p.ot);
+
+  /* Ladeprozeduren: je Prozedur die Schrittfolge, damit sichtbar wird, ob sie
+     mit den unterstützten Schritten auskommt. */
+  const unsupported = new Set();
+  const procedures = tags(ap, 'LoadProcedure').map(lp => {
+    const steps = [...lp.getElementsByTagName('*')]
+      .map(localName).filter(n => n.startsWith('LdCtrl'));
+    steps.forEach(n => { if (!LDCTRL.has(n)) unsupported.add(n); });
+    return {
+      type: attr(lp, 'ProcedureType') || '',
+      merge: attr(lp, 'MergeId') || '',
+      count: steps.length,
+      kinds: [...new Set(steps.map(n => n.slice(6)))]
+    };
+  });
+
+  /* Herstellereigene Programme werden in der Produktdatei referenziert; ETS
+     führt sie unter Windows aus. Hier werden sie nur vermerkt. */
+  const plugin = tags(ap, 'Plugin').length > 0
+    || [...ap.getElementsByTagName('*')].some(el =>
+         [...el.attributes].some(a => /\.dll$/i.test(a.value)));
+
+  return {
+    mask: attr(ap, 'MaskVersion'),
+    appNumber: num(ap, 'ApplicationNumber'),
+    appVersion: num(ap, 'ApplicationVersion'),
+    style: attr(ap, 'LoadProcedureStyle') || '',
+    pei: attr(ap, 'PeiType') || '',
+    linkable: attr(ap, 'Linkable') === 'true',
+    dynTable: attr(ap, 'DynamicTableManagement') === 'true',
+    minEeprom: num(ap, 'MinEEPROMSize'),
+    addrTab: table('AddressTable'),
+    assocTab: table('AssociationTable'),
+    comTab: table('ComObjectTable'),
+    segments, properties, procedures,
+    unsupported: [...unsupported],
+    plugin
+  };
+}
+
 /* ---------- knxprod ---------- */
 
 /* Liest ein Applikationsprogramm in ein kompaktes, speicherbares Modell.
@@ -295,7 +386,8 @@ function readApp(ap, lang) {
 
   return { name: lang.get(appId + '|Name') || attr(ap, 'Name'),
            mask: attr(ap, 'MaskVersion'),
-           types, params, objs, dyn, ip };
+           types, params, objs, dyn, ip,
+           prog: readProgramming(ap, cut) };
 }
 
 /* Sammelt Produkte über Katalog → Produkt → Hardware2Program → Programm.
@@ -370,6 +462,8 @@ function collect(docs, prefer) {
   const entry = (key, name, order, app, hw) => ({
     key, name, order, manufacturer: manuOf(key), appName: app.name,
     types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
+    prog: app.prog,
+    mask: app.mask,
     medium: media.get(app.mask) || '',
     ma: (hw && hw.ma) || 0,
     coupler: !!(hw && hw.coupler),
@@ -401,13 +495,24 @@ function collect(docs, prefer) {
             .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
-/* Liest eine .knxprod-Datei und liefert die enthaltenen Produkte. */
+/* Herstellereigene Programme im Archiv. ETS ruft sie beim Parametrieren und
+   Laden auf; sie sind Windows-Binärdateien und laufen hier ohnehin nicht.
+   Sie werden gemeldet und übergangen, die XML-Produktdaten bleiben nutzbar. */
+const BINARY = /\.(dll|exe|ocx|msi|so|dylib|jar|pyd|bin|com|bat|cmd|ps1)$/i;
+
+/* Liest eine .knxprod-Datei und liefert die enthaltenen Produkte samt
+   Fundstellen der übergangenen Dateien. */
 async function read(file, prefer) {
   if (typeof DecompressionStream === 'undefined')
     throw new Error('Dieser Browser kann ZIP-Inhalte nicht entpacken.');
 
   const buf = await file.arrayBuffer();
-  const entries = zipEntries(buf).filter(e => /\.xml$/i.test(e.name));
+  const all = zipEntries(buf);
+  const entries = all.filter(e => /\.xml$/i.test(e.name));
+  const binaries = all.filter(e => BINARY.test(e.name))
+    .map(e => ({ name: e.name, bytes: e.rawSize }));
+  const extras = all.filter(e => !/\.xml$/i.test(e.name) && !BINARY.test(e.name) && e.rawSize > 0)
+    .map(e => ({ name: e.name, bytes: e.rawSize }));
   if (!entries.length) throw new Error('Das Archiv enthält keine XML-Dateien.');
 
   const parser = new DOMParser();
@@ -422,8 +527,8 @@ async function read(file, prefer) {
   const products = collect(docs, prefer || ['de-DE', 'de-AT', 'de-CH', 'en-US', 'en-GB']);
   if (!products.length)
     throw new Error('Keine Produkte mit Objekten oder Parametern gefunden.');
-  return products;
+  return { products, binaries, extras };
 }
 
-return { read };
+return { read, BINARY };
 })();

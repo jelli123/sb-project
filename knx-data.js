@@ -486,6 +486,9 @@ const KNX = (() => {
         params: (c.params && typeof c.params === 'object') ? c.params : {},
         objs: (objs && typeof objs === 'object') ? objs : {},
         dyn: Array.isArray(c.dyn) ? c.dyn : [],
+        // Programmierdaten aus der Produktdatei; alte Kataloge haben sie nicht.
+        prog: (c.prog && typeof c.prog === 'object') ? c.prog : null,
+        mask: String(c.mask || ''),
         ip: !!c.ip,
         medium: String(c.medium || ''),
         ma: clamp(c.ma, 0, 5000, 0),
@@ -1212,6 +1215,8 @@ const KNX = (() => {
         params: it.params || {},
         objs: it.objs || {},
         dyn: it.dyn || [],
+        prog: (it.prog && typeof it.prog === 'object') ? it.prog : null,
+        mask: String(it.mask || ''),
         ip: !!it.ip,
         medium: String(it.medium || ''),
         ma: +it.ma || 0,

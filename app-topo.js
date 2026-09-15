@@ -256,8 +256,8 @@ function pickProdFile(onProducts) {
     if (!file) return;
     A.status('Lese ' + file.name + ' …');
     try {
-      const products = await KNXProd.read(file);
-      onProducts(products, file.name);
+      const r = await KNXProd.read(file);
+      onProducts(r.products, file.name, r);
     } catch (e) {
       A.warn('Produktdatei nicht lesbar: ' + (e && e.message ? e.message : e));
     }
@@ -325,9 +325,9 @@ function actCatalog(onPick) {
       });
     });
     $('#m-load').addEventListener('click', () => {
-      pickProdFile((products, fileName) => {
+      pickProdFile((products, fileName, info) => {
         A.closeModal();
-        actImportPick(products, fileName, () => actCatalog(onPick));
+        actImportPick(products, fileName, () => actCatalog(onPick), info);
       });
     });
   };
@@ -335,8 +335,13 @@ function actCatalog(onPick) {
 }
 
 /* Auswahl aus einer frisch geladenen Produktdatei. */
-function actImportPick(products, fileName, onDone) {
-  const rows = products.map((p, i) => `
+function actImportPick(products, fileName, onDone, info) {
+  const skipped = (info && info.binaries) || [];
+  const rows = products.map((p, i) => {
+    const g = p.prog;
+    const ready = !!(g && g.procedures.length && !g.unsupported.length && !g.plugin);
+    const mask = g && g.mask ? g.mask.replace(/^MV-/, '') : '';
+    return `
     <label class="chk-row" data-name="${esc((p.name + ' ' + p.order + ' ' + p.manufacturer).toLowerCase())}">
       <input type="checkbox" class="chk" data-i="${i}"${products.length === 1 ? ' checked' : ''}>
       <span class="chk-label">
@@ -344,11 +349,22 @@ function actImportPick(products, fileName, onDone) {
         ${p.order || p.manufacturer
           ? `<span class="cat-sub">${esc([p.manufacturer, p.order].filter(Boolean).join(' · '))}</span>` : ''}
       </span>
+      ${mask ? `<span class="src-tag${ready ? ' prog' : ''}"
+        title="${ready
+          ? 'Ladeprozeduren vollständig gelesen — Grundlage für einen späteren Download'
+          : 'Für einen Download fehlen Angaben oder es wird ein herstellereigenes Programm gebraucht'}"
+        >Maske ${esc(mask)}</span>` : ''}
       <span class="dpt-tag" title="Objekte und Parameter der Produktdatei">${p.objCount} KO · ${p.paramCount} P</span>
-    </label>`).join('');
+    </label>`;
+  }).join('');
 
   A.openModal(`${products.length} Produkte in ${fileName}`, `
     <p class="hint">Produkte auswählen, die in den Katalog übernommen werden sollen.</p>
+    ${skipped.length ? `<p class="hint warn">${skipped.length} herstellereigene
+      ${skipped.length === 1 ? 'Datei wird' : 'Dateien werden'} übergangen
+      (${esc(skipped.slice(0, 3).map(b => b.name.split('/').pop()).join(', '))}${
+        skipped.length > 3 ? ' …' : ''}). Solche Programme laufen nur unter Windows in der ETS.
+      Die Produktdaten selbst sind davon unberührt.</p>` : ''}
     <div class="pick-row">
       <input class="input" id="m-search" placeholder="Filtern …">
       <button type="button" class="btn btn-sm" id="m-all">Alle</button>
