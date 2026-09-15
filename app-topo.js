@@ -94,6 +94,14 @@ function deviceForm(d, opt) {
         <input class="input mono" id="m-supply" type="number" min="0" max="5000" value="${+d.supply || 0}">
       </label>
     </div>
+    <label class="field"><span>Seriennummer <em>6 Byte hex, optional</em></span>
+      <input class="input mono" id="m-serial" maxlength="20" value="${esc(d.serial || '')}"
+             placeholder="wird beim Auslesen am Bus eingetragen">
+    </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="z. B. Einbauort im Verteiler, Besonderheiten, Reklamation">${esc(d.note || '')}</textarea>
+    </label>
     <div id="m-err"></div>`;
 }
 function readDevice(exceptId) {
@@ -107,10 +115,15 @@ function readDevice(exceptId) {
   if (!KNX.paFree(addr, exceptId))
     return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
   const ma = $('#m-ma').value.trim();
+  const serialRaw = $('#m-serial').value.trim();
+  const serial = KNX.normSerial(serialRaw);
+  if (serialRaw && !serial)
+    return { err: 'Die Seriennummer besteht aus 6 Byte, also 12 Hex-Zeichen (z. B. 00FA12345678).' };
   return { name, product: $('#m-product').value.trim(), lineId, addr,
            roomId: $('#m-room').value || null,
            ma: ma === '' ? null : Math.max(0, parseInt(ma, 10) || 0),
-           supply: Math.max(0, $('#m-supply').valueAsNumber || 0) };
+           supply: Math.max(0, $('#m-supply').valueAsNumber || 0),
+           serial, note: $('#m-note').value.trim() };
 }
 
 /* Merkt den Formularstand, damit ein Ausflug in den Katalog nichts verwirft. */
@@ -126,6 +139,8 @@ function readDraft() {
     roomId: ($('#m-room') && $('#m-room').value) || null,
     ma: $('#m-ma') && $('#m-ma').value !== '' ? parseInt($('#m-ma').value, 10) : null,
     supply: ($('#m-supply') && $('#m-supply').valueAsNumber) || 0,
+    serial: ($('#m-serial') && $('#m-serial').value) || '',
+    note: ($('#m-note') && $('#m-note').value) || '',
     catalogId: ($('#m-cat') && $('#m-cat').value) || ''
   };
 }
@@ -136,7 +151,7 @@ function actNewDevice(ctx) {
     || (state.sel?.kind === 'node' && KNX.DEVICE_HOSTS.has(KNX.findNode(state.sel.id)?.kind || '')
         ? state.sel.id : null);
   const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId,
-                                ma: null, supply: 0 };
+                                ma: null, supply: 0, serial: '', note: '' };
   if (ctx?.catalogId) draft.catalogId = ctx.catalogId;
   if (!draft.addr) draft.addr = KNX.freePa(draft.lineId || lineId);
 
@@ -685,6 +700,10 @@ function actNewArea() {
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" placeholder="z. B. Nebengebäude">
     </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation"></textarea>
+    </label>
     <div id="m-err"></div>
   `, () => {
     const addr = $('#m-addr').valueAsNumber;
@@ -693,8 +712,8 @@ function actNewArea() {
     if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.area)
       { showErr('Bereichsnummer muss zwischen 0 und 15 liegen.'); return false; }
     if (used.has(addr)) { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
-    const a = { id: KNX.uid('a'), addr, name,
-                lines: [ { id: KNX.uid('l'), addr: 1, name: 'Hauptlinie', medium: 'tp' } ] };
+    const a = { id: KNX.uid('a'), addr, name, note: $('#m-note').value.trim(),
+                lines: [ { id: KNX.uid('l'), addr: 1, name: 'Hauptlinie', medium: 'tp', note: '' } ] };
     KNX.project().areas.push(a);
     KNX.touch();
     state.sel = { kind: 'area', id: a.id };
@@ -711,6 +730,10 @@ function actEditArea(id) {
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(a.name)}">
+    </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation">${esc(a.note || '')}</textarea>
     </label>
     <p class="hint">Beim Ändern der Nummer werden die physikalischen Adressen aller
     Geräte dieses Bereichs mitgezogen.</p>
@@ -733,6 +756,7 @@ function actEditArea(id) {
     }
     a.addr = addr;
     a.name = name;
+    a.note = $('#m-note').value.trim();
     KNX.touch();
     A.commit();
   });
@@ -771,6 +795,10 @@ function actNewLine(areaId) {
       <select class="select" id="m-medium">${Object.entries(KNX.MEDIA).map(([k, v]) =>
         `<option value="${k}">${esc(v)}</option>`).join('')}</select>
     </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation"></textarea>
+    </label>
     <div id="m-err"></div>
   `, () => {
     const addr = $('#m-addr').valueAsNumber;
@@ -779,7 +807,8 @@ function actNewLine(areaId) {
     if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.line)
       { showErr('Liniennummer muss zwischen 0 und 15 liegen.'); return false; }
     if (used.has(addr)) { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
-    const l = { id: KNX.uid('l'), addr, name, medium: $('#m-medium').value };
+    const l = { id: KNX.uid('l'), addr, name, medium: $('#m-medium').value,
+                note: $('#m-note').value.trim() };
     a.lines.push(l);
     KNX.touch();
     state.sel = { kind: 'line', id: l.id };
@@ -801,6 +830,10 @@ function actEditLine(id) {
       <select class="select" id="m-medium">${Object.entries(KNX.MEDIA).map(([k, v]) =>
         `<option value="${k}"${k === l.medium ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select>
     </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation">${esc(l.note || '')}</textarea>
+    </label>
     <p class="hint">Beim Ändern der Nummer werden die Adressen der Geräte auf dieser
     Linie mitgezogen.</p>
     <div id="m-err"></div>
@@ -821,6 +854,7 @@ function actEditLine(id) {
     l.addr = addr;
     l.name = name;
     l.medium = $('#m-medium').value;
+    l.note = $('#m-note').value.trim();
     KNX.touch();
     A.commit();
   });

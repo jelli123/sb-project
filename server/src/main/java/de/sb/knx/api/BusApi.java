@@ -105,7 +105,8 @@ public final class BusApi implements HttpHandler {
                     host,
                     Json.integer(body, "port", 3671),
                     Json.bool(body, "nat", false),
-                    Json.str(body, "localHost", null));
+                    Json.str(body, "localHost", null),
+                    Json.str(body, "deviceAddress", null));
         }
         events.log("info", "Verbunden: " + Json.write(status.get("connection")));
         Http.json(ex, 200, status);
@@ -182,9 +183,32 @@ public final class BusApi implements HttpHandler {
         IndividualAddress addr = Knx.address(Json.str(body, "address", null));
         String serial = Json.str(body, "serial", null);
 
-        Map<String, Object> result = serial == null
-                ? run(() -> commissioning.assignAddressViaProgrammingMode(addr), 120)
-                : run(() -> commissioning.assignAddressViaSerial(Knx.serialNumber(serial), addr), 120);
+        String iface = bus.interfaceAddress();
+        boolean wasConnected = bus.connected();
+
+        Map<String, Object> result;
+        try {
+            result = serial == null
+                    ? run(() -> commissioning.assignAddressViaProgrammingMode(addr), 120)
+                    : run(() -> commissioning.assignAddressViaSerial(Knx.serialNumber(serial), addr), 120);
+        } catch (IllegalStateException e) {
+            // Reisst die Verbindung waehrend der Vergabe ab, war meist die Schnittstelle selbst
+            // das programmierte Geraet: sie startet mit neuer Adresse neu, der Tunnel ist tot.
+            if (!wasConnected || bus.connected()) throw e;
+            result = Json.obj();
+            result.put("ok", false);
+            result.put("linkLost", true);
+            result.put("address", addr.toString());
+            result.put("interfaceProgrammed", iface != null && iface.equals(addr.toString()));
+            result.put("message", "Die Verbindung zur Schnittstelle ist waehrend der Adressvergabe abgerissen. "
+                    + (iface != null ? "Die Schnittstelle selbst hatte die Adresse " + iface + ". " : "")
+                    + "War sie das programmierte Geraet, laeuft sie jetzt unter " + addr
+                    + " - bitte neu suchen, neu verbinden und die Adresse pruefen.");
+            events.log("warn", String.valueOf(result.get("message")));
+            Http.json(ex, 200, result);
+            return;
+        }
+        result.put("interfaceProgrammed", iface != null && iface.equals(addr.toString()));
         events.log(Boolean.TRUE.equals(result.get("ok")) ? "info" : "warn", String.valueOf(result.get("message")));
         Http.json(ex, 200, result);
     }
@@ -240,7 +264,11 @@ public final class BusApi implements HttpHandler {
             if (cause instanceof IllegalArgumentException iae) throw iae;
             throw new IllegalStateException(Jobs.describe(cause));
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new IllegalStateException("Der Bus antwortet nicht innerhalb von " + timeoutSeconds + " s.");
+            // BusService hat die Verbindung bei der Zeitueberschreitung bereits aufgegeben.
+            throw new IllegalStateException(bus.connected()
+                    ? "Der Bus antwortet nicht innerhalb von " + timeoutSeconds + " s."
+                    : "Keine Antwort innerhalb von " + timeoutSeconds + " s - die Verbindung zur Schnittstelle "
+                            + "wurde aufgegeben. Bitte neu verbinden.");
         }
     }
 

@@ -413,12 +413,16 @@ function actNewNode(parentId) {
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" placeholder="z. B. Bad">
     </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation"></textarea>
+    </label>
     <p class="hint" id="m-kind-hint"></p>
   `, () => {
     const name = $('#m-name').value.trim();
     if (!name) { $('#m-name').focus(); return false; }
     const kind = $('#m-kind').value;
-    const node = { id: KNX.uid('n'), kind, name, children: [] };
+    const node = { id: KNX.uid('n'), kind, name, note: $('#m-note').value.trim(), children: [] };
     parent.children.push(node);
     state.collapsed.delete(parentId);
     state.sel = { kind: 'node', id: node.id };
@@ -450,8 +454,12 @@ function actRenameNode(id) {
     ${holds.length ? `<label class="field"><span>Typ</span>
       <select class="select" id="m-kind">${holds.map(k =>
         `<option value="${k}"${k === n.kind ? ' selected' : ''}>${esc(KNX.kindDe(k))}</option>`).join('')}</select>
+    </label>` : ''}
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation">${esc(n.note || '')}</textarea>
     </label>
-    <div id="m-err"></div>` : ''}
+    ${holds.length ? '<div id="m-err"></div>' : ''}
   `, () => {
     const name = $('#m-name').value.trim();
     if (!name) { $('#m-name').focus(); return false; }
@@ -473,6 +481,7 @@ function actRenameNode(id) {
       n.kind = kind;
     }
     n.name = name;
+    n.note = $('#m-note').value.trim();
     if (n.id === KNX.project().tree.id) KNX.project().name = name;
     commit();
   });

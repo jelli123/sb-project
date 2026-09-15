@@ -1,6 +1,8 @@
 package de.sb.knx.bus;
 
+import de.sb.knx.http.Events;
 import de.sb.knx.json.Json;
+import tuwien.auto.calimero.CloseEvent;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
 import tuwien.auto.calimero.knxnetip.Discoverer;
@@ -11,6 +13,7 @@ import tuwien.auto.calimero.knxnetip.util.ServiceFamiliesDIB;
 import tuwien.auto.calimero.link.KNXLinkClosedException;
 import tuwien.auto.calimero.link.KNXNetworkLink;
 import tuwien.auto.calimero.link.KNXNetworkLinkIP;
+import tuwien.auto.calimero.link.NetworkLinkListener;
 import tuwien.auto.calimero.link.medium.TPSettings;
 import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.ManagementClientImpl;
@@ -28,7 +31,10 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Haelt die Busverbindung und fuehrt alle Zugriffe streng nacheinander aus.
@@ -56,23 +62,99 @@ public final class BusService implements AutoCloseable {
         }
     }
 
-    private final ExecutorService bus = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "knx-bus");
-        t.setDaemon(true);
-        return t;
-    });
+    private final Events events;
 
-    private KNXNetworkLink link;
-    private SharedClient client;
-    private SharedProcedures procedures;
-    private Map<String, Object> description = Json.obj();
+    private volatile ExecutorService bus = newExecutor();
+
+    private volatile KNXNetworkLink link;
+    private volatile SharedClient client;
+    private volatile SharedProcedures procedures;
+    private volatile Map<String, Object> description = Json.obj();
+
+    /** Adresse der KNXnet/IP-Schnittstelle selbst - noetig, um das Programmieren der
+     *  eigenen Schnittstelle zu erkennen. Die Oberflaeche liefert sie aus der Suche mit. */
+    private volatile String interfaceAddress;
+    private volatile String lostReason;
+
+    public BusService(Events events) {
+        this.events = events;
+    }
+
+    private static ExecutorService newExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "knx-bus");
+            t.setDaemon(true);
+            return t;
+        });
+    }
 
     public ExecutorService executor() {
         return bus;
     }
 
+    public boolean connected() {
+        KNXNetworkLink l = link;
+        return l != null && l.isOpen();
+    }
+
+    public String interfaceAddress() {
+        return interfaceAddress;
+    }
+
     public <T> T call(Callable<T> task, long timeoutSeconds) throws Exception {
-        return bus.submit(task).get(timeoutSeconds, TimeUnit.SECONDS);
+        ExecutorService exec = bus;
+        Future<T> f;
+        try {
+            f = exec.submit(task);
+        } catch (RejectedExecutionException e) {
+            throw new IllegalStateException("Der Buszugriff wurde gerade zurueckgesetzt. Bitte neu verbinden.");
+        }
+        try {
+            return f.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            // Haengt der Busthread, ist die Schnittstelle meist selbst verschwunden - etwa weil
+            // sie gerade eine neue Adresse bekommen hat und neu startet. Ohne Aufgeben wuerde
+            // jeder weitere Zugriff hinter dem haengenden Auftrag in der Warteschlange stehen.
+            f.cancel(true);
+            abandon("Keine Antwort innerhalb von " + timeoutSeconds + " s");
+            throw e;
+        }
+    }
+
+    /**
+     * Gibt die Verbindung auf: Link schliessen und den moeglicherweise haengenden Busthread
+     * fallen lassen. Der alte Thread ist ein Daemon und endet, sobald Calimero den
+     * geschlossenen Link bemerkt - blockiert aber nichts mehr.
+     */
+    public synchronized void abandon(String reason) {
+        boolean had = link != null;
+        lostReason = reason;
+        KNXNetworkLink l = link;
+        link = null;
+        client = null;
+        procedures = null;
+        description = Json.obj();
+        if (l != null) {
+            try {
+                l.close();
+            } catch (RuntimeException ignored) {
+                // Der Link war ohnehin nicht mehr zu gebrauchen.
+            }
+        }
+        ExecutorService old = bus;
+        bus = newExecutor();
+        old.shutdownNow();
+        if (had) announceLost(reason);
+    }
+
+    private void announceLost(String reason) {
+        if (events == null) return;
+        events.log("warn", "Busverbindung verloren: " + reason);
+        Map<String, Object> m = Json.obj();
+        m.put("connected", false);
+        m.put("reason", reason);
+        m.put("interfaceAddress", interfaceAddress);
+        events.publish("bus", m);
     }
 
     /* ---------------- Suche ---------------- */
@@ -143,8 +225,8 @@ public final class BusService implements AutoCloseable {
 
     /* ---------------- Verbinden ---------------- */
 
-    public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost)
-            throws Exception {
+    public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost,
+                                                String deviceAddress) throws Exception {
         return call(() -> {
             closeLink();
             InetSocketAddress server = new InetSocketAddress(InetAddress.getByName(host), port);
@@ -153,12 +235,15 @@ public final class BusService implements AutoCloseable {
                     : new InetSocketAddress(InetAddress.getByName(localHost), 0);
             link = KNXNetworkLinkIP.newTunnelingLink(local, server, nat, new TPSettings());
             attach();
+            interfaceAddress = deviceAddress == null || deviceAddress.isBlank() ? null : deviceAddress;
+            lostReason = null;
 
             Map<String, Object> d = Json.obj();
             d.put("mode", "tunneling");
             d.put("host", host);
             d.put("port", port);
             d.put("nat", nat);
+            d.put("deviceAddress", interfaceAddress);
             description = d;
             return status();
         }, 30);
@@ -183,6 +268,8 @@ public final class BusService implements AutoCloseable {
                     : new TPSettings(Knx.address(ownAddress));
             link = KNXNetworkLinkIP.newRoutingLink(ni, group, settings);
             attach();
+            interfaceAddress = null;
+            lostReason = null;
 
             Map<String, Object> d = Json.obj();
             d.put("mode", "routing");
@@ -198,6 +285,8 @@ public final class BusService implements AutoCloseable {
         return call(() -> {
             closeLink();
             description = Json.obj();
+            interfaceAddress = null;
+            lostReason = null;
             return status();
         }, 20);
     }
@@ -208,6 +297,8 @@ public final class BusService implements AutoCloseable {
         boolean open = l != null && l.isOpen();
         m.put("connected", open);
         m.put("connection", description);
+        m.put("interfaceAddress", interfaceAddress);
+        m.put("reason", open ? null : lostReason);
         if (open) {
             m.put("linkAddress", l.getKNXMedium().getDeviceAddress().toString());
             m.put("link", l.getName());
@@ -219,6 +310,19 @@ public final class BusService implements AutoCloseable {
         client = new SharedClient(link);
         client.responseTimeout(Duration.ofSeconds(5));
         procedures = new SharedProcedures(client);
+
+        // Faellt der Tunnel von selbst weg - etwa weil die Schnittstelle neu startet -,
+        // soll die Oberflaeche das erfahren und nicht in Zeitueberschreitungen laufen.
+        final KNXNetworkLink watched = link;
+        watched.addLinkListener(new NetworkLinkListener() {
+            @Override
+            public void linkClosed(CloseEvent e) {
+                if (e.getInitiator() == CloseEvent.USER_REQUEST) return;
+                if (link != watched) return;
+                abandon(e.getReason() == null || e.getReason().isBlank()
+                        ? "Die Schnittstelle hat die Verbindung beendet" : e.getReason());
+            }
+        });
     }
 
     private void closeLink() {
@@ -256,7 +360,9 @@ public final class BusService implements AutoCloseable {
 
     private <T> T require(T value) {
         if (value == null || link == null || !link.isOpen()) {
-            throw new IllegalStateException("Keine Busverbindung. Bitte zuerst eine Schnittstelle verbinden.");
+            throw new IllegalStateException(lostReason == null
+                    ? "Keine Busverbindung. Bitte zuerst eine Schnittstelle verbinden."
+                    : "Keine Busverbindung mehr (" + lostReason + "). Bitte neu verbinden.");
         }
         return value;
     }
@@ -280,11 +386,12 @@ public final class BusService implements AutoCloseable {
 
     @Override
     public void close() {
+        ExecutorService exec = bus;
         try {
-            bus.submit(this::closeLink).get(10, TimeUnit.SECONDS);
+            exec.submit(this::closeLink).get(10, TimeUnit.SECONDS);
         } catch (Exception ignored) {
             // beim Herunterfahren nicht weiter stoeren
         }
-        bus.shutdownNow();
+        exec.shutdownNow();
     }
 }

@@ -622,6 +622,13 @@ function detailEmpty() {
     Baumeintrag öffnet den Bearbeiten-Dialog, Strg+Z macht Änderungen rückgängig.</p>`;
 }
 
+/* Freitext der Entität — Zeilenumbrüche bleiben erhalten. */
+function noteSection(note) {
+  return note
+    ? '<h3 class="detail-h">Notiz</h3><p class="detail-note">' + esc(note) + '</p>'
+    : '';
+}
+
 function issueList(id) {
   const is = issuesOf(id);
   if (!is.length) return '';
@@ -655,6 +662,7 @@ function detailNode(node) {
       ${node.id !== p.tree.id
         ? '<button class="btn btn-sm btn-danger" id="d-delete">' + A.IC_TRASH + ' Löschen</button>' : ''}
     </div>
+    ${noteSection(node.note)}
     ${devs.length
       ? '<h3 class="detail-h">Geräte</h3><ul class="detail-list">' +
         devs.map(d => `<li class="jump" data-kind="dev" data-id="${d.id}">
@@ -701,7 +709,7 @@ function detailGa(ga) {
       ? '<h3 class="detail-h">Wirksam in</h3><ul class="detail-list">' + rooms.map(r =>
           `<li class="jump" data-kind="node" data-id="${r.id}">${esc(KNX.nodePath(r.id).sub)}</li>`).join('') + '</ul>'
       : ''}
-    ${ga.note ? '<p class="hint">Notiz: ' + esc(ga.note) + '</p>' : ''}`;
+    ${noteSection(ga.note)}`;
 }
 
 /* Die Filtertabelle ist kein Eingabewert, sondern folgt aus der Topologie —
@@ -799,6 +807,10 @@ function detailDev(d) {
       <li><span class="grow">Routing-Multicast</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
       <li><span class="grow">Tunnelverbindungen</span><span class="addr">${esc(String(ip.tunnels))}</span></li>
     </ul>` : ''}
+    ${d.serial ? `<h3 class="detail-h">Seriennummer</h3><ul class="detail-list">
+      <li><span class="grow">6 Byte, für die Adressvergabe ohne Programmiertaste</span>
+        <span class="addr">${esc(d.serial)}</span></li></ul>` : ''}
+    ${noteSection(d.note)}
     ${filterSection(d)}
     <h3 class="detail-h">Kommunikationsobjekte</h3>
     ${d.objs.length
@@ -877,6 +889,7 @@ function detailLine(l) {
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
     ${issueList(l.id)}
+    ${noteSection(l.note)}
     ${powerSection(l.id)}
     ${devs.length
       ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
@@ -907,6 +920,7 @@ function detailArea(a) {
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
+    ${noteSection(a.note)}
     <h3 class="detail-h">Linien</h3>
     <ul class="detail-list">${a.lines.slice().sort((x, y) => x.addr - y.addr).map(l =>
       `<li class="jump" data-kind="line" data-id="${l.id}">

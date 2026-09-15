@@ -64,7 +64,7 @@ public final class Main {
         CatalogStore catalog = new CatalogStore(dataDir);
         Events events = new Events();
         Jobs jobs = new Jobs(events);
-        BusService bus = new BusService();
+        BusService bus = new BusService(events);
 
         HttpServer http = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         http.setExecutor(Executors.newCachedThreadPool(r -> {

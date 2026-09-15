@@ -102,13 +102,14 @@ function makeSaver() {
 
 function makeEvents() {
   let source = null;
-  const handlers = { log: new Set(), job: new Set(), state: new Set() };
+  const handlers = { log: new Set(), job: new Set(), bus: new Set(), state: new Set() };
 
   function ensure() {
     if (source) return;
     source = new EventSource('/api/events');
     source.addEventListener('log', e => emit('log', e));
     source.addEventListener('job', e => emit('job', e));
+    source.addEventListener('bus', e => emit('bus', e));
     source.addEventListener('open', () => handlers.state.forEach(h => h('offen')));
     source.onerror = () => handlers.state.forEach(h => h('gestoert'));
   }

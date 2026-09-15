@@ -298,7 +298,7 @@ const KNX = (() => {
       tree: { id: 'n1', kind: 'site', name: n, children: [] },
       areas: [ { id: 'a1', addr: 1, name: 'Bereich 1',
                  lines: [ { id: 'l1', addr: 1, name: 'Hauptlinie', medium: 'tp' } ] } ],
-      devices: [],       // { id, name, product, lineId, addr, roomId, objs[] }
+      devices: [],       // { id, name, product, lineId, addr, roomId, serial, note, objs[] }
       groups: [],        // { id, raw, name, dpt, note }
       gaNames: {},       // '1' / '1/2' → Name der Haupt- bzw. Mittelgruppe
       catalog: []        // aus .knxprod übernommene Produkte
@@ -343,6 +343,7 @@ const KNX = (() => {
       n.kind = k;
       delete n.level;
       n.name = String(n.name || kindDe(k));
+      n.note = normNote(n.note);
       n.id = takeId(n.id, 'n', seenNodes);
       if (DEVICE_HOSTS.has(k)) roomIds.add(n.id);
       n.children = Array.isArray(n.children) ? n.children : [];
@@ -359,11 +360,13 @@ const KNX = (() => {
       id: takeId(a.id, 'a', seenTopo),
       addr: clamp(a.addr, 0, PA_MAX.area, 1),
       name: String(a.name || 'Bereich'),
+      note: normNote(a.note),
       lines: (Array.isArray(a.lines) ? a.lines : []).map(l => ({
         id: takeId(l.id, 'l', seenTopo),
         addr: clamp(l.addr, 0, PA_MAX.line, 1),
         name: String(l.name || 'Linie'),
-        medium: MEDIA[l.medium] ? l.medium : 'tp'
+        medium: MEDIA[l.medium] ? l.medium : 'tp',
+        note: normNote(l.note)
       }))
     }));
     if (!p.areas.length) p.areas = newProject(p.name).areas;
@@ -440,6 +443,8 @@ const KNX = (() => {
         addr: pa,
         roomId: roomIds.has(d.roomId) ? d.roomId : null,
         catalogId: d.catalogId || null,
+        note: normNote(d.note),
+        serial: normSerial(d.serial),
         params: (d.params && typeof d.params === 'object') ? d.params : {},
         ip: (d.ip && typeof d.ip === 'object') ? d.ip : null,
         ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
@@ -537,6 +542,14 @@ const KNX = (() => {
   function clamp(v, lo, hi, dflt) {
     const n = Number(v);
     return Number.isInteger(n) && n >= lo && n <= hi ? n : dflt;
+  }
+  /* Notizen sind frei, aber begrenzt — sie wandern in jede Projektdatei mit. */
+  const NOTE_MAX = 2000;
+  const normNote = v => String(v == null ? '' : v).slice(0, NOTE_MAX);
+  /* Seriennummer: 6 Byte, in der Anzeige ohne Trenner und in Grossbuchstaben. */
+  function normSerial(v) {
+    const hex = String(v == null ? '' : v).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+    return hex.length === 12 ? hex : '';
   }
   function normFlags(f) {
     const out = {};
@@ -1463,6 +1476,7 @@ const KNX = (() => {
     DPT, dptById, dptGroups,
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa,
+    NOTE_MAX, normNote, normSerial,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
     project: () => project,

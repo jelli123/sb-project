@@ -861,6 +861,23 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   width: 100%;
 }
 .input.mono { font-family: var(--mono); font-size: 13px; }
+textarea.input.note {
+  min-height: 62px;
+  padding: 7px 10px;
+  line-height: 1.45;
+  resize: vertical;
+}
+/* Notizen behalten ihre Zeilenumbrueche, ohne dass HTML im Text landet. */
+.detail-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border2);
+  background: var(--surface2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
 .input::placeholder { color: var(--faint); }
 .field > span em {
   font-style: normal;
@@ -1018,14 +1035,92 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .ovl-sec .select { min-width: 180px; max-width: 100%; }
 .ovl-sec .input { flex: 1 1 160px; min-width: 120px; }
 .ovl-sec .input.narrow { flex: 0 0 110px; font-family: var(--mono); }
-.ovl-sec .chk {
+.ovl-sec .chk, .ovl-head .chk {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
   white-space: nowrap;
 }
-.ovl-sec .chk input { accent-color: var(--accent); }
+.ovl-sec .chk input, .ovl-head .chk input { accent-color: var(--accent); }
+.ovl-sec .lbl { font-size: 12.5px; color: var(--muted); }
+.ovl-sec .input.invalid { border-color: var(--danger); background: oklch(98% 0.02 25); }
+
+/* Abschnitte, die eine Busverbindung brauchen, bleiben lesbar, wirken aber inaktiv. */
+.ovl-sec .sec-lock {
+  display: none;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--faint);
+}
+.ovl-sec.locked .sec-lock { display: inline; }
+.ovl-sec.locked > :not(h3) { opacity: 0.55; }
+
+/* ---------- Laufende Vorgaenge ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slide { from { left: -30%; } to { left: 100%; } }
+
+.btn[data-busy="1"]::before {
+  content: '';
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+/* Der drehende Knopf ist gesperrt, soll aber deutlich lesbar bleiben. */
+.btn[data-busy="1"]:disabled { opacity: 1; cursor: progress; }
+
+.ovl-activity {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 18px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.ovl-activity .act-text { min-width: 0; overflow-wrap: anywhere; }
+.ovl-activity .act-time { margin-left: auto; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.ovl-activity.running { color: var(--accent); background: var(--accent-weak); font-weight: 600; }
+.ovl-activity.running .act-text::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.ovl-activity.running::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -30%;
+  width: 30%;
+  height: 2px;
+  background: var(--accent);
+  animation: slide 1.3s ease-in-out infinite;
+}
+.ovl-activity.ok    { color: var(--ok); background: var(--ok-weak); }
+.ovl-activity.warn  { color: var(--warn); background: oklch(96% 0.035 70); }
+.ovl-activity.error { color: var(--danger); background: oklch(96% 0.02 25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ovl-activity.running::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
+  .btn[data-busy="1"]::before, .ovl-activity.running .act-text::before { animation-duration: 2s; }
+}
 .ovl-table-wrap { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 
 .ovl-foot {

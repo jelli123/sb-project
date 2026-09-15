@@ -98,14 +98,120 @@ async function deleteProject(id, btn) {
 }
 
 /* ============================================================
+   Rueckmeldung: Hinweiston, Systembenachrichtigung, Tab-Titel
+   ============================================================ */
+
+/* Kurze Vorgaenge melden sich nur per Toast; ab dieser Dauer — oder wenn das
+   Fenster nicht im Vordergrund ist — kommen Ton und Benachrichtigung dazu. */
+const NOTIFY_AFTER_MS = 4000;
+const PREFS_KEY = 'knx-bus-notify-v1';
+
+const prefs = (() => {
+  const def = { sound: true, desktop: false };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }; }
+  catch (e) { return def; }
+})();
+
+function savePrefs(patch) {
+  Object.assign(prefs, patch);
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) { /* nur Komfort */ }
+}
+
+/* Browser geben Audio erst nach einer Nutzeraktion frei. Deshalb wird der
+   Kontext beim Klick auf eine Aktion geweckt und spielt spaeter auch im Hintergrund. */
+let audioCtx = null;
+function unlockAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) {
+    try { audioCtx = new Ctx(); } catch (e) { return null; }
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function chime(kind) {
+  if (!prefs.sound) return;
+  const ctx = unlockAudio();
+  if (!ctx) return;
+  const notes = kind === 'error' ? [[523, 0], [392, 0.16], [311, 0.32]]
+              : kind === 'warn'  ? [[659, 0], [659, 0.18]]
+              :                    [[659, 0], [988, 0.14]];
+  const t0 = ctx.currentTime + 0.02;
+  notes.forEach(([freq, dt]) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t0 + dt);
+    gain.gain.exponentialRampToValueAtTime(0.22, t0 + dt + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0 + dt);
+    osc.stop(t0 + dt + 0.4);
+  });
+}
+
+const canNotify = () => 'Notification' in window && window.isSecureContext;
+const isAway = () => document.visibilityState !== 'visible' || !document.hasFocus();
+
+function desktopNotify(title, body, level) {
+  if (!prefs.desktop || !canNotify() || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body, tag: 'knx-bus', renotify: true, requireInteraction: level === 'error'
+    });
+    n.onclick = () => { window.focus(); openOverlay(); n.close(); };
+  } catch (e) {
+    // Manche Browser erlauben Benachrichtigungen nur ueber einen Service Worker.
+  }
+}
+
+const TITLE_BADGE = /^[⏳✓⚠✕] /;
+function setTitleBadge(symbol) {
+  const base = document.title.replace(TITLE_BADGE, '');
+  document.title = symbol ? symbol + ' ' + base : base;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !task.current) setTitleBadge('');
+});
+
+async function toggleDesktop(e) {
+  const box = e.target;
+  if (!box.checked) { savePrefs({ desktop: false }); return; }
+  let perm = Notification.permission;
+  if (perm === 'default') {
+    try { perm = await Notification.requestPermission(); } catch (err) { perm = 'denied'; }
+  }
+  if (perm !== 'granted') {
+    box.checked = false;
+    savePrefs({ desktop: false });
+    A.warn('Benachrichtigungen sind im Browser blockiert. Bitte in den Website-Einstellungen fuer diese Seite erlauben.');
+    return;
+  }
+  savePrefs({ desktop: true });
+  try {
+    new Notification('KNX Inbetriebnahme', {
+      body: 'Benachrichtigungen sind eingeschaltet. Sie erscheinen, wenn ein Vorgang im Hintergrund endet.',
+      tag: 'knx-bus'
+    });
+  } catch (err) { /* siehe desktopNotify */ }
+}
+
+/* ============================================================
    Inbetriebnahme
    ============================================================ */
 
-const bus = { connected: false, scanJob: null, servers: [], lastScan: [] };
+const bus = { connected: false, connection: null, scanJob: null, servers: [], lastScan: [], found: [], autoSearched: false };
+const task = { current: null, timer: 0 };
 let overlay = null;
 
 const q = sel => overlay.querySelector(sel);
-const setBusy = (el, on) => { el.disabled = on; el.dataset.busy = on ? '1' : ''; };
+
+/* Alles, was ueber den Busthread des Dienstes laeuft. Der arbeitet streng
+   nacheinander — ein zweiter Klick wuerde nur unsichtbar in der Warteschlange landen. */
+const BUS_ACTIONS = ['#bus-line', '#bus-scan', '#bus-read', '#bus-occupied', '#bus-prog-list',
+  '#bus-target', '#bus-assign', '#bus-assign-serial', '#bus-erase', '#bus-restart',
+  '#bus-unload', '#bus-loadstate'];
 
 function ensureOverlay() {
   if (overlay) return;
@@ -117,96 +223,128 @@ function ensureOverlay() {
         <h2>Inbetriebnahme</h2>
         <span id="bus-state" class="dpt-tag">nicht verbunden</span>
         <div class="spacer"></div>
-        <button id="bus-close" class="btn" title="Schliessen">Schliessen</button>
+        <label class="chk" title="Hinweiston, wenn ein längerer Vorgang endet oder fehlschlägt">
+          <input type="checkbox" id="bus-sound"> Ton</label>
+        <label class="chk" id="bus-desktop-wrap"
+               title="Systembenachrichtigung, wenn ein Vorgang endet, während das Fenster im Hintergrund ist">
+          <input type="checkbox" id="bus-desktop"> Benachrichtigung</label>
+        <button id="bus-close" class="btn" title="Schließen — laufende Vorgänge laufen weiter (Esc)">Schließen</button>
       </header>
+
+      <div id="bus-activity" class="ovl-activity" role="status" aria-live="polite">
+        <span class="act-text">Bereit.</span>
+        <button id="bus-reconnect" class="btn btn-sm" hidden
+                title="Schnittstelle erneut suchen und verbinden">Neu verbinden</button>
+        <span class="act-time"></span>
+      </div>
 
       <div class="ovl-body">
         <section class="ovl-sec">
-          <h3>1 · Schnittstelle</h3>
+          <h3>1 · Schnittstelle verbinden</h3>
           <div class="row">
-            <button id="bus-discover" class="btn btn-sm">Suchen</button>
-            <select id="bus-server" class="select"><option value="">— noch nicht gesucht —</option></select>
-            <label class="chk"><input type="checkbox" id="bus-nat"> NAT</label>
-            <button id="bus-connect" class="btn btn-sm btn-primary" disabled>Verbinden</button>
-            <button id="bus-disconnect" class="btn btn-sm" disabled>Trennen</button>
+            <label class="chk"><input type="radio" name="bus-mode" value="tunneling" checked>
+              Tunneling <span class="lbl">— zum Programmieren</span></label>
+            <label class="chk"><input type="radio" name="bus-mode" value="routing">
+              Routing <span class="lbl">— nur zum Mithören</span></label>
+          </div>
+          <div class="row" data-mode="tunneling">
+            <button id="bus-discover" class="btn btn-sm">Schnittstellen suchen</button>
+            <select id="bus-server" class="select" aria-label="Gefundene Schnittstelle">
+              <option value="">— zuerst suchen —</option></select>
+            <label class="chk" title="Nötig, wenn die Schnittstelle hinter einem Router mit Adressumsetzung liegt">
+              <input type="checkbox" id="bus-nat"> NAT</label>
+          </div>
+          <div class="row" data-mode="routing" hidden>
+            <span class="lbl">Netzwerkkarte</span>
+            <select id="bus-nic" class="select"><option value="">Standardschnittstelle</option></select>
+            <span class="lbl">Eigene Adresse</span>
+            <input id="bus-own" class="input narrow" placeholder="15.15.250" title="Absenderadresse beim Routing">
           </div>
           <div class="row">
-            <label class="chk"><input type="radio" name="bus-mode" value="tunneling" checked> Tunneling</label>
-            <label class="chk"><input type="radio" name="bus-mode" value="routing"> Routing (Multicast)</label>
-            <select id="bus-nic" class="select" hidden></select>
-            <input id="bus-own" class="input narrow" hidden placeholder="15.15.250" title="Eigene Adresse beim Routing">
+            <button id="bus-connect" class="btn btn-sm btn-primary">Verbinden</button>
+            <button id="bus-disconnect" class="btn btn-sm" hidden>Trennen</button>
+            <span id="bus-conn-info" class="pane-meta"></span>
           </div>
-          <p class="hint" id="bus-conn-info">Tunneling ist fuer Managementprozeduren die richtige Wahl.
-             Routing eignet sich zum Mithoeren, nicht zum Programmieren.</p>
         </section>
 
-        <section class="ovl-sec">
-          <h3>2 · Busscan</h3>
+        <section class="ovl-sec" data-needs-bus>
+          <h3>2 · Linie scannen <span class="sec-lock">— erst verbinden</span></h3>
           <div class="row">
+            <span class="lbl">Linie</span>
             <select id="bus-line" class="select"></select>
-            <button id="bus-scan" class="btn btn-sm btn-primary" disabled>Linie scannen</button>
-            <button id="bus-scan-stop" class="btn btn-sm" disabled>Abbrechen</button>
+            <button id="bus-scan" class="btn btn-sm btn-primary">Linie scannen</button>
+            <button id="bus-scan-stop" class="btn btn-sm" hidden>Scan abbrechen</button>
             <span id="bus-scan-info" class="pane-meta"></span>
           </div>
+          <p class="hint">Fragt alle 256 Teilnehmeradressen der Linie ab und dauert einige Minuten.
+             Das Fenster darf dabei geschlossen oder im Hintergrund sein.</p>
           <div class="ovl-table-wrap">
             <table class="ga mini"><thead><tr>
               <th>Adresse</th><th>Maske</th><th>Profil</th><th>Im Projekt</th><th></th>
             </tr></thead><tbody id="bus-scan-rows"></tbody></table>
           </div>
+          <p class="hint warn" id="bus-scan-self" hidden></p>
         </section>
 
-        <section class="ovl-sec">
-          <h3>3 · Geraet auslesen</h3>
+        <section class="ovl-sec" data-needs-bus id="bus-sec-device">
+          <h3>3 · Gerät auslesen <span class="sec-lock">— erst verbinden</span></h3>
           <div class="row">
+            <span class="lbl">Adresse</span>
             <input id="bus-addr" class="input narrow" placeholder="1.1.5" value="1.1.1">
-            <button id="bus-read" class="btn btn-sm" disabled>Auslesen</button>
-            <button id="bus-occupied" class="btn btn-sm" disabled>Adresse belegt?</button>
+            <button id="bus-read" class="btn btn-sm btn-primary">Geräteinfo lesen</button>
+            <button id="bus-occupied" class="btn btn-sm">Belegt?</button>
+            <span id="bus-addr-result" class="pane-meta"></span>
           </div>
           <div id="bus-device"></div>
         </section>
 
-        <section class="ovl-sec">
-          <h3>4 · Physikalische Adresse vergeben</h3>
+        <section class="ovl-sec" data-needs-bus>
+          <h3>4 · Physikalische Adresse vergeben <span class="sec-lock">— erst verbinden</span></h3>
           <div class="row">
-            <button id="bus-prog-list" class="btn btn-sm" disabled>Geraete im Programmiermodus</button>
+            <button id="bus-prog-list" class="btn btn-sm">Programmiermodus abfragen</button>
             <span id="bus-prog-info" class="pane-meta"></span>
           </div>
           <div class="row">
-            <select id="bus-target" class="select"></select>
+            <span class="lbl">Neue Adresse</span>
             <input id="bus-target-manual" class="input narrow" placeholder="1.1.5">
-            <button id="bus-assign" class="btn btn-sm btn-primary" disabled>Vergeben</button>
+            <select id="bus-target" class="select" aria-label="Adresse aus dem Projekt übernehmen"></select>
           </div>
           <div class="row">
-            <input id="bus-serial" class="input" placeholder="Seriennummer, 6 Byte hex — optional">
-            <button id="bus-assign-serial" class="btn btn-sm" disabled>Per Seriennummer vergeben</button>
+            <button id="bus-assign" class="btn btn-sm btn-primary"
+                    title="An das eine Gerät, dessen Programmiertaste gedrückt ist">Per Programmiertaste vergeben</button>
+            <span class="lbl">oder</span>
+            <input id="bus-serial" class="input" placeholder="Seriennummer, 6 Byte hex">
+            <button id="bus-assign-serial" class="btn btn-sm">Per Seriennummer vergeben</button>
           </div>
-          <p class="hint">Ohne Seriennummer muss genau ein Geraet im Programmiermodus sein.
-             Der Dienst prueft das und bricht sonst ab.</p>
+          <p class="hint">Per Programmiertaste muss genau ein Gerät im Programmiermodus sein —
+             der Dienst prüft das und bricht sonst ab.</p>
         </section>
 
-        <section class="ovl-sec danger">
-          <h3>5 · Neustart und Entladen</h3>
+        <section class="ovl-sec danger" data-needs-bus>
+          <h3>5 · Neustart und Entladen <span class="sec-lock">— erst verbinden</span></h3>
           <div class="row">
+            <span class="lbl">Adresse</span>
             <input id="bus-rst-addr" class="input narrow" placeholder="1.1.5">
             <select id="bus-erase" class="select">
               <option value="">Einfacher Neustart</option>
-              <option value="ConfirmedRestart">Bestaetigter Neustart</option>
-              <option value="ResetApplicationProgram">Applikationsprogramm zuruecksetzen</option>
-              <option value="ResetApplicationParameters">Applikationsparameter zuruecksetzen</option>
-              <option value="ResetLinks">Verknuepfungen zuruecksetzen</option>
-              <option value="ResetIndividualAddress">Physikalische Adresse zuruecksetzen</option>
+              <option value="ConfirmedRestart">Bestätigter Neustart</option>
+              <option value="ResetApplicationProgram">Applikationsprogramm zurücksetzen</option>
+              <option value="ResetApplicationParameters">Applikationsparameter zurücksetzen</option>
+              <option value="ResetLinks">Verknüpfungen zurücksetzen</option>
+              <option value="ResetIndividualAddress">Physikalische Adresse zurücksetzen</option>
               <option value="FactoryResetWithoutIndividualAddress">Werkszustand, Adresse behalten</option>
-              <option value="FactoryReset">Werkszustand vollstaendig</option>
+              <option value="FactoryReset">Werkszustand vollständig</option>
             </select>
-            <button id="bus-restart" class="btn btn-sm btn-danger" disabled>Ausfuehren</button>
+            <button id="bus-restart" class="btn btn-sm btn-danger">Neu starten</button>
           </div>
           <div class="row">
-            <input id="bus-unload-idx" class="input narrow" value="3" title="Index des Interface-Objekts">
-            <button id="bus-unload" class="btn btn-sm btn-danger" disabled>Objekt entladen</button>
-            <button id="bus-loadstate" class="btn btn-sm" disabled>Ladezustand lesen</button>
+            <span class="lbl">Interface-Objekt</span>
+            <input id="bus-unload-idx" class="input narrow" value="3" title="Index des Interface-Objekts (3 = Applikationsprogramm)">
+            <button id="bus-loadstate" class="btn btn-sm">Ladezustand lesen</button>
+            <button id="bus-unload" class="btn btn-sm btn-danger">Objekt entladen</button>
           </div>
-          <p class="hint warn">Diese Aktionen veraendern das Geraet. Der Werkszustand loescht die
-             Applikation vollstaendig — danach muss neu geladen werden.</p>
+          <p class="hint warn">Diese Aktionen verändern das Gerät. Der Werkszustand löscht die
+             Applikation vollständig — danach muss neu geladen werden.</p>
         </section>
       </div>
 
@@ -217,6 +355,7 @@ function ensureOverlay() {
     </div>`;
   document.body.appendChild(overlay);
   wire();
+  syncControls();
 }
 
 /* ---------- Verdrahtung ---------- */
@@ -224,19 +363,23 @@ function ensureOverlay() {
 function wire() {
   q('#bus-close').onclick = closeOverlay;
   overlay.addEventListener('click', e => { if (e.target === overlay) closeOverlay(); });
+  overlay.addEventListener('input', e => e.target.classList.remove('invalid'));
 
-  q('#bus-discover').onclick = discover;
+  q('#bus-sound').checked = prefs.sound;
+  q('#bus-sound').onchange = e => { savePrefs({ sound: e.target.checked }); chime('ok'); };
+  q('#bus-desktop-wrap').hidden = !canNotify();
+  q('#bus-desktop').checked = prefs.desktop && canNotify() && Notification.permission === 'granted';
+  q('#bus-desktop').onchange = toggleDesktop;
+
+  q('#bus-discover').onclick = () => discover(false);
   q('#bus-connect').onclick = connect;
   q('#bus-disconnect').onclick = disconnect;
-  q('#bus-server').onchange = () => { q('#bus-connect').disabled = !q('#bus-server').value; };
+  q('#bus-reconnect').onclick = reconnect;
+  q('#bus-server').onchange = syncControls;
 
   overlay.querySelectorAll('input[name="bus-mode"]').forEach(r => r.onchange = () => {
-    const routing = mode() === 'routing';
-    q('#bus-nic').hidden = !routing;
-    q('#bus-own').hidden = !routing;
-    q('#bus-server').disabled = routing;
-    q('#bus-connect').disabled = routing ? false : !q('#bus-server').value;
-    if (routing) loadInterfaces();
+    syncControls();
+    if (mode() === 'routing') loadInterfaces();
   });
 
   q('#bus-scan').onclick = startScan;
@@ -250,21 +393,65 @@ function wire() {
   q('#bus-unload').onclick = unload;
   q('#bus-loadstate').onclick = readLoadState;
 
+  q('#bus-erase').onchange = () => { q('#bus-restart').textContent = restartLabel(); };
   q('#bus-target').onchange = () => {
     const v = q('#bus-target').value;
-    if (v) q('#bus-target-manual').value = v;
+    if (v) { q('#bus-target-manual').value = v; q('#bus-target-manual').classList.remove('invalid'); }
+    suggestSerial();
   };
+  q('#bus-target-manual').addEventListener('input', suggestSerial);
+  // Eine von Hand eingetippte Seriennummer darf der Vorschlag nicht überschreiben.
+  q('#bus-serial').addEventListener('input', e => {
+    e.target.dataset.touched = e.target.value.trim() ? '1' : '';
+  });
+
+  onEnter('#bus-addr', '#bus-read', readDevice);
+  onEnter('#bus-target-manual', '#bus-assign', () => assign(false));
+  onEnter('#bus-serial', '#bus-assign-serial', () => assign(true));
 
   B.events.on('log', e => appendLog(e.level, e.message));
+  B.events.on('bus', e => { if (e.connected === false) onLinkLost(e.reason); });
   B.events.on('job', e => {
-    if (e.id !== bus.scanJob) return;
-    if (e.message) q('#bus-scan-info').textContent = e.message;
+    const t = task.current;
+    if (!t || !t.onJob || e.id !== bus.scanJob) return;
+    t.onJob(e);
+  });
+}
+
+function onEnter(inputSel, btnSel, fn) {
+  q(inputSel).addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !q(btnSel).disabled) fn();
   });
 }
 
 const mode = () => overlay.querySelector('input[name="bus-mode"]:checked').value;
 
+/** Ein einziger Ort, der aus Verbindung und laufendem Vorgang ableitet, was bedienbar ist. */
+function syncControls() {
+  if (!overlay) return;
+  const busy = !!task.current, conn = bus.connected, routing = mode() === 'routing';
+  const setup = busy || conn;
+
+  overlay.querySelectorAll('[data-mode]').forEach(r =>
+    r.hidden = r.dataset.mode !== (routing ? 'routing' : 'tunneling'));
+  overlay.querySelectorAll('input[name="bus-mode"]').forEach(r => r.disabled = setup);
+  ['#bus-discover', '#bus-nat', '#bus-nic', '#bus-own'].forEach(sel => q(sel).disabled = setup);
+  q('#bus-server').disabled = setup || !bus.servers.length;
+
+  q('#bus-connect').hidden = conn;
+  q('#bus-connect').disabled = busy || (!routing && !q('#bus-server').value);
+  q('#bus-disconnect').hidden = !conn;
+  q('#bus-disconnect').disabled = busy;
+
+  BUS_ACTIONS.forEach(sel => q(sel).disabled = busy || !conn);
+  q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b => b.disabled = busy || !conn);
+  q('#bus-scan-stop').hidden = !bus.scanJob;
+
+  overlay.querySelectorAll('[data-needs-bus]').forEach(s => s.classList.toggle('locked', !conn));
+}
+
 function appendLog(level, message) {
+  if (!overlay) return;
   const log = q('#bus-log');
   const line = document.createElement('div');
   line.className = 'log-line ' + (level || 'info');
@@ -274,26 +461,183 @@ function appendLog(level, message) {
   log.scrollTop = log.scrollHeight;
 }
 
+/* ---------- Vorgaenge: sperren, anzeigen, melden ---------- */
+
+const fmtClock = ms => {
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+};
+const fmtDuration = ms => ms < 60000 ? Math.round(ms / 1000) + ' s' : fmtClock(ms) + ' min';
+
+/**
+ * Fuehrt einen Busvorgang aus. Waehrend er laeuft, sind alle Busaktionen gesperrt,
+ * der ausloesende Knopf dreht, Kopfzeile, Topbar und Tab-Titel zeigen den Vorgang.
+ * fn liefert { level: 'ok' | 'info' | 'warn', message } oder wirft bei Fehlern.
+ */
+async function runTask(spec, fn) {
+  if (task.current) {
+    A.warn('Bitte warten — es läuft noch: ' + task.current.label);
+    return null;
+  }
+  unlockAudio();
+  const t = task.current = { ...spec, started: Date.now(), detail: '' };
+  t.progress = detail => { t.detail = detail; tick(); };
+
+  if (t.btn) {
+    t.btnText = t.btn.textContent;
+    t.btn.dataset.busy = '1';
+    if (t.busyText) t.btn.textContent = t.busyText;
+  }
+  $('#btn-bus').dataset.busy = '1';
+  q('#bus-activity').className = 'ovl-activity running';
+  tick();
+  task.timer = setInterval(tick, 1000);
+  syncControls();
+
+  let outcome, failed = false;
+  try {
+    outcome = (await fn(t)) || { level: 'ok', message: t.label + ' abgeschlossen' };
+  } catch (e) {
+    outcome = { level: 'error', message: t.label + ' fehlgeschlagen: ' + e.message };
+    failed = true;
+  } finally {
+    clearInterval(task.timer);
+    if (t.btn) {
+      t.btn.dataset.busy = '';
+      t.btn.textContent = t.btnText;
+    }
+    $('#btn-bus').dataset.busy = '';
+    $('#btn-bus').title = 'Geräte am Bus suchen, auslesen und adressieren';
+    task.current = null;
+    syncControls();
+  }
+  finish(t, outcome);
+  // Nach einem Fehler kann der Dienst die Verbindung aufgegeben haben — Zustand nachziehen,
+  // damit die Oberflaeche nicht weiter Aktionen anbietet, die ohnehin scheitern.
+  if (failed) refreshStatus();
+  return outcome;
+}
+
+function refreshStatus() {
+  return B.bus.status().then(applyStatus).catch(() => {});
+}
+
+/** Der Dienst meldet ueber die Ereignisleitung, dass die Verbindung weg ist. */
+function onLinkLost(reason) {
+  const was = bus.connected;
+  bus.connected = false;
+  refreshStatus();
+  if (!was) return;
+  q('#bus-reconnect').hidden = false;
+  if (!task.current) {
+    q('#bus-activity').className = 'ovl-activity warn';
+    q('#bus-activity .act-text').textContent = 'Verbindung verloren: ' + (reason || 'Grund unbekannt');
+    q('#bus-activity .act-time').textContent = '';
+    chime('warn');
+    if (isAway()) desktopNotify('Busverbindung verloren', reason || '', 'warn');
+  }
+}
+
+/** Nach einem Abriss: erst neu suchen (die Schnittstelle kann eine neue Adresse haben), dann verbinden. */
+function reconnect() {
+  const last = bus.lastConnect;
+  if (!last) { A.warn('Keine frühere Verbindung bekannt — bitte oben suchen und verbinden.'); return; }
+  runTask({ btn: q('#bus-reconnect'), label: 'Neu verbinden', busyText: 'Verbindet …' }, async () => {
+    if (last.mode === 'tunneling') {
+      try {
+        bus.servers = (await B.bus.discover(3)).servers || [];
+        fillServers();
+        const i = bus.servers.findIndex(s => s.host === last.host);
+        if (i >= 0) {
+          q('#bus-server').value = String(i);
+          last.deviceAddress = bus.servers[i].address;
+        }
+      } catch (e) {
+        appendLog('warn', 'Suche vor dem Neuverbinden fehlgeschlagen: ' + e.message);
+      }
+    }
+    applyStatus(await B.bus.connect(last));
+    return bus.connected
+      ? { level: 'ok', message: 'Wieder verbunden' + (bus.linkAddress ? ' als ' + bus.linkAddress : '') }
+      : { level: 'warn', message: 'Verbindung kam nicht zustande' };
+  });
+}
+
+function tick() {
+  const t = task.current;
+  if (!t) return;
+  const clock = fmtClock(Date.now() - t.started);
+  q('#bus-activity .act-text').textContent = t.label + ' …' + (t.detail ? ' ' + t.detail : '');
+  q('#bus-activity .act-time').textContent = clock;
+  $('#btn-bus').title = 'Läuft: ' + t.label + ' (' + clock + ')';
+  setTitleBadge('⏳');
+}
+
+function finish(t, o) {
+  const ms = Date.now() - t.started;
+  const level = o.level === 'info' ? 'ok' : o.level;
+  const took = ms >= 1000 ? ' (' + fmtDuration(ms) + ')' : '';
+
+  appendLog(level === 'ok' ? 'info' : level, o.message + took);
+  q('#bus-activity').className = 'ovl-activity ' + level;
+  q('#bus-activity .act-text').textContent = o.message;
+  q('#bus-activity .act-time').textContent = took.trim() && 'Dauer ' + fmtDuration(ms);
+  level === 'ok' ? A.toast(o.message, 3000) : A.warn(o.message);
+
+  const away = isAway();
+  setTitleBadge(away ? { ok: '✓', warn: '⚠', error: '✕' }[level] : '');
+  if (t.quiet || !(away || ms >= NOTIFY_AFTER_MS || level === 'error')) return;
+  chime(level);
+  if (away) {
+    const head = { ok: 'Fertig', warn: 'Beendet mit Hinweis', error: 'Fehlgeschlagen' }[level];
+    desktopNotify(head + ': ' + t.label, o.message + took, level);
+  }
+}
+
+/* ---------- Eingaben pruefen ---------- */
+
+function parsePa(s) {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{1,3})$/.exec(s.trim());
+  return m && +m[1] <= 15 && +m[2] <= 15 && +m[3] <= 255 ? `${+m[1]}.${+m[2]}.${+m[3]}` : null;
+}
+
+function readPa(sel, what = 'eine Adresse') {
+  const el = q(sel), raw = el.value.trim(), pa = parsePa(raw);
+  el.classList.toggle('invalid', !pa);
+  if (!pa) {
+    el.focus();
+    A.warn(raw ? `„${raw}“ ist keine physikalische Adresse — erwartet Bereich.Linie.Teilnehmer, z. B. 1.1.5`
+               : `Bitte ${what} angeben.`);
+  }
+  return pa;
+}
+
 /* ---------- Schnittstelle ---------- */
 
-async function discover() {
-  const btn = q('#bus-discover');
-  setBusy(btn, true);
-  q('#bus-server').innerHTML = '<option value="">— wird gesucht —</option>';
-  try {
-    const r = await B.bus.discover(3);
-    bus.servers = r.servers || [];
-    q('#bus-server').innerHTML = bus.servers.length
-      ? bus.servers.map((s, i) =>
-          `<option value="${i}">${esc(s.name)} — ${esc(s.host)}:${s.port} (${esc(s.address)})</option>`).join('')
-      : '<option value="">— nichts gefunden —</option>';
-    q('#bus-connect').disabled = !bus.servers.length;
-    appendLog('info', bus.servers.length + ' KNXnet/IP-Server gefunden');
-  } catch (e) {
-    A.warn('Suche fehlgeschlagen: ' + e.message);
-  } finally {
-    setBusy(btn, false);
-  }
+function discover(quiet) {
+  return runTask({ btn: q('#bus-discover'), label: 'Schnittstellen suchen', busyText: 'Sucht …', quiet }, async () => {
+    q('#bus-server').innerHTML = '<option value="">— wird gesucht —</option>';
+    try {
+      const r = await B.bus.discover(3);
+      bus.servers = r.servers || [];
+    } catch (e) {
+      bus.servers = [];
+      throw e;
+    } finally {
+      fillServers();
+    }
+    const n = bus.servers.length;
+    return n
+      ? { level: 'ok', message: n === 1 ? '1 Schnittstelle gefunden' : n + ' Schnittstellen gefunden' }
+      : { level: 'warn', message: 'Keine KNXnet/IP-Schnittstelle gefunden — Netzwerk und Firewall prüfen' };
+  });
+}
+
+function fillServers() {
+  q('#bus-server').innerHTML = bus.servers.length
+    ? bus.servers.map((s, i) =>
+        `<option value="${i}">${esc(s.name)} — ${esc(s.host)}:${s.port} (${esc(s.address)})</option>`).join('')
+    : '<option value="">— nichts gefunden —</option>';
 }
 
 async function loadInterfaces() {
@@ -307,53 +651,54 @@ async function loadInterfaces() {
   }
 }
 
-async function connect() {
-  const btn = q('#bus-connect');
-  setBusy(btn, true);
-  try {
-    let status;
-    if (mode() === 'routing') {
-      status = await B.bus.connect({
-        mode: 'routing',
-        networkInterface: q('#bus-nic').value || null,
-        ownAddress: q('#bus-own').value.trim() || null
-      });
-    } else {
-      const s = bus.servers[+q('#bus-server').value];
-      if (!s) { A.warn('Bitte zuerst eine Schnittstelle waehlen.'); return; }
-      status = await B.bus.connect({
-        mode: 'tunneling', host: s.host, port: s.port, nat: q('#bus-nat').checked
-      });
-    }
-    applyStatus(status);
-  } catch (e) {
-    A.warn('Verbindung fehlgeschlagen: ' + e.message);
-    appendLog('error', e.message);
-  } finally {
-    setBusy(btn, false);
+function connect() {
+  let opts;
+  if (mode() === 'routing') {
+    const own = q('#bus-own').value.trim();
+    if (own && !readPa('#bus-own')) return;
+    opts = { mode: 'routing', networkInterface: q('#bus-nic').value || null, ownAddress: parsePa(own) };
+  } else {
+    const s = bus.servers[+q('#bus-server').value];
+    if (!s) { A.warn('Bitte zuerst eine Schnittstelle suchen und auswählen.'); return; }
+    // Die Adresse der Schnittstelle merkt sich der Dienst, um das Programmieren
+    // der eigenen Schnittstelle zu erkennen.
+    opts = { mode: 'tunneling', host: s.host, port: s.port, nat: q('#bus-nat').checked,
+             deviceAddress: s.address };
   }
+  bus.lastConnect = opts;
+  const target = opts.mode === 'routing' ? 'Routing' : opts.host;
+  runTask({ btn: q('#bus-connect'), label: 'Verbinden mit ' + target, busyText: 'Verbindet …' }, async () => {
+    applyStatus(await B.bus.connect(opts));
+    return bus.connected
+      ? { level: 'ok', message: 'Verbunden' + (bus.linkAddress ? ' als ' + bus.linkAddress : '') }
+      : { level: 'warn', message: 'Verbindung kam nicht zustande' };
+  });
 }
 
-async function disconnect() {
-  try {
+function disconnect() {
+  runTask({ btn: q('#bus-disconnect'), label: 'Trennen', busyText: 'Trennt …' }, async () => {
     applyStatus(await B.bus.disconnect());
-    appendLog('info', 'Verbindung getrennt');
-  } catch (e) {
-    A.warn(e.message);
-  }
+    return { level: 'ok', message: 'Verbindung getrennt' };
+  });
 }
 
 function applyStatus(status) {
   bus.connected = !!status.connected;
+  bus.linkAddress = status.linkAddress || '';
+  if (status.interfaceAddress !== undefined) bus.interfaceAddress = status.interfaceAddress || '';
+  const c = status.connection || {};
   const tag = q('#bus-state');
   tag.textContent = bus.connected
-    ? 'verbunden' + (status.linkAddress ? ' als ' + status.linkAddress : '')
+    ? 'verbunden' + (bus.linkAddress ? ' als ' + bus.linkAddress : '')
     : 'nicht verbunden';
   tag.classList.toggle('ok', bus.connected);
-  q('#bus-disconnect').disabled = !bus.connected;
-  ['#bus-scan', '#bus-read', '#bus-occupied', '#bus-prog-list', '#bus-assign',
-   '#bus-assign-serial', '#bus-restart', '#bus-unload', '#bus-loadstate']
-    .forEach(sel => q(sel).disabled = !bus.connected);
+  q('#bus-conn-info').textContent = bus.connected
+    ? (c.mode === 'routing' ? `Routing über ${c.multicast || '224.0.23.12'}`
+       : c.host ? `Tunneling zu ${c.host}:${c.port}${c.nat ? ' (NAT)' : ''}`
+         + (bus.interfaceAddress ? ` — Schnittstelle ${bus.interfaceAddress}` : '') : '')
+    : (status.reason ? 'Zuletzt getrennt: ' + status.reason : '');
+  if (bus.connected) q('#bus-reconnect').hidden = true;
+  syncControls();
 }
 
 /* ---------- Busscan ---------- */
@@ -363,90 +708,187 @@ function fillLines() {
   KNX.project().areas.forEach(a => (a.lines || []).forEach(l => {
     opts.push(`<option value="${a.addr}.${l.addr}">${a.addr}.${l.addr} — ${esc(a.name)} / ${esc(l.name)}</option>`);
   }));
+  const keep = q('#bus-line').value;
   q('#bus-line').innerHTML = opts.length ? opts.join('') : '<option value="1.1">1.1</option>';
+  if (keep) q('#bus-line').value = keep;
 }
 
 function fillTargets() {
   const devs = KNX.project().devices.slice().sort((x, y) => x.addr - y.addr);
-  q('#bus-target').innerHTML = '<option value="">— Adresse aus dem Projekt waehlen —</option>' +
+  q('#bus-target').innerHTML = '<option value="">— aus dem Projekt übernehmen —</option>' +
     devs.map(d => `<option value="${KNX.paStr(d.addr)}">${KNX.paStr(d.addr)} — ${esc(d.name)}</option>`).join('');
 }
 
-async function startScan() {
-  const [area, line] = q('#bus-line').value.split('.').map(Number);
-  q('#bus-scan-rows').innerHTML = '';
-  q('#bus-scan-info').textContent = 'laeuft …';
-  setBusy(q('#bus-scan'), true);
-  q('#bus-scan-stop').disabled = false;
-  try {
+function startScan() {
+  const lineStr = q('#bus-line').value;
+  const [area, line] = lineStr.split('.').map(Number);
+  const info = q('#bus-scan-info');
+  bus.scanLine = lineStr;
+
+  runTask({ btn: q('#bus-scan'), label: 'Linie ' + lineStr + ' scannen', busyText: 'Scannt …' }, async t => {
+    bus.found = [];
+    renderScan([], true);
+    info.textContent = '';
+
+    // Treffer kommen live ueber die Ereignisleitung, die Beschreibung erst mit dem Ergebnis.
+    t.onJob = e => {
+      if (!e.detail || bus.found.includes(e.detail)) return;
+      bus.found.push(e.detail);
+      renderScan(bus.found.map(address => ({ address })), true);
+      info.textContent = bus.found.length + ' bisher gefunden';
+      t.progress('— ' + bus.found.length + ' gefunden');
+    };
+
     const r = await B.bus.scan(area, line);
     bus.scanJob = r.job;
-    await pollJob(r.job, result => {
-      bus.lastScan = result || [];
-      renderScan(bus.lastScan);
-    });
-  } catch (e) {
-    A.warn('Scan fehlgeschlagen: ' + e.message);
-    q('#bus-scan-info').textContent = 'Fehler';
-  } finally {
-    setBusy(q('#bus-scan'), false);
-    q('#bus-scan-stop').disabled = true;
-    bus.scanJob = null;
-  }
-}
+    q('#bus-scan-stop').disabled = false;
+    q('#bus-scan-stop').textContent = 'Scan abbrechen';
+    syncControls();
 
-function stopScan() {
-  if (bus.scanJob) B.bus.cancelJob(bus.scanJob).catch(() => {});
-}
+    let s;
+    try {
+      s = await pollJob(r.job);
+    } catch (e) {
+      info.textContent = 'Fehler';
+      throw e;
+    } finally {
+      bus.scanJob = null;
+    }
 
-function pollJob(id, onDone) {
-  return new Promise((resolve, reject) => {
-    const tick = async () => {
-      try {
-        const s = await B.bus.job(id);
-        if (s.state === 'fertig') { onDone(s.result); resolve(s); return; }
-        if (s.state === 'fehler') { reject(new Error(s.error || 'unbekannter Fehler')); return; }
-        if (s.state === 'abgebrochen') { q('#bus-scan-info').textContent = 'abgebrochen'; resolve(s); return; }
-        setTimeout(tick, 700);
-      } catch (e) { reject(e); }
-    };
-    setTimeout(tick, 500);
+    if (s.state === 'abgebrochen') {
+      info.textContent = 'abgebrochen — ' + bus.found.length + ' bis dahin gefunden';
+      renderScan(bus.found.map(address => ({ address })), false);
+      return { level: 'warn', message: 'Scan von Linie ' + lineStr + ' abgebrochen' };
+    }
+    bus.lastScan = s.result || [];
+    renderScan(bus.lastScan, false);
+    const n = bus.lastScan.length;
+    info.textContent = n + ' Teilnehmer';
+    return { level: 'ok', message: `Scan von Linie ${lineStr} fertig: ${n} Teilnehmer gefunden` };
   });
 }
 
-function renderScan(list) {
+function stopScan() {
+  if (!bus.scanJob) return;
+  const btn = q('#bus-scan-stop');
+  btn.disabled = true;
+  btn.textContent = 'Wird abgebrochen …';
+  B.bus.cancelJob(bus.scanJob).catch(e => {
+    appendLog('warn', 'Abbrechen nicht möglich: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Scan abbrechen';
+  });
+}
+
+function pollJob(id) {
+  return new Promise((resolve, reject) => {
+    const poll = async () => {
+      try {
+        const s = await B.bus.job(id);
+        if (s.state === 'fertig' || s.state === 'abgebrochen') { resolve(s); return; }
+        if (s.state === 'fehler') { reject(new Error(s.error || 'unbekannter Fehler')); return; }
+        setTimeout(poll, 700);
+      } catch (e) { reject(e); }
+    };
+    setTimeout(poll, 500);
+  });
+}
+
+function renderScan(list, live) {
   const byAddr = new Map();
   KNX.project().devices.forEach(d => byAddr.set(KNX.paStr(d.addr), d));
-  q('#bus-scan-info').textContent = list.length + ' Teilnehmer';
+  const pending = live ? '…' : '—';
+
+  /* Eine Schnittstelle kann sich über ihren eigenen Tunnel nicht selbst antworten:
+     Die Anfrage geht auf den Bus hinaus, das eigene Gerät empfängt sie nicht. */
+  const self = bus.interfaceAddress;
+  const selfMissing = !live && self && bus.scanLine && self.startsWith(bus.scanLine + '.')
+    && !list.some(d => d.address === self);
+  const hint = q('#bus-scan-self');
+  hint.hidden = !selfMissing;
+  if (selfMissing) {
+    hint.textContent = `${self} fehlt im Ergebnis: Über diese Schnittstelle läuft die Verbindung, `
+      + 'und ein Gerät kann sich über seinen eigenen Tunnel nicht selbst antworten. '
+      + 'Die Adresse ist also belegt, auch wenn sie hier nicht auftaucht.';
+  }
   q('#bus-scan-rows').innerHTML = list.map(d => {
     const known = byAddr.get(d.address);
     return `<tr>
       <td><b>${esc(d.address)}</b></td>
-      <td>${esc(d.maskVersion || '—')}</td>
-      <td>${esc(d.profile || '—')}</td>
+      <td>${esc(d.maskVersion || pending)}</td>
+      <td>${esc(d.profile || pending)}</td>
       <td>${known ? esc(known.name) : '<span class="hint warn">nicht im Projekt</span>'}</td>
       <td class="col-act"><button class="btn btn-sm" data-read="${esc(d.address)}">Auslesen</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5">Kein Teilnehmer geantwortet</td></tr>';
+  }).join('') + (selfMissing ? `<tr class="self">
+      <td><b>${esc(self)}</b></td>
+      <td>—</td>
+      <td>Schnittstelle dieser Verbindung</td>
+      <td>${byAddr.has(self) ? esc(byAddr.get(self).name) : '<span class="hint warn">nicht im Projekt</span>'}</td>
+      <td class="col-act"></td>
+    </tr>` : '') || `<tr><td colspan="5" class="pane-meta">${live
+      ? 'Noch keine Antwort — die Linie wird abgefragt …'
+      : 'Kein Teilnehmer hat geantwortet'}</td></tr>`;
 
-  q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b =>
-    b.onclick = () => { q('#bus-addr').value = b.dataset.read; readDevice(); });
+  q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b => b.onclick = () => {
+    q('#bus-addr').value = b.dataset.read;
+    q('#bus-addr').classList.remove('invalid');
+    q('#bus-sec-device').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    readDevice();
+  });
+  syncControls();
 }
 
 /* ---------- Geraet auslesen ---------- */
 
-async function readDevice() {
-  const addr = q('#bus-addr').value.trim();
+function readDevice() {
+  const addr = readPa('#bus-addr');
+  if (!addr) return;
   const box = q('#bus-device');
-  box.innerHTML = '<p class="hint">wird gelesen …</p>';
-  setBusy(q('#bus-read'), true);
-  try {
-    box.innerHTML = renderDevice(await B.bus.device(addr));
-  } catch (e) {
-    box.innerHTML = `<p class="hint warn">${esc(e.message)}</p>`;
-  } finally {
-    setBusy(q('#bus-read'), false);
-  }
+
+  runTask({ btn: q('#bus-read'), label: 'Gerät ' + addr + ' auslesen', busyText: 'Liest …' }, async () => {
+    box.innerHTML = `<p class="hint">Gerät ${esc(addr)} wird gelesen …</p>`;
+    let d;
+    try {
+      d = await B.bus.device(addr);
+      box.innerHTML = renderDevice(d);
+    } catch (e) {
+      box.innerHTML = `<p class="hint warn">${esc(e.message)}</p>`;
+      throw e;
+    }
+    if (!q('#bus-rst-addr').value.trim()) q('#bus-rst-addr').value = addr;
+    const kept = keepSerial(addr, (d.device || {}).serialNumber);
+    return { level: 'ok', message: 'Gerät ' + addr + ' ausgelesen' + (kept ? ' · ' + kept : '') };
+  });
+}
+
+const deviceByPa = pa => KNX.project().devices.find(d => KNX.paStr(d.addr) === pa) || null;
+
+/**
+ * Die am Bus gelesene Seriennummer beim Projektgerät hinterlegen. Damit kann später
+ * ohne Programmiertaste adressiert werden — man kommt an verbaute Geräte oft nicht heran.
+ */
+function keepSerial(pa, raw) {
+  const serial = KNX.normSerial(raw);
+  const dev = deviceByPa(pa);
+  if (!serial || !dev || dev.serial === serial) return '';
+  const had = dev.serial;
+  dev.serial = serial;
+  KNX.touch();
+  A.commit();
+  return had
+    ? `Seriennummer bei „${dev.name}“ auf ${serial} berichtigt (vorher ${had})`
+    : `Seriennummer ${serial} bei „${dev.name}“ gespeichert`;
+}
+
+/** Ist die Seriennummer des Zielgeräts bekannt, gehört sie ins Feld für die Vergabe. */
+function suggestSerial() {
+  const field = q('#bus-serial');
+  if (field.dataset.touched === '1') return;
+  const pa = parsePa(q('#bus-target-manual').value || '');
+  const dev = pa && deviceByPa(pa);
+  field.value = dev && dev.serial ? dev.serial : '';
+  field.classList.remove('invalid');
 }
 
 function renderDevice(d) {
@@ -497,130 +939,167 @@ function renderDevice(d) {
     + (objs ? `<p class="hint">Interface-Objekte — ${objs}</p>` : '');
 }
 
-async function checkOccupied() {
-  const addr = q('#bus-addr').value.trim();
-  try {
+function checkOccupied() {
+  const addr = readPa('#bus-addr');
+  if (!addr) return;
+  const out = q('#bus-addr-result');
+  out.textContent = '';
+  runTask({ btn: q('#bus-occupied'), label: 'Adresse ' + addr + ' prüfen', busyText: 'Prüft …' }, async () => {
     const r = await B.bus.occupied(addr);
-    appendLog('info', 'Adresse ' + r.address + ' ist ' + (r.occupied ? 'belegt' : 'frei'));
-    A.toast('Adresse ' + r.address + ' ist ' + (r.occupied ? 'belegt' : 'frei'));
-  } catch (e) {
-    A.warn(e.message);
-  }
+    out.textContent = r.address + (r.occupied ? ' ist belegt' : ' ist frei');
+    return { level: 'ok', message: 'Adresse ' + r.address + ' ist ' + (r.occupied ? 'belegt' : 'frei') };
+  });
 }
 
 /* ---------- Adresse vergeben ---------- */
 
-async function listProgMode() {
-  setBusy(q('#bus-prog-list'), true);
-  try {
-    const r = await B.bus.progModeList();
-    const list = r.devices || [];
-    q('#bus-prog-info').textContent = list.length
-      ? list.length + ' Geraet(e): ' + list.join(', ')
-      : 'kein Geraet im Programmiermodus';
-    appendLog('info', 'Programmiermodus: ' + (list.join(', ') || 'niemand'));
-  } catch (e) {
-    q('#bus-prog-info').textContent = e.message;
-  } finally {
-    setBusy(q('#bus-prog-list'), false);
-  }
+function listProgMode() {
+  const out = q('#bus-prog-info');
+  out.textContent = '';
+  runTask({ btn: q('#bus-prog-list'), label: 'Programmiermodus abfragen', busyText: 'Fragt ab …' }, async () => {
+    try {
+      const list = (await B.bus.progModeList()).devices || [];
+      bus.progList = list;
+      out.textContent = !list.length ? 'kein Gerät im Programmiermodus'
+        : list.length === 1 ? '1 Gerät: ' + list[0] + ' — bereit zur Vergabe'
+        : list.length + ' Geräte: ' + list.join(', ') + ' — für die Vergabe darf nur eines aktiv sein';
+      return list.length === 1
+        ? { level: 'ok', message: 'Im Programmiermodus: ' + list[0] }
+        : { level: 'warn', message: out.textContent.replace(/^./, c => c.toUpperCase()) };
+    } catch (e) {
+      out.textContent = e.message;
+      throw e;
+    }
+  });
 }
 
-async function assign(bySerial) {
-  const address = q('#bus-target-manual').value.trim() || q('#bus-target').value;
-  if (!address) { A.warn('Bitte eine Zieladresse angeben.'); return; }
+function assign(bySerial) {
+  const address = readPa('#bus-target-manual', 'die neue Adresse');
+  if (!address) return;
   const serial = q('#bus-serial').value.trim();
-  if (bySerial && !serial) { A.warn('Ohne Seriennummer geht das nicht.'); return; }
+  if (bySerial && !/^[0-9a-f]{12}$/i.test(serial.replace(/[\s:.-]/g, ''))) {
+    q('#bus-serial').classList.add('invalid');
+    q('#bus-serial').focus();
+    A.warn('Die Seriennummer besteht aus 6 Byte, also 12 Hex-Zeichen, z. B. 00FA12345678.');
+    return;
+  }
+
+  // Wird die verbundene Schnittstelle selbst programmiert, bricht dabei der Tunnel ab.
+  const iface = bus.interfaceAddress;
+  const hitsInterface = iface && (address === iface || (bus.progList || []).includes(iface));
 
   A.openModal('Adresse vergeben?', `
-    <p>Dem Geraet wird die physikalische Adresse <b>${esc(address)}</b> zugewiesen
-       ${bySerial ? 'anhand der Seriennummer <code>' + esc(serial) + '</code>' : 'ueber den Programmiermodus'}.</p>
-    <p class="hint">Das Geraet startet anschliessend neu.</p>
+    <p>Dem Gerät wird die physikalische Adresse <b>${esc(address)}</b> zugewiesen
+       ${bySerial ? 'anhand der Seriennummer <code>' + esc(serial) + '</code>' : 'über den Programmiermodus'}.</p>
+    <p class="hint">Das Gerät startet anschließend neu.</p>
+    ${hitsInterface ? `<p class="hint warn">Das betrifft die verbundene Schnittstelle selbst
+       (${esc(iface)}). Sie startet mit der neuen Adresse neu, dadurch bricht die Verbindung ab.
+       Die Vergabe gilt trotzdem als ausgeführt — danach auf „Neu verbinden“ klicken.</p>` : ''}
   `, () => {
     doAssign(address, bySerial ? serial : null);
   });
 }
 
-async function doAssign(address, serial) {
+function doAssign(address, serial) {
   const btn = q(serial ? '#bus-assign-serial' : '#bus-assign');
-  setBusy(btn, true);
-  try {
+  runTask({ btn, label: 'Adresse ' + address + ' vergeben', busyText: 'Vergibt …' }, async () => {
     const r = await B.bus.assign(serial ? { address, serial } : { address });
-    r.ok ? A.toast(r.message) : A.warn(r.message);
-  } catch (e) {
-    A.warn('Adressvergabe fehlgeschlagen: ' + e.message);
-  } finally {
-    setBusy(btn, false);
-  }
+    if (r.linkLost) {
+      bus.connected = false;
+      q('#bus-reconnect').hidden = false;
+      if (bus.lastConnect) bus.lastConnect.deviceAddress = address;
+      refreshStatus();
+    }
+    return { level: r.ok ? 'ok' : 'warn', message: r.message };
+  });
 }
 
 /* ---------- Neustart und Entladen ---------- */
 
+function restartLabel() {
+  const v = q('#bus-erase').value;
+  return !v ? 'Neu starten'
+    : v === 'ConfirmedRestart' ? 'Bestätigt neu starten'
+    : v.startsWith('Factory') ? 'Werkszustand herstellen'
+    : 'Zurücksetzen';
+}
+
 function restart() {
-  const address = q('#bus-rst-addr').value.trim();
+  const address = readPa('#bus-rst-addr');
+  if (!address) return;
   const eraseCode = q('#bus-erase').value;
-  if (!address) { A.warn('Bitte eine Adresse angeben.'); return; }
   const label = q('#bus-erase').selectedOptions[0].textContent;
 
-  A.openModal('Wirklich ausfuehren?', `
-    <p>An <b>${esc(address)}</b> wird ausgefuehrt: <b>${esc(label)}</b>.</p>
+  A.openModal('Wirklich ausführen?', `
+    <p>An <b>${esc(address)}</b> wird ausgeführt: <b>${esc(label)}</b>.</p>
     ${eraseCode.startsWith('Factory')
-      ? '<p class="hint warn">Der Werkszustand loescht die geladene Applikation. '
-        + 'Das Geraet muss danach vollstaendig neu programmiert werden.</p>'
-      : '<p class="hint">Das Geraet ist waehrend des Neustarts kurz nicht erreichbar.</p>'}
-  `, async () => {
-    try {
+      ? '<p class="hint warn">Der Werkszustand löscht die geladene Applikation. '
+        + 'Das Gerät muss danach vollständig neu programmiert werden.</p>'
+      : '<p class="hint">Das Gerät ist während des Neustarts kurz nicht erreichbar.</p>'}
+  `, () => {
+    runTask({ btn: q('#bus-restart'), label: label + ' an ' + address, busyText: 'Läuft …' }, async () => {
       const r = await B.bus.restart(eraseCode ? { address, eraseCode } : { address });
-      A.toast(r.message);
-    } catch (e) {
-      A.warn('Fehlgeschlagen: ' + e.message);
-    }
+      return { level: r.ok === false ? 'warn' : 'ok', message: r.message || label + ' ausgeführt' };
+    });
   });
+}
+
+function readIndex() {
+  const el = q('#bus-unload-idx'), n = Number(el.value.trim());
+  const ok = Number.isInteger(n) && n >= 0 && n <= 255 && el.value.trim() !== '';
+  el.classList.toggle('invalid', !ok);
+  if (!ok) { el.focus(); A.warn('Der Objektindex ist eine Zahl von 0 bis 255 (3 = Applikationsprogramm).'); }
+  return ok ? n : null;
 }
 
 function unload() {
-  const address = q('#bus-rst-addr').value.trim();
-  const objectIndex = +q('#bus-unload-idx').value || 3;
-  if (!address) { A.warn('Bitte eine Adresse angeben.'); return; }
+  const address = readPa('#bus-rst-addr');
+  if (!address) return;
+  const objectIndex = readIndex();
+  if (objectIndex === null) return;
 
   A.openModal('Objekt entladen?', `
     <p>Interface-Objekt <b>${objectIndex}</b> an <b>${esc(address)}</b> wird entladen.
-       Die zugehoerigen Daten gelten danach als ungueltig.</p>
-    <p class="hint warn">Bei Objekt 3 (Applikationsprogramm) ist das Geraet anschliessend funktionslos,
+       Die zugehörigen Daten gelten danach als ungültig.</p>
+    <p class="hint warn">Bei Objekt 3 (Applikationsprogramm) ist das Gerät anschließend funktionslos,
        bis es neu geladen wird.</p>
-  `, async () => {
-    try {
+  `, () => {
+    runTask({ btn: q('#bus-unload'), label: 'Objekt ' + objectIndex + ' an ' + address + ' entladen',
+              busyText: 'Entlädt …' }, async () => {
       const r = await B.bus.unload({ address, objectIndex });
-      r.ok ? A.toast(r.message) : A.warn(r.message);
-    } catch (e) {
-      A.warn('Entladen fehlgeschlagen: ' + e.message);
-    }
+      return { level: r.ok ? 'ok' : 'warn', message: r.message };
+    });
   });
 }
 
-async function readLoadState() {
-  const address = q('#bus-rst-addr').value.trim() || q('#bus-addr').value.trim();
-  const objectIndex = +q('#bus-unload-idx').value || 3;
-  try {
+function readLoadState() {
+  if (!q('#bus-rst-addr').value.trim()) q('#bus-rst-addr').value = q('#bus-addr').value.trim();
+  const address = readPa('#bus-rst-addr');
+  if (!address) return;
+  const objectIndex = readIndex();
+  if (objectIndex === null) return;
+
+  runTask({ btn: q('#bus-loadstate'), label: 'Ladezustand von ' + address + ' lesen', busyText: 'Liest …' }, async () => {
     const r = await B.bus.loadState(address, objectIndex);
-    appendLog('info', address + ' Objekt ' + objectIndex + ': ' + r.loadStateName);
-    A.toast('Ladezustand: ' + r.loadStateName);
-  } catch (e) {
-    A.warn(e.message);
-  }
+    return { level: 'ok', message: `${address}, Objekt ${objectIndex}: ${r.loadStateName}` };
+  });
 }
 
 /* ---------- Oeffnen und Schliessen ---------- */
 
 async function openOverlay() {
   ensureOverlay();
-  fillLines();
-  fillTargets();
+  if (!task.current) { fillLines(); fillTargets(); syncControls(); }
   overlay.classList.add('open');
   try {
-    applyStatus(await B.bus.status());
+    if (!task.current) applyStatus(await B.bus.status());
   } catch (e) {
     appendLog('warn', 'Status nicht lesbar: ' + e.message);
+  }
+  // Beim ersten Oeffnen gleich suchen — das ist fast immer der erste Schritt.
+  if (!bus.connected && !bus.autoSearched && !task.current && mode() === 'tunneling') {
+    bus.autoSearched = true;
+    discover(true);
   }
 }
 

@@ -34,6 +34,13 @@
   <build>
     <finalName>sb-server</finalName>
     <plugins>
+      <!-- Aeltere Maven-Versionen (z. B. 3.8 unter Ubuntu) bringen Compiler-Plugin 3.1 mit;
+           das kennt maven.compiler.release nicht und faellt auf Java 5 zurueck. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
