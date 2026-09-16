@@ -22,11 +22,25 @@ public final class Knx {
     public static final int LOAD_EVENT_ADDITIONAL = 0x03;
     public static final int LOAD_EVENT_UNLOAD = 0x04;
 
-    /** Speicherlage der Geraetekennung bei Realisierungstyp 1 (BCU1, Masken 0010h-0013h). */
-    public static final int BCU1_PROGRAM_VERSION = 0x0103;
+    /** Speicherlage der Geraetekennung bei Realisierungstyp 1 (BCU1, Masken 0010h-0013h, 09/04/01 3.1.10.3):
+     *  0104h Hersteller, 0105h-0106h Geraetetyp, 0107h Version. */
+    public static final int BCU1_PROGRAM_VERSION = 0x0104;
     public static final int BCU1_PEI_TYPE = 0x0109;
     public static final int BCU1_RUN_ERROR = 0x010D;
     public static final int BCU1_ADDRTAB_SIZE = 0x0116;
+
+    /** Speicherabgebildete Load State Machines der Masken 0700h/0701h (03/05/02 3.31.2). */
+    public static final int M112_LOAD_CONTROL = 0x0104;
+    public static final int M112_LOAD_STATE_BASE = 0xB6E9;
+
+    public static boolean isBcu1(int mask) {
+        return mask >= 0x0010 && mask <= 0x0013;
+    }
+
+    /** BIM M112 mit Maske 0700h/0701h fuehrt die Load State Machines im Speicher, 0705h als Property. */
+    public static boolean hasMemoryMappedLsm(int mask) {
+        return mask == 0x0700 || mask == 0x0701;
+    }
 
     private static final String[] LOAD_STATES =
             {"Unloaded", "Loaded", "Loading", "Error", "Unloading", "LoadCompleting"};

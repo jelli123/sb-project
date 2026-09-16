@@ -115,12 +115,14 @@ public final class DeviceInfoReader {
 
     private Map<String, Object> readBcu1(Destination d) throws KNXDisconnectException {
         Map<String, Object> legacy = Json.obj();
-        // 0103h..0107h hat dasselbe Format wie PID_PROGRAM_VERSION: Hersteller, Geraetetyp, Version.
-        byte[] id = memory(d, Knx.BCU1_PROGRAM_VERSION, 5);
+        // 0104h Hersteller (1 Oktett), 0105h-0106h Geraetetyp, 0107h Version
+        byte[] id = memory(d, Knx.BCU1_PROGRAM_VERSION, 4);
         byte[] pei = memory(d, Knx.BCU1_PEI_TYPE, 1);
         byte[] runError = memory(d, Knx.BCU1_RUN_ERROR, 1);
         byte[] addrTab = memory(d, Knx.BCU1_ADDRTAB_SIZE, 1);
-        if (id != null) legacy.put("programVersion", programVersion(id));
+        if (id != null && id.length >= 4) {
+            legacy.put("programVersion", programVersion(new byte[] {0, id[0], id[1], id[2], id[3]}));
+        }
         if (pei != null) legacy.put("peiType", Knx.unsigned(pei));
         if (runError != null) legacy.put("runError", String.format("%02X", Knx.unsigned(runError)));
         if (addrTab != null) legacy.put("addressTableEntries", Knx.unsigned(addrTab));

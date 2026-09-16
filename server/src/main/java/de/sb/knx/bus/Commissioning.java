@@ -1,9 +1,11 @@
 package de.sb.knx.bus;
 
 import de.sb.knx.json.Json;
+import tuwien.auto.calimero.DeviceDescriptor;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
 import tuwien.auto.calimero.SerialNumber;
+import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
 import tuwien.auto.calimero.mgmt.PropertyAccess.PID;
 
@@ -135,19 +137,35 @@ public final class Commissioning {
     }
 
     /**
-     * Entlaedt einen ladbaren Teil ueber die Load State Machine.
-     * Das Ereignis Unload ist 04h und der Schreibwert immer 10 Oktett lang (03/05/01, Tabelle 93).
+     * Entlaedt einen ladbaren Teil. Wie, haengt vom Geraetemodell ab (Maske aus dem Device Descriptor):
+     * <ul>
+     * <li>BCU1 (0010h-0013h) kennt keine Load State Machine. Entladen heisst dort wie in der Maskendefinition:
+     *     Laufzeitfehler-Flags 010Dh = 00h und Adresstabellenlaenge 0116h = 01h.</li>
+     * <li>BIM M112 mit 0700h/0701h fuehrt die Load State Machines im Speicher: 11 Oktette an 0104h,
+     *     erstes Oktett LSM-Nummer und Ereignis, Zustand ab B6EAh (03/05/02 3.31.2).</li>
+     * <li>Alle anderen ueber PID_LOAD_STATE_CONTROL mit 10 Oktetten (03/05/02 3.31.3).</li>
+     * </ul>
+     * Unloading ist ein Zwischenzustand; bis zu 30 s wird nachgelesen (03/05/01 4.23.2).
      */
     public Map<String, Object> unload(IndividualAddress address, int objectIndex)
             throws KNXException, InterruptedException {
         return bus.withDestination(address, d -> {
-            bus.client().writeProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1,
-                    Knx.loadEvent(Knx.LOAD_EVENT_UNLOAD));
-            byte[] state = bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1);
-            int value = Knx.unsigned(state);
+            int mask = mask(d);
             Map<String, Object> m = Json.obj();
-            m.put("ok", value == 0);
             m.put("objectIndex", objectIndex);
+            m.put("maskVersion", String.format("%04X", mask));
+            if (Knx.isBcu1(mask)) {
+                bus.client().writeMemory(d, Knx.BCU1_RUN_ERROR, new byte[] {0});
+                bus.client().writeMemory(d, Knx.BCU1_ADDRTAB_SIZE, new byte[] {1});
+                m.put("ok", true);
+                m.put("message", address + " (BCU1): Applikation angehalten und Adresstabelle geleert. "
+                        + "Realisierungstyp 1 hat keine Load State Machine; der Objektindex spielt keine Rolle.");
+                return m;
+            }
+            int value = Knx.hasMemoryMappedLsm(mask)
+                    ? memoryLsm(d, objectIndex, Knx.LOAD_EVENT_UNLOAD)
+                    : propertyLsm(d, objectIndex, Knx.LOAD_EVENT_UNLOAD);
+            m.put("ok", value == 0);
             m.put("loadState", value);
             m.put("loadStateName", Knx.loadState(value));
             m.put("message", value == 0
@@ -160,13 +178,57 @@ public final class Commissioning {
     public Map<String, Object> loadState(IndividualAddress address, int objectIndex)
             throws KNXException, InterruptedException {
         return bus.withDestination(address, d -> {
-            byte[] load = bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1);
-            int value = Knx.unsigned(load);
+            int mask = mask(d);
             Map<String, Object> m = Json.obj();
             m.put("objectIndex", objectIndex);
+            m.put("maskVersion", String.format("%04X", mask));
+            if (Knx.isBcu1(mask)) {
+                // Ersatzweise: laeuft die Applikation und ist die Adresstabelle belegt?
+                int runError = Knx.unsigned(bus.client().readMemory(d, Knx.BCU1_RUN_ERROR, 1));
+                int entries = Knx.unsigned(bus.client().readMemory(d, Knx.BCU1_ADDRTAB_SIZE, 1));
+                m.put("loadState", -1);
+                m.put("loadStateName", "BCU1 ohne Load State Machine - Laufzeitfehler "
+                        + String.format("%02X", runError) + "h, Adresstabelle " + entries + " Eintraege");
+                return m;
+            }
+            int value = Knx.hasMemoryMappedLsm(mask)
+                    ? Knx.unsigned(bus.client().readMemory(d, Knx.M112_LOAD_STATE_BASE + objectIndex, 1))
+                    : Knx.unsigned(bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1));
             m.put("loadState", value);
             m.put("loadStateName", Knx.loadState(value));
             return m;
         });
+    }
+
+    private int mask(Destination d) throws KNXException, InterruptedException {
+        return DeviceDescriptor.DD0.from(bus.client().readDeviceDesc(d, 0)).maskVersion();
+    }
+
+    private int memoryLsm(Destination d, int lsm, int event) throws KNXException, InterruptedException {
+        if (lsm < 1 || lsm > 15) throw new IllegalArgumentException("Speicherabgebildete LSM-Nummer ist 1 bis 15");
+        byte[] data = new byte[11];
+        data[0] = (byte) ((lsm << 4) | event);
+        bus.client().writeMemory(d, Knx.M112_LOAD_CONTROL, data);
+        return pollState(() -> Knx.unsigned(bus.client().readMemory(d, Knx.M112_LOAD_STATE_BASE + lsm, 1)));
+    }
+
+    private int propertyLsm(Destination d, int objectIndex, int event) throws KNXException, InterruptedException {
+        bus.client().writeProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1, Knx.loadEvent(event));
+        return pollState(() -> Knx.unsigned(bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1)));
+    }
+
+    interface StateReader {
+        int read() throws KNXException, InterruptedException;
+    }
+
+    /** Zwischenzustaende Unloading (4) und LoadCompleting (5) abwarten, hoechstens 30 s. */
+    private static int pollState(StateReader reader) throws KNXException, InterruptedException {
+        long until = System.currentTimeMillis() + 30_000;
+        int value = reader.read();
+        while ((value == 4 || value == 5) && System.currentTimeMillis() < until) {
+            Thread.sleep(1_000);
+            value = reader.read();
+        }
+        return value;
     }
 }
