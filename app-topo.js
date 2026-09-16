@@ -339,7 +339,9 @@ function actImportPick(products, fileName, onDone, info) {
   const skipped = (info && info.binaries) || [];
   const rows = products.map((p, i) => {
     const g = p.prog;
-    const ready = !!(g && g.procedures.length && !g.unsupported.length && !g.plugin);
+    // BCU1 und Koppler bringen die Ladeprozedur über die Maskendefinition mit
+    const ready = !!(g && g.dl && (g.procedures.length || (g.dl.mk && g.dl.mk.procs.length))
+      && !g.unsupported.length && !g.plugin);
     const mask = g && g.mask ? g.mask.replace(/^MV-/, '') : '';
     return `
     <label class="chk-row" data-name="${esc((p.name + ' ' + p.order + ' ' + p.manufacturer).toLowerCase())}">
@@ -351,7 +353,7 @@ function actImportPick(products, fileName, onDone, info) {
       </span>
       ${mask ? `<span class="src-tag${ready ? ' prog' : ''}"
         title="${ready
-          ? 'Ladeprozeduren vollständig gelesen — Grundlage für einen späteren Download'
+          ? 'Ladeprozeduren vollständig gelesen — das Gerät lässt sich programmieren'
           : 'Für einen Download fehlen Angaben oder es wird ein herstellereigenes Programm gebraucht'}"
         >Maske ${esc(mask)}</span>` : ''}
       <span class="dpt-tag" title="Objekte und Parameter der Produktdatei">${p.objCount} KO · ${p.paramCount} P</span>

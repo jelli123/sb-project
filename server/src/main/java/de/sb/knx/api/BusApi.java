@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpHandler;
 import de.sb.knx.bus.BusService;
 import de.sb.knx.bus.Commissioning;
 import de.sb.knx.bus.DeviceInfoReader;
+import de.sb.knx.bus.Download;
 import de.sb.knx.bus.Knx;
 import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
@@ -14,11 +15,12 @@ import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Buszugriff: Suche, Verbindung, Scan, Geraete-Info, Adressvergabe, Neustart und Entladen. */
+/** Buszugriff: Suche, Verbindung, Scan, Geraete-Info, Adressvergabe, Download, Neustart und Entladen. */
 public final class BusApi implements HttpHandler {
 
     private final BusService bus;
@@ -62,6 +64,7 @@ public final class BusApi implements HttpHandler {
                 case "/api/bus/progmode" -> progMode(ex, method);
                 case "/api/bus/address" -> address(ex, method);
                 case "/api/bus/address/occupied" -> occupied(ex);
+                case "/api/bus/download" -> download(ex, method);
                 case "/api/bus/restart" -> restart(ex, method);
                 case "/api/bus/unload" -> unload(ex, method);
                 case "/api/bus/loadstate" -> loadState(ex);
@@ -219,6 +222,63 @@ public final class BusApi implements HttpHandler {
         m.put("address", addr.toString());
         m.put("occupied", run(() -> commissioning.isAddressOccupied(addr), 30));
         Http.json(ex, 200, m);
+    }
+
+    /* ---------------- Applikation laden ---------------- */
+
+    /**
+     * Nimmt einen fertigen Downloadplan entgegen und arbeitet ihn als Auftrag ab. Der Fortschritt
+     * laeuft ueber die Ereignisleitung. Programmiert man die verbundene Schnittstelle selbst,
+     * reisst der Tunnel beim Neustart ab - nach dem Neustartschritt gilt das nicht als Fehler.
+     */
+    @SuppressWarnings("unchecked")
+    private void download(HttpExchange ex, String method) throws Exception {
+        requirePost(method);
+        Map<String, Object> body = Http.jsonBody(ex);
+        IndividualAddress addr = Knx.address(Json.str(body, "address", null));
+        String label = Json.str(body, "label", "Download " + addr);
+        if (!(body.get("steps") instanceof List<?> raw)) throw new IllegalArgumentException("Feld steps fehlt");
+        List<Map<String, Object>> steps = new ArrayList<>();
+        for (Object o : raw) {
+            if (!(o instanceof Map)) throw new IllegalArgumentException("Schritt ist kein Objekt");
+            steps.add((Map<String, Object>) o);
+        }
+        Download.validate(steps);
+        if (!bus.connected()) throw new IllegalStateException("Keine Busverbindung. Bitte zuerst eine Schnittstelle verbinden.");
+        String iface = bus.interfaceAddress();
+
+        String[] holder = new String[1];
+        holder[0] = jobs.submit("download", bus.executor(), () -> {
+            events.log("info", label + ": " + steps.size() + " Schritte");
+            Download dl = new Download(bus);
+            try {
+                Map<String, Object> result = dl.run(addr, steps, (i, total, text) -> {
+                    Map<String, Object> progress = Json.obj();
+                    progress.put("step", i);
+                    progress.put("total", total);
+                    progress.put("label", text);
+                    jobs.progress(holder[0], text, progress);
+                });
+                events.log("info", label + " abgeschlossen");
+                return result;
+            } catch (Exception e) {
+                if (dl.restarted() && !bus.connected() && addr.toString().equals(iface)) {
+                    Map<String, Object> m = Json.obj();
+                    m.put("ok", true);
+                    m.put("linkLost", true);
+                    m.put("address", addr.toString());
+                    m.put("message", "Die Schnittstelle startet mit der neuen Konfiguration neu, "
+                            + "die Verbindung ist dabei abgerissen. Bitte neu suchen und verbinden.");
+                    events.log("warn", String.valueOf(m.get("message")));
+                    return m;
+                }
+                throw e;
+            }
+        });
+
+        Map<String, Object> m = Json.obj();
+        m.put("job", holder[0]);
+        Http.json(ex, 202, m);
     }
 
     /* ---------------- Stufe 3 ---------------- */

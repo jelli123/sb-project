@@ -158,18 +158,18 @@ function buildTranslations(doc, prefer) {
 }
 
 /* ---------- Programmierdaten ---------- *
- * Was ein späterer Download braucht: Speicherlayout, Tabellen und die
- * Ladeprozeduren. Gelesen wird hier alles, geschrieben nichts.             */
+ * Was der Download braucht: Speicherlayout, Tabellen, die Lage jedes
+ * Parameters und die Ladeprozeduren. Das Laden selbst übernimmt
+ * knx-download.js zusammen mit dem lokalen Dienst.                         */
 
-/* Die Schritte, die eine Ladeprozedur der ETS kennt. Alles andere gilt als
-   nicht unterstützt und wird am Produkt vermerkt. */
+/* Die Ladeschritte, die der Download ausführen kann. Alles andere wird am
+   Produkt vermerkt und sperrt den Download. */
 const LDCTRL = new Set([
   'LdCtrlConnect', 'LdCtrlDisconnect', 'LdCtrlUnload', 'LdCtrlLoad', 'LdCtrlLoadCompleted',
-  'LdCtrlAbsSegment', 'LdCtrlRelSegment', 'LdCtrlTaskSegment', 'LdCtrlTaskPtr',
-  'LdCtrlWriteMem', 'LdCtrlWriteRelMem', 'LdCtrlWriteRelMemSameArea', 'LdCtrlReadMem',
-  'LdCtrlCompareMem', 'LdCtrlWriteProp', 'LdCtrlReadProp', 'LdCtrlCompareProp',
-  'LdCtrlMerge', 'LdCtrlInvalidate', 'LdCtrlDelay', 'LdCtrlRestart', 'LdCtrlMasterReset',
-  'LdCtrlSetControlVariable'
+  'LdCtrlAbsSegment', 'LdCtrlTaskSegment', 'LdCtrlTaskPtr', 'LdCtrlTaskCtrl1', 'LdCtrlTaskCtrl2',
+  'LdCtrlMaxLength', 'LdCtrlWriteMem', 'LdCtrlLoadImageMem', 'LdCtrlWriteProp', 'LdCtrlLoadImageProp',
+  'LdCtrlCompareProp', 'LdCtrlMerge', 'LdCtrlDelay', 'LdCtrlRestart', 'LdCtrlSetControlVariable',
+  'LdCtrlClearLCFilterTable', 'LdCtrlClearCachedObjectTypes', 'LdCtrlDeclarePropDesc'
 ]);
 
 const localName = el => el.localName || el.nodeName.split(':').pop();
@@ -178,6 +178,58 @@ const num = (el, name) => {
   if (!v) return 0;
   return /^0x/i.test(v) ? parseInt(v, 16) : parseInt(v, 10) || 0;
 };
+
+/* Größe eines Kommunikationsobjekts als Typ-Oktett der Objekttabelle
+   (03/05/01, Group Object Table Realisation Type 1). */
+const OBJECT_SIZE = {
+  '1 bit': 0, '2 bit': 1, '3 bit': 2, '4 bit': 3, '5 bit': 4, '6 bit': 5, '7 bit': 6,
+  '1 byte': 7, '2 bytes': 8, '3 bytes': 9, '4 bytes': 10, '6 bytes': 11, '8 bytes': 12,
+  '10 bytes': 13, '14 bytes': 14
+};
+const sizeCode = s => {
+  const k = String(s || '').trim().toLowerCase();
+  return k in OBJECT_SIZE ? OBJECT_SIZE[k] : -1;
+};
+const PRIORITY = { Low: 'L', High: 'H', Alert: 'A' };
+
+/* Ladeschritte werden wörtlich übernommen; Verzweigungen behalten ihre Kinder. */
+function readSteps(el) {
+  return [...el.children].map(c => {
+    const a = {};
+    [...c.attributes].forEach(x => { a[x.name] = x.value; });
+    const step = { n: localName(c), a };
+    if (c.children.length) step.k = readSteps(c);
+    return step;
+  });
+}
+
+/* Wo ein Parameter im Gerät landet: Speichersegment oder Property. Unions
+   teilen sich einen Ort, jedes Mitglied liegt versetzt darin.              */
+function paramLocation(p, cut) {
+  const parent = p.parentElement;
+  const inUnion = parent && localName(parent) === 'Union';
+  const host = inUnion ? parent : p;
+  const place = [...host.children].find(c => ['Memory', 'Property'].includes(localName(c)));
+  if (!place) return null;
+  const rel = inUnion ? num(p, 'Offset') * 8 + num(p, 'BitOffset') : 0;
+  const at = num(place, 'Offset') * 8 + num(place, 'BitOffset') + rel;
+  let where;
+  if (localName(place) === 'Memory') {
+    where = 's:' + cut(attr(place, 'CodeSegment'));
+  } else {
+    // Objektindex, wenn angegeben, sonst Objekttyp samt Vorkommen
+    where = attr(place, 'ObjectIndex') !== ''
+      ? `i:${num(place, 'ObjectIndex')}:${num(place, 'PropertyId')}`
+      : `t:${num(place, 'ObjectType')}:${num(place, 'Occurrence')}:${num(place, 'PropertyId')}`;
+  }
+  const l = { w: where, o: at };
+  if (inUnion) {
+    l.u = 1;
+    l.uk = where + '@' + (num(place, 'Offset') * 8 + num(place, 'BitOffset'));
+    if (attr(p, 'DefaultUnionParameter') === 'true') l.du = 1;
+  }
+  return l;
+}
 
 function readProgramming(ap, cut) {
   /* Speichersegmente: absolute liegen an fester Adresse, relative im Ladebereich. */
@@ -230,6 +282,21 @@ function readProgramming(ap, cut) {
     || [...ap.getElementsByTagName('*')].some(el =>
          [...el.attributes].some(a => /\.dll$/i.test(a.value)));
 
+  /* Für den Download: Segmentinhalte, Ladeschritte und Optionen. */
+  const segs = {};
+  tags(ap, 'AbsoluteSegment').forEach(s => {
+    const data = [...s.children].find(c => localName(c) === 'Data');
+    const mask = [...s.children].find(c => localName(c) === 'Mask');
+    segs[cut(attr(s, 'Id'))] = [num(s, 'Address'), num(s, 'Size'),
+      data ? data.textContent.trim() : '', mask ? mask.textContent.trim() : ''];
+  });
+  const lp = tags(ap, 'LoadProcedure').map(el => ({
+    m: attr(el, 'MergeId'), t: attr(el, 'ProcedureType'), s: attr(el, 'ProcedureSubType'),
+    k: readSteps(el)
+  }));
+  const options = tags(ap, 'Options')[0];
+  const manu = /^M-([0-9A-Fa-f]{4})/.exec(attr(ap, 'Id'));
+
   return {
     mask: attr(ap, 'MaskVersion'),
     appNumber: num(ap, 'ApplicationNumber'),
@@ -244,7 +311,45 @@ function readProgramming(ap, cut) {
     comTab: table('ComObjectTable'),
     segments, properties, procedures,
     unsupported: [...unsupported],
-    plugin
+    plugin,
+    dl: {
+      v: 1,
+      manu: manu ? parseInt(manu[1], 16) : 0,
+      addAddr: num(ap, 'AdditionalAddressesCount'),
+      segs, lp,
+      opt: {
+        enc: attr(options, 'TextParameterEncoding') || 'iso-8859-1',
+        zt: attr(options, 'TextParameterZeroTerminate') === 'true',
+        lc912: attr(options, 'LineCoupler0912NewProgrammingStyle') === 'true'
+      }
+    }
+  };
+}
+
+/* Die Maskendefinition aus knx_master.xml: Merkmale und die Standard-
+   prozeduren, die bei DefaultProcedure und MergedProcedure gelten. Koppler
+   091A kennen zwei Fassungen; LineCoupler0912NewProgrammingStyle wählt. */
+function readMask(mv, opt) {
+  if (!mv) return null;
+  const hawks = [...mv.children].filter(c => localName(c) === 'HawkConfigurationData');
+  // Die Fassungen sind nur per Kommentar benannt (LegacyVersion ist eine
+  // Formatversion). Die neue erkennt man an den Einschubstellen der Applikation.
+  const legacy = h => hawks.length > 1 && !tags(h, 'LdCtrlMerge').length;
+  const hawk = hawks.find(h => (opt && opt.lc912) ? !legacy(h) : legacy(h))
+    || hawks.find(h => !legacy(h)) || hawks[0];
+  const feat = {};
+  const procs = [];
+  if (hawk) {
+    tags(hawk, 'Feature').forEach(f => { feat[attr(f, 'Name')] = attr(f, 'Value'); });
+    tags(hawk, 'Procedure').forEach(p => procs.push({
+      t: attr(p, 'ProcedureType'), s: attr(p, 'ProcedureSubType'), k: readSteps(p)
+    }));
+  }
+  return {
+    v: num(mv, 'MaskVersion'),
+    mm: attr(mv, 'ManagementModel'),
+    compat: tags(mv, 'DownwardCompatibleMask').map(d => parseInt(attr(d, 'RefId').slice(3), 16)),
+    feat, procs
   };
 }
 
@@ -257,56 +362,75 @@ function readApp(ap, lang) {
   const cut = s => String(s || '').startsWith(appId + '_') ? s.slice(appId.length + 1) : s;
   const tr = (el, name) => lang.get(attr(el, 'Id') + '|' + name) || attr(el, name);
 
-  /* Parametertypen: Auswahlliste, Zahl, Text oder reine Überschrift. */
+  /* Parametertypen: Auswahlliste, Zahl, Text oder reine Überschrift.
+     `n` ist die Breite im Gerät in Bit, `e` die Kodierung beim Download. */
   const types = {};
   tags(ap, 'ParameterType').forEach(pt => {
     const id = cut(attr(pt, 'Id'));
     let e = { k: 'text' };
     for (const k of pt.children) {
       const n = k.localName || k.nodeName.split(':').pop();
+      const bits = num(k, 'SizeInBit');
       if (n === 'TypeNumber') {
-        e = { k: 'num', min: +attr(k, 'minInclusive') || 0, max: +attr(k, 'maxInclusive') || 0 };
+        e = { k: 'num', min: +attr(k, 'minInclusive') || 0, max: +attr(k, 'maxInclusive') || 0,
+              n: bits, e: attr(k, 'Type') === 'signedInt' ? 's' : 'u' };
       } else if (n === 'TypeRestriction') {
-        e = { k: 'enum', v: tags(k, 'Enumeration')
-          .map(x => [attr(x, 'Value'), tr(x, 'Text')])
-          .sort((a, b) => (+attr(pt, '_') || 0) - 0) };
+        const list = tags(k, 'Enumeration');
+        e = { k: 'enum', v: list.map(x => [attr(x, 'Value'), tr(x, 'Text')]), n: bits, e: 'u' };
+        if (attr(k, 'Base') === 'BinaryValue') {
+          e.e = 'bin';
+          e.b = {};
+          list.forEach(x => { e.b[attr(x, 'Value')] = attr(x, 'BinaryValue'); });
+        }
       } else if (n === 'TypeFloat') {
-        e = { k: 'num', min: +attr(k, 'minInclusive') || 0, max: +attr(k, 'maxInclusive') || 0 };
+        const enc = attr(k, 'Encoding');
+        e = { k: 'num', min: +attr(k, 'minInclusive') || 0, max: +attr(k, 'maxInclusive') || 0,
+              n: enc === 'DPT 9' ? 16 : /Double/i.test(enc) ? 64 : 32,
+              e: enc === 'DPT 9' ? 'f9' : /Double/i.test(enc) ? 'f64' : 'f32' };
       } else if (n === 'TypeText') {
-        e = { k: 'text', max: +attr(k, 'SizeInBit') / 8 || 0 };
+        e = { k: 'text', max: bits / 8 || 0, n: bits, e: 'txt' };
       } else if (n === 'TypeIPAddress') {
-        e = { k: 'ip' };
+        e = { k: 'ip', n: 32, e: 'ip' };
       } else if (n === 'TypeTime') {
-        e = { k: 'time' };
+        e = { k: 'time', n: bits, e: 'u' };
       } else if (n === 'TypeDate') {
-        e = { k: 'date' };
+        e = { k: 'date', n: 24, e: 'x' };
       } else if (n === 'TypeNone' || n === 'TypePicture') {
-        e = { k: 'none' };
+        e = { k: 'none', n: 0 };
+      } else {
+        e = { k: 'text', n: bits, e: 'x' };
       }
       break;
     }
     types[id] = e;
   });
 
-  /* Parameterdefinitionen inklusive der in Unions verpackten. */
+  /* Parameterdefinitionen inklusive der in Unions verpackten. Die Lage im
+     Gerät wird für alle Parameter gebraucht — auch für solche ohne Referenz,
+     deren fester Wert trotzdem geschrieben werden muss.                    */
   const defs = {};
+  const loc = {};
   tags(ap, 'Parameter').forEach(p => {
-    defs[cut(attr(p, 'Id'))] = {
+    const id = cut(attr(p, 'Id'));
+    defs[id] = {
       t: tr(p, 'Text'),
       pt: cut(attr(p, 'ParameterType')),
       d: attr(p, 'Value'),
       ro: attr(p, 'Access') === 'Read' || attr(p, 'Access') === 'None'
     };
+    const l = paramLocation(p, cut);
+    if (l) loc[id] = { ...l, t: defs[id].pt, d: defs[id].d };
   });
   const params = {};
   tags(ap, 'ParameterRef').forEach(pr => {
-    const base = defs[cut(attr(pr, 'RefId'))];
+    const pid = cut(attr(pr, 'RefId'));
+    const base = defs[pid];
     if (!base) return;
     const text = lang.get(attr(pr, 'Id') + '|Text') || attr(pr, 'Text') || base.t;
     // Access am Ref schlaegt den des Parameters
     const acc = attr(pr, 'Access');
     params[cut(attr(pr, 'Id'))] = {
-      t: text, pt: base.pt,
+      t: text, pt: base.pt, p: pid,
       d: attr(pr, 'Value') || base.d,
       ro: acc ? (acc === 'Read' || acc === 'None') : base.ro
     };
@@ -315,29 +439,41 @@ function readApp(ap, lang) {
   /* Kommunikationsobjekte: die Referenzen tragen die eigentliche Bedeutung,
      fehlende Angaben erben sie von der Objekttabelle.                      */
   const base = new Map();
+  const flagsOf = (o, dflt) => ({
+    c: flagOn(o, 'CommunicationFlag', dflt.c), r: flagOn(o, 'ReadFlag', dflt.r),
+    w: flagOn(o, 'WriteFlag', dflt.w), t: flagOn(o, 'TransmitFlag', dflt.t),
+    u: flagOn(o, 'UpdateFlag', dflt.u)
+  });
+  const flagStr = f => (f.c ? 'c' : '') + (f.r ? 'r' : '') + (f.w ? 'w' : '') +
+    (f.t ? 't' : '') + (f.u ? 'u' : '');
   tags(ap, 'ComObject').forEach(o => base.set(attr(o, 'Id'), {
     num: parseInt(attr(o, 'Number'), 10) || 0,
     text: tr(o, 'Text'), fn: tr(o, 'FunctionText'),
     dpt: attr(o, 'DatapointType'), size: attr(o, 'ObjectSize'),
-    flags: {
-      c: flagOn(o, 'CommunicationFlag', true), r: flagOn(o, 'ReadFlag', false),
-      w: flagOn(o, 'WriteFlag', false), t: flagOn(o, 'TransmitFlag', false),
-      u: flagOn(o, 'UpdateFlag', false)
-    }
+    prio: PRIORITY[attr(o, 'Priority')] || 'L',
+    flags: flagsOf(o, { c: true, r: false, w: false, t: false, u: false })
   }));
+
+  /* Die Objekttabelle im Gerät kennt nur Nummern. Für Objekte, die die
+     Parametrierung ausblendet, gelten die Angaben der Objektdefinition. */
+  const co = {};
+  base.forEach(b => { co[b.num] = { f: flagStr(b.flags), z: sizeCode(b.size), pr: b.prio }; });
 
   const objs = {};
   const addObj = (id, el, b) => {
     const text = el ? (tr(el, 'Text') || b.text) : b.text;
     const fn = el ? (tr(el, 'FunctionText') || b.fn) : b.fn;
     const dptRaw = (el && attr(el, 'DatapointType')) || b.dpt;
-    const flags = b.flags;
+    const size = (el && attr(el, 'ObjectSize')) || b.size;
+    // Flags und Größe an der Referenz schlagen die der Objektdefinition
+    const flags = el ? flagsOf(el, b.flags) : b.flags;
     objs[id] = {
       num: b.num,
       name: objectName(text, fn),
-      dpt: toDpt(dptRaw) || dptFromSize(b.size),
-      f: (flags.c ? 'c' : '') + (flags.r ? 'r' : '') + (flags.w ? 'w' : '') +
-         (flags.t ? 't' : '') + (flags.u ? 'u' : '')
+      dpt: toDpt(dptRaw) || dptFromSize(size),
+      f: flagStr(flags),
+      z: sizeCode(size),
+      pr: (el && PRIORITY[attr(el, 'Priority')]) || b.prio
     };
   };
   const covered = new Set();
@@ -384,10 +520,12 @@ function readApp(ap, lang) {
      nicht in der Produktdatei steht.                                       */
   const ip = tags(ap, 'Property').some(p => attr(p, 'ObjectType') === '11');
 
+  const prog = readProgramming(ap, cut);
+  prog.dl.loc = loc;
+  prog.dl.co = co;
   return { name: lang.get(appId + '|Name') || attr(ap, 'Name'),
            mask: attr(ap, 'MaskVersion'),
-           types, params, objs, dyn, ip,
-           prog: readProgramming(ap, cut) };
+           types, params, objs, dyn, ip, prog };
 }
 
 /* Sammelt Produkte über Katalog → Produkt → Hardware2Program → Programm.
@@ -399,6 +537,7 @@ function collect(docs, prefer) {
   const products = new Map();      // Product-Id → { text, order, hw }
   const manufacturers = new Map(); // M-xxxx → Name
   const media = new Map();         // MaskVersion-Id → 'tp' | 'ip' | 'rf' | 'pl'
+  const masks = new Map();         // MaskVersion-Id → Element aus knx_master.xml
 
   const MEDIUM = { 'MT-0': 'tp', 'MT-1': 'pl', 'MT-2': 'rf', 'MT-5': 'ip' };
 
@@ -412,6 +551,7 @@ function collect(docs, prefer) {
     tags(doc, 'MaskVersion').forEach(mv => {
       const id = attr(mv, 'Id'), mt = attr(mv, 'MediumTypeRefId');
       if (id && MEDIUM[mt]) media.set(id, MEDIUM[mt]);
+      if (id && !masks.has(id)) masks.set(id, mv);
     });
 
     const lang = buildTranslations(doc, prefer);
@@ -451,6 +591,20 @@ function collect(docs, prefer) {
       if (id && !products.has(id))
         products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber'), hw: null });
     });
+  });
+
+  // Die Stammdaten können im Archiv vor oder nach den Programmen stehen
+  apps.forEach(app => {
+    const mk = readMask(masks.get(app.mask), app.prog.dl.opt);
+    if (mk) {
+      // Geräte, deren Maske die der Applikation als abwärtskompatibel nennt, dürfen sie auch laden
+      mk.hosts = [mk.v];
+      masks.forEach(mv => {
+        if (tags(mv, 'DownwardCompatibleMask').some(d => attr(d, 'RefId') === app.mask))
+          mk.hosts.push(num(mv, 'MaskVersion'));
+      });
+    }
+    app.prog.dl.mk = mk;
   });
 
   const out = [];

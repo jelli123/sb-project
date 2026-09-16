@@ -784,6 +784,16 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .power-bar.tight span { background: var(--warn); }
 .power-bar.over span { background: var(--danger); }
 
+/* Fortschritt des Applikationsdownloads im Inbetriebnahme-Fenster */
+.prog-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 6px 0;
+}
+.prog-bar span { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+
 .detail-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
 
 .detail-h {

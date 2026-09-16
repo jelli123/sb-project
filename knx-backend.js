@@ -13,7 +13,7 @@ window.KNXBackend = null;
 (() => {
 
 const SCRIPTS = [
-  'knx-data.js', 'knx-prod.js',
+  'knx-data.js', 'knx-prod.js', 'knx-download.js',
   'app.js', 'app-ga.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
 ];
 
@@ -166,6 +166,7 @@ const backend = {
     progModeList:()      => get('/api/bus/progmode', { timeout: 40000 }),
     progModeSet: (address, on) => post('/api/bus/progmode', { address, on }, { timeout: 40000 }),
     assign:      body    => post('/api/bus/address', body, { timeout: 130000 }),
+    download:    body    => post('/api/bus/download', body, { timeout: 30000 }),
     restart:     body    => post('/api/bus/restart', body, { timeout: 130000 }),
     unload:      body    => post('/api/bus/unload', body, { timeout: 70000 }),
     loadState:   (address, objectIndex) =>

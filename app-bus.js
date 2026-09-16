@@ -201,7 +201,7 @@ async function toggleDesktop(e) {
    Inbetriebnahme
    ============================================================ */
 
-const bus = { connected: false, connection: null, scanJob: null, servers: [], lastScan: [], found: [], autoSearched: false };
+const bus = { connected: false, connection: null, scanJob: null, progJob: null, servers: [], lastScan: [], found: [], autoSearched: false };
 const task = { current: null, timer: 0 };
 let overlay = null;
 
@@ -210,8 +210,8 @@ const q = sel => overlay.querySelector(sel);
 /* Alles, was ueber den Busthread des Dienstes laeuft. Der arbeitet streng
    nacheinander — ein zweiter Klick wuerde nur unsichtbar in der Warteschlange landen. */
 const BUS_ACTIONS = ['#bus-line', '#bus-scan', '#bus-read', '#bus-occupied', '#bus-prog-list',
-  '#bus-target', '#bus-assign', '#bus-assign-serial', '#bus-erase', '#bus-restart',
-  '#bus-unload', '#bus-loadstate'];
+  '#bus-target', '#bus-assign', '#bus-assign-serial', '#bus-prog-dev', '#bus-prog-kind', '#bus-program',
+  '#bus-erase', '#bus-restart', '#bus-unload', '#bus-loadstate'];
 
 function ensureOverlay() {
   if (overlay) return;
@@ -279,7 +279,7 @@ function ensureOverlay() {
           <p class="hint">Fragt alle 256 Teilnehmeradressen der Linie ab und dauert einige Minuten.
              Das Fenster darf dabei geschlossen oder im Hintergrund sein.
              Ein Klick auf eine gefundene Zeile übernimmt deren Adresse in die Felder
-             der Abschnitte 3 bis 5.</p>
+             der Abschnitte 3 bis 6.</p>
           <div class="ovl-table-wrap">
             <table class="ga mini"><thead><tr>
               <th>Adresse</th><th>Maske</th><th>Profil</th><th>Im Projekt</th><th></th>
@@ -322,8 +322,25 @@ function ensureOverlay() {
              der Dienst prüft das und bricht sonst ab.</p>
         </section>
 
+        <section class="ovl-sec" data-needs-bus id="bus-sec-program">
+          <h3>5 · Applikation laden <span class="sec-lock">— erst verbinden</span></h3>
+          <div class="row">
+            <span class="lbl">Gerät</span>
+            <select id="bus-prog-dev" class="select" aria-label="Gerät aus dem Projekt"></select>
+            <select id="bus-prog-kind" class="select" aria-label="Umfang des Downloads"></select>
+          </div>
+          <div class="row">
+            <button id="bus-program" class="btn btn-sm btn-primary">Programmieren</button>
+            <button id="bus-program-stop" class="btn btn-sm" hidden>Abbrechen</button>
+            <span id="bus-prog-state" class="pane-meta"></span>
+          </div>
+          <div id="bus-prog-plan"></div>
+          <p class="hint">Lädt Parameter, Gruppenadressen und Tabellen so, wie sie im Projekt stehen.
+             Das Gerät muss seine physikalische Adresse schon haben (Abschnitt 4).</p>
+        </section>
+
         <section class="ovl-sec danger" data-needs-bus>
-          <h3>5 · Neustart und Entladen <span class="sec-lock">— erst verbinden</span></h3>
+          <h3>6 · Neustart und Entladen <span class="sec-lock">— erst verbinden</span></h3>
           <div class="row">
             <span class="lbl">Adresse</span>
             <input id="bus-rst-addr" class="input narrow" placeholder="1.1.5">
@@ -391,6 +408,10 @@ function wire() {
   q('#bus-prog-list').onclick = listProgMode;
   q('#bus-assign').onclick = () => assign(false);
   q('#bus-assign-serial').onclick = () => assign(true);
+  q('#bus-program').onclick = program;
+  q('#bus-program-stop').onclick = stopProgram;
+  q('#bus-prog-dev').onchange = () => { fillKinds(); renderPlan(); };
+  q('#bus-prog-kind').onchange = renderPlan;
   q('#bus-restart').onclick = restart;
   q('#bus-unload').onclick = unload;
   q('#bus-loadstate').onclick = readLoadState;
@@ -415,7 +436,7 @@ function wire() {
   B.events.on('bus', e => { if (e.connected === false) onLinkLost(e.reason); });
   B.events.on('job', e => {
     const t = task.current;
-    if (!t || !t.onJob || e.id !== bus.scanJob) return;
+    if (!t || !t.onJob || (e.id !== bus.scanJob && e.id !== bus.progJob)) return;
     t.onJob(e);
   });
 }
@@ -448,6 +469,8 @@ function syncControls() {
   BUS_ACTIONS.forEach(sel => q(sel).disabled = busy || !conn);
   q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b => b.disabled = busy || !conn);
   q('#bus-scan-stop').hidden = !bus.scanJob;
+  q('#bus-program-stop').hidden = !bus.progJob;
+  if (!busy && conn) q('#bus-program').disabled = !!(bus.plan && bus.plan.errors.length) || !bus.plan;
 
   overlay.querySelectorAll('[data-needs-bus]').forEach(s => s.classList.toggle('locked', !conn));
 }
@@ -804,9 +827,15 @@ function applyPa(pa, quiet) {
     el.value = pa;
     el.classList.remove('invalid');
   });
-  // Steht die Adresse im Projekt, zeigt auch das Auswahlfeld darauf.
+  // Steht die Adresse im Projekt, zeigen auch die Auswahlfelder darauf.
   const target = q('#bus-target');
   target.value = [...target.options].some(o => o.value === pa) ? pa : '';
+  const dev = deviceByPa(pa);
+  if (dev && [...q('#bus-prog-dev').options].some(o => o.value === dev.id)) {
+    q('#bus-prog-dev').value = dev.id;
+    fillKinds();
+    renderPlan();
+  }
   suggestSerial();
   q('#bus-scan-rows').querySelectorAll('tr').forEach(tr =>
     tr.classList.toggle('sel', tr.dataset.pa === pa));
@@ -1037,6 +1066,160 @@ function doAssign(address, serial) {
   });
 }
 
+/* ---------- Applikation laden ---------- */
+
+const KIND_LABELS = {
+  all: 'Vollständig', par: 'Nur Parameter', grp: 'Nur Gruppenadressen',
+  'par,grp': 'Parameter und Gruppenadressen', cfg: 'Nur Konfiguration', unload: 'Applikation entladen'
+};
+
+function fillProgDevices() {
+  const p = KNX.project();
+  const devs = p.devices.filter(d => d.catalogId && KNX.catalogById(d.catalogId))
+    .sort((x, y) => x.addr - y.addr);
+  const keep = q('#bus-prog-dev').value;
+  q('#bus-prog-dev').innerHTML = devs.length
+    ? devs.map(d => `<option value="${esc(d.id)}">${KNX.paStr(d.addr)} — ${esc(d.name)}</option>`).join('')
+    : '<option value="">— kein Gerät mit Produktdatei im Projekt —</option>';
+  if (keep && devs.some(d => d.id === keep)) q('#bus-prog-dev').value = keep;
+  fillKinds();
+  renderPlan();
+}
+
+function fillKinds() {
+  const dev = KNX.deviceById(q('#bus-prog-dev').value);
+  const item = dev && KNX.catalogById(dev.catalogId);
+  const kinds = item ? KNXDownload.kinds(item) : [];
+  const keep = q('#bus-prog-kind').value;
+  const opts = (kinds.length ? kinds : ['all']).concat('unload');
+  const coupler = KNXDownload.usesFilterTable(item);
+  const label = k => coupler ? (KIND_LABELS[k] || k).replace('Gruppenadressen', 'Filtertabelle') : (KIND_LABELS[k] || k);
+  q('#bus-prog-kind').innerHTML = opts
+    .map(k => `<option value="${esc(k)}">${esc(label(k))}</option>`).join('');
+  if (opts.includes(keep)) q('#bus-prog-kind').value = keep;
+}
+
+/* Der Plan wird schon bei der Auswahl berechnet: Fehler zeigen sich, bevor der Bus berührt wird. */
+function renderPlan() {
+  const box = q('#bus-prog-plan');
+  const dev = KNX.deviceById(q('#bus-prog-dev').value);
+  const item = dev && KNX.catalogById(dev.catalogId);
+  bus.plan = null;
+  if (!dev || !item) { box.innerHTML = ''; syncControls(); return; }
+  let plan;
+  try {
+    plan = KNXDownload.plan(KNX.project(), dev, item, { kind: q('#bus-prog-kind').value });
+  } catch (e) {
+    plan = { steps: [], summary: {}, errors: ['Plan nicht berechenbar: ' + e.message], warnings: [] };
+  }
+  bus.plan = plan;
+  const s = plan.summary;
+  const facts = [
+    s.mask && 'Maske ' + s.mask.replace(/^MV-/, ''),
+    s.procedure,
+    s.addrs != null && s.addrs + ' Gruppenadressen',
+    s.assocs != null && s.assocs + ' Zuordnungen',
+    s.filter != null && s.filter + ' Adressen in der Filtertabelle',
+    s.params != null && s.params + ' Parameter',
+    s.writes ? s.writes + ' Byte Speicher' : '',
+    s.steps && s.steps + ' Schritte'
+  ].filter(Boolean);
+  box.innerHTML = `<p class="hint">${esc(facts.join(' · '))}</p>`
+    + plan.errors.map(m => `<p class="hint warn">${esc(m)}</p>`).join('')
+    + plan.warnings.slice(0, 5).map(m => `<p class="hint">${esc(m)}</p>`).join('')
+    + (plan.warnings.length > 5 ? `<p class="hint">… und ${plan.warnings.length - 5} weitere Hinweise.</p>` : '')
+    + '<div class="prog-bar" hidden><span></span></div>';
+  syncControls();
+}
+
+function program() {
+  const dev = KNX.deviceById(q('#bus-prog-dev').value);
+  const plan = bus.plan;
+  if (!dev || !plan) return;
+  if (plan.errors.length) { A.warn(plan.errors[0]); return; }
+  const pa = KNX.paStr(dev.addr);
+  const kind = q('#bus-prog-kind').value;
+  const what = KIND_LABELS[kind] || kind;
+  const iface = bus.interfaceAddress;
+
+  A.openModal(kind === 'unload' ? 'Applikation entladen?' : 'Gerät programmieren?', `
+    <p><b>${esc(dev.name)}</b> an <b>${esc(pa)}</b> — ${esc(what)}.</p>
+    <p class="hint">${plan.steps.length} Schritte${plan.summary.writes ? ', ' + plan.summary.writes + ' Byte' : ''}.
+       Das Gerät ist währenddessen ohne Funktion${plan.steps.some(x => x.op === 'restart')
+         ? ' und startet am Ende neu' : ''}.</p>
+    ${iface && iface === pa ? `<p class="hint warn">Das ist die verbundene Schnittstelle. Beim Neustart
+       bricht die Verbindung ab — danach „Neu verbinden“.</p>` : ''}
+    ${plan.warnings.length ? '<p class="hint warn">' + plan.warnings.map(esc).join('<br>') + '</p>' : ''}
+  `, () => doProgram(dev, plan, what));
+}
+
+function doProgram(dev, plan, what) {
+  const pa = KNX.paStr(dev.addr);
+  const bar = q('#bus-prog-plan .prog-bar');
+  const state = q('#bus-prog-state');
+  runTask({ btn: q('#bus-program'), label: `${dev.name} (${pa}) programmieren`, busyText: 'Programmiert …' }, async t => {
+    state.textContent = '';
+    if (bar) { bar.hidden = false; bar.firstElementChild.style.width = '0%'; }
+    t.onJob = e => {
+      const d = e.detail;
+      if (!d || !d.total) return;
+      if (bar) bar.firstElementChild.style.width = Math.round(d.step / d.total * 100) + '%';
+      state.textContent = `${d.step}/${d.total} ${d.label}`;
+      t.progress(`— ${d.step}/${d.total} ${d.label}`);
+    };
+    const r = await B.bus.download({ address: pa, label: `${what} ${pa}`, steps: plan.steps });
+    bus.progJob = r.job;
+    syncControls();
+    let s;
+    try {
+      s = await pollJob(r.job);
+    } finally {
+      bus.progJob = null;
+      q('#bus-program-stop').disabled = false;
+    }
+    if (s.state === 'abgebrochen') {
+      state.textContent = 'abgebrochen';
+      return { level: 'warn', message: `Programmieren von ${pa} abgebrochen — das Gerät ist unvollständig geladen` };
+    }
+    const res = s.result || {};
+    (res.notes || []).forEach(n => appendLog('warn', n));
+    if (bar) bar.firstElementChild.style.width = '100%';
+    if (res.linkLost) {
+      bus.connected = false;
+      q('#bus-reconnect').hidden = false;
+      refreshStatus();
+      state.textContent = 'fertig, Verbindung neu aufbauen';
+      return { level: 'warn', message: res.message };
+    }
+    state.textContent = `fertig · ${res.bytes || 0} Byte · ${res.seconds || 0} s`;
+    return { level: (res.notes || []).length ? 'warn' : 'ok',
+             message: `${dev.name} (${pa}): ${what} geladen` + ((res.notes || []).length ? ' — mit Hinweisen im Protokoll' : '') };
+  });
+}
+
+function stopProgram() {
+  if (!bus.progJob) return;
+  const btn = q('#bus-program-stop');
+  btn.disabled = true;
+  B.bus.cancelJob(bus.progJob).catch(e => {
+    appendLog('warn', 'Abbrechen nicht möglich: ' + e.message);
+    btn.disabled = false;
+  });
+}
+
+/* Aus dem Gerätedetail heraus: Fenster öffnen und das Gerät vorwählen. */
+async function programDevice(devId) {
+  await openOverlay();
+  if (task.current) return;
+  const sel = q('#bus-prog-dev');
+  if ([...sel.options].some(o => o.value === devId)) {
+    sel.value = devId;
+    fillKinds();
+    renderPlan();
+  }
+  q('#bus-sec-program').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 /* ---------- Neustart und Entladen ---------- */
 
 function restartLabel() {
@@ -1112,7 +1295,7 @@ function readLoadState() {
 
 async function openOverlay() {
   ensureOverlay();
-  if (!task.current) { fillLines(); fillTargets(); syncControls(); }
+  if (!task.current) { fillLines(); fillTargets(); fillProgDevices(); syncControls(); }
   overlay.classList.add('open');
   try {
     if (!task.current) applyStatus(await B.bus.status());
@@ -1140,6 +1323,6 @@ document.addEventListener('keydown', e => {
 $('#btn-projects').addEventListener('click', openProjects);
 $('#btn-bus').addEventListener('click', openOverlay);
 
-window.KNXBus = { available: true, open: openOverlay, openProjects };
+window.KNXBus = { available: true, open: openOverlay, openProjects, program: programDevice };
 
 })();

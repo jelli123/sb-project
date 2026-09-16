@@ -629,8 +629,7 @@ function noteSection(note) {
     : '';
 }
 
-/* Was die Produktdatei über das Laden sagt. Geschrieben wird noch nichts —
-   die Anzeige zeigt, was ein späterer Download brauchen würde. */
+/* Was die Produktdatei über das Laden sagt und ob der Download damit auskommt. */
 function progSection(item) {
   const p = item && item.prog;
   if (!p) return '';
@@ -659,14 +658,16 @@ function progSection(item) {
   if (p.plugin) blocked.push('Die Produktdatei verweist auf ein herstellereigenes Programm. '
     + 'Solche Programme laufen nur unter Windows in der ETS und werden hier übergangen.');
   if (p.unsupported.length) blocked.push('Unbekannte Ladeschritte: ' + p.unsupported.join(', ') + '.');
-  if (!p.procedures.length) blocked.push('Die Produktdatei enthält keine Ladeprozeduren.');
+  if (!p.dl) blocked.push('Das Produkt wurde mit einer älteren Version eingelesen. '
+    + 'Für den Download die .knxprod bitte erneut in den Katalog laden.');
+  else if (!p.procedures.length && !(p.dl.mk && p.dl.mk.procs.length))
+    blocked.push('Weder Produktdatei noch Maskendefinition enthalten eine Ladeprozedur.');
 
   return `<h3 class="detail-h">Programmierdaten</h3>
     <ul class="detail-list">${rows.join('')}</ul>
     ${blocked.length
       ? '<p class="hint warn">' + blocked.map(esc).join(' ') + '</p>'
-      : '<p class="hint">Die Angaben sind vollständig genug für einen späteren Download. '
-        + 'Programmiert wird derzeit nur die physikalische Adresse.</p>'}`;
+      : '<p class="hint">Die Applikation lässt sich über die Inbetriebnahme laden.</p>'}`;
 }
 
 function issueList(id) {
@@ -832,6 +833,8 @@ function detailDev(d) {
     </div>`}
     <div class="detail-actions">
       ${item || isIp ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
+      ${item && window.KNXBus && window.KNXBus.available
+        ? '<button class="btn btn-sm" id="d-program" title="Applikation, Parameter und Gruppenadressen ins Gerät laden">Programmieren …</button>' : ''}
       ${item ? '' : '<button class="btn btn-sm" id="d-addobj">+ Objekt</button>'}
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
@@ -1026,6 +1029,7 @@ function renderDetail() {
     panel.innerHTML = detailDev(target);
     on('#d-addobj', () => T.actNewObj(target.id));
     on('#d-params', () => T.actParams(target.id));
+    on('#d-program', () => window.KNXBus.program(target.id));
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
     panel.querySelectorAll('[data-fv]').forEach(b =>
