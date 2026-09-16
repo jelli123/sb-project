@@ -45,6 +45,16 @@ public final class DeviceInfoReader {
                 out.put("descriptor", descriptor);
             }
 
+            /* Realisierungstyp 1 kennt keine Properties und quittiert sie nicht einmal.
+               Calimero wiederholt dann dreimal, baut die Verbindung ab und der
+               Speicherzugriff danach laeuft ins Leere - deshalb gar nicht erst fragen. */
+            if (dd0 != null && Knx.isBcu1(dd0.maskVersion())) {
+                out.put("interfaceObjects", List.of());
+                out.put("propertyAccess", false);
+                out.put("legacy", readBcu1(d));
+                return out;
+            }
+
             List<Integer> objectTypes = interfaceObjects(d);
             out.put("interfaceObjects", describeObjects(objectTypes));
 
