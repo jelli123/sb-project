@@ -968,10 +968,13 @@ function renderDevice(d) {
   }
 
   const app = d.applicationProgram;
-  if (app) {
+  if (d.loadStates && d.loadStates.length) {
+    // Jeder ladbare Teil für sich — ein Koppler lädt nur die Filtertabelle
+    add('Ladezustand', d.loadStates.map(l => `${l.name}: ${l.loadStateName}`).join(', '));
+  } else if (app) {
     add('Ladezustand', app.loadStateName + ' (Objekt ' + app.objectIndex + ')');
-    add('Laufzustand', app.runStateName);
   }
+  if (app) add('Laufzustand', app.runStateName);
   if (d.legacy) {
     add('Hinweis', d.legacy.note);
     if (d.legacy.programVersion) {

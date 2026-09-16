@@ -55,6 +55,7 @@ public final class DeviceInfoReader {
             if (properties && appIndex >= 0) {
                 out.put("applicationProgram", readApplicationObject(d, appIndex));
             }
+            if (properties) out.put("loadStates", readLoadStates(d, objectTypes));
 
             // Realisierungstyp 1 kennt keine Properties; die Kennung liegt fest im Systemspeicher.
             if (!properties && dd0 != null && dd0.maskVersion() < 0x0020) {
@@ -111,6 +112,29 @@ public final class DeviceInfoReader {
             app.put("runStateName", Knx.runState(Knx.unsigned(run)));
         }
         return app;
+    }
+
+    /**
+     * Ladezustand aller ladbaren Teile. Welcher Teil geladen wird, haengt vom Geraet ab: ein Koppler
+     * mit Maske 091A laedt nur die Filtertabelle im Router-Objekt, sein Applikationsprogramm-Objekt
+     * bleibt Unloaded (03/05/01 4.5.3).
+     */
+    private List<Map<String, Object>> readLoadStates(Destination d, List<Integer> types) throws KNXDisconnectException {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int i = 0; i < types.size(); i++) {
+            int type = types.get(i);
+            if (type < Knx.OT_ADDRESS_TABLE || (type > Knx.OT_INTERFACE_PROGRAM && type != Knx.OT_ROUTER)) continue;
+            byte[] load = property(d, i, PID.LOAD_STATE_CONTROL);
+            if (load == null) continue;
+            Map<String, Object> m = Json.obj();
+            m.put("index", i);
+            m.put("type", type);
+            m.put("name", type == Knx.OT_ROUTER ? "Filtertabelle" : Knx.objectType(type));
+            m.put("loadState", Knx.unsigned(load));
+            m.put("loadStateName", Knx.loadState(Knx.unsigned(load)));
+            out.add(m);
+        }
+        return out;
     }
 
     private Map<String, Object> readBcu1(Destination d) throws KNXDisconnectException {

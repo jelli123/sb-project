@@ -14,6 +14,7 @@ public final class Knx {
     public static final int OT_ASSOCIATION_TABLE = 2;
     public static final int OT_APPLICATION_PROGRAM = 3;
     public static final int OT_INTERFACE_PROGRAM = 4;
+    public static final int OT_ROUTER = 6;
 
     /** Ereignisse der Load State Machine (03/05/01, Tabelle 93). Der Schreibwert ist immer 10 Oktett. */
     public static final int LOAD_EVENT_NOOP = 0x00;

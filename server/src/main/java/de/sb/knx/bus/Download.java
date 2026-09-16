@@ -338,8 +338,10 @@ public final class Download {
 
     /** Neustart ueber die Verbindung; danach ist sie abgebaut und wird bei Bedarf neu geoeffnet. */
     private void restart() throws KNXException, InterruptedException {
-        bus.client().restart(dst());
+        // Vor dem Senden merken: Startet die verbundene Schnittstelle selbst neu, reisst der Tunnel
+        // noch waehrend dieses Aufrufs ab und der Auftrag wird unterbrochen.
         restarted = true;
+        bus.client().restart(dst());
         release();
         objectTypes = null;
     }

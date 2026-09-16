@@ -262,13 +262,21 @@ public final class BusApi implements HttpHandler {
                 events.log("info", label + " abgeschlossen");
                 return result;
             } catch (Exception e) {
-                if (dl.restarted() && !bus.connected() && addr.toString().equals(iface)) {
+                // Der Neustart ist der letzte Schritt jeder Ladeprozedur. Was danach an der Verbindung
+                // scheitert, betrifft das Laden nicht mehr - das Geraet startet bereits neu.
+                if (dl.restarted()) {
+                    boolean lost = !bus.connected();
                     Map<String, Object> m = Json.obj();
                     m.put("ok", true);
-                    m.put("linkLost", true);
+                    m.put("linkLost", lost);
                     m.put("address", addr.toString());
-                    m.put("message", "Die Schnittstelle startet mit der neuen Konfiguration neu, "
-                            + "die Verbindung ist dabei abgerissen. Bitte neu suchen und verbinden.");
+                    m.put("message", !lost
+                            ? label + " abgeschlossen, das Geraet startet neu."
+                            : addr.toString().equals(iface)
+                            ? "Geladen. Die Schnittstelle startet mit der neuen Konfiguration neu, "
+                              + "die Verbindung ist dabei abgerissen. Bitte neu suchen und verbinden."
+                            : "Geladen, das Geraet startet neu. Die Verbindung zur Schnittstelle ist dabei "
+                              + "abgerissen. Bitte neu verbinden.");
                     events.log("warn", String.valueOf(m.get("message")));
                     return m;
                 }
