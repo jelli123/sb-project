@@ -490,28 +490,32 @@ function segmentWrites(seg, label) {
   return steps;
 }
 
+/* Property-Wert aus Vorgabe der Prozedur und Parametern. Ohne Vorgabe gehören
+   dem Download nur die Bits der Parameter: `mask` markiert sie, der Dienst
+   liest den aktuellen Wert und ersetzt nur diese Bits (z. B. PID 57, dessen
+   übrige Bits wie EN_SNA_READ sonst gelöscht würden). */
 function propImage(ctx, a) {
   const key = a.ObjIdx != null && a.ObjIdx !== ''
     ? `i:${num(a.ObjIdx)}:${num(a.PropId)}`
     : `t:${num(a.ObjType)}:${num(a.Occurrence)}:${num(a.PropId)}`;
   const fromParams = ctx.props.get(key);
   const inline = a.InlineData ? fromHex(a.InlineData) : null;
-  if (!inline) return fromParams || null;
-  if (!fromParams) return inline;
-  // Die Vorgabe der Prozedur ist die Grundlage, die Parameter überschreiben ihre Bits
-  const out = new Uint8Array(Math.max(inline.length, fromParams.length));
-  out.set(inline);
-  const locs = Object.values(ctx.dl.loc).filter(l => l.w === key);
-  locs.forEach(l => {
+  if (!fromParams) return inline ? { data: inline } : null;
+
+  const len = Math.max(inline ? inline.length : 0, fromParams.length);
+  const out = new Uint8Array(len), mask = new Uint8Array(len);
+  if (inline) out.set(inline);
+  Object.values(ctx.dl.loc).filter(l => l.w === key).forEach(l => {
     const t = ctx.item.types[l.t];
     if (!t || !t.n) return;
     for (let i = 0; i < t.n; i++) {
-      const p = l.o + i, bit = fromParams[p >> 3] & (0x80 >> (p & 7));
-      if (bit) out[p >> 3] |= 0x80 >> (p & 7);
-      else out[p >> 3] &= ~(0x80 >> (p & 7));
+      const p = l.o + i, m = 0x80 >> (p & 7);
+      mask[p >> 3] |= m;
+      if (fromParams[p >> 3] & m) out[p >> 3] |= m;
+      else out[p >> 3] &= ~m;
     }
   });
-  return out;
+  return inline || mask.every(b => b === 0xFF) ? { data: out } : { data: out, mask };
 }
 
 const objRef = a => (a.ObjIdx != null && a.ObjIdx !== '')
@@ -606,13 +610,14 @@ function translate(ctx, steps, out) {
         return;
       }
       case 'LdCtrlWriteProp': case 'LdCtrlLoadImageProp': {
-        const data = propImage(ctx, a);
-        if (!data) {
+        const img = propImage(ctx, a);
+        if (!img) {
           ctx.warn(`Property ${a.PropId} hat weder Vorgabe noch Parameter — übersprungen.`);
           return;
         }
         out.push({ op: 'writeProp', ...objRef(a), pid: num(a.PropId),
-          start: num(a.StartIndex) || 1, count: num(a.Count) || 1, data: hex(data),
+          start: num(a.StartIndex) || 1, count: num(a.Count) || 1, data: hex(img.data),
+          ...(img.mask ? { mask: hex(img.mask) } : {}),
           verify: a.Verify === 'true', label: `Property ${a.PropId} schreiben` });
         return;
       }

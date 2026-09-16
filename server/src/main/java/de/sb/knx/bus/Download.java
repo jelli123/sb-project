@@ -4,6 +4,7 @@ import de.sb.knx.json.Json;
 import tuwien.auto.calimero.DeviceDescriptor;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
+import tuwien.auto.calimero.KNXRemoteException;
 import tuwien.auto.calimero.ReturnCode;
 import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.FuncPropResponse;
@@ -274,7 +275,26 @@ public final class Download {
         int pid = Json.integer(s, "pid", 0);
         int start = Json.integer(s, "start", 1);
         int count = Json.integer(s, "count", 1);
-        bus.client().writeProperty(dst(), index, pid, start, count, data);
+        String maskText = Json.str(s, "mask", null);
+        if (maskText != null) {
+            // Nur die Bits der Parameter gehoeren dem Download, der Rest bleibt wie im Geraet.
+            byte[] mask = hex(maskText);
+            byte[] current = bus.client().readProperty(dst(), index, pid, start, count);
+            if (current.length == data.length) {
+                for (int i = 0; i < data.length; i++) {
+                    data[i] = (byte) ((current[i] & ~mask[i]) | (data[i] & mask[i]));
+                }
+            } else {
+                notes.add("Property " + pid + " liefert " + current.length + " statt " + data.length
+                        + " Oktette - wird ohne Abgleich geschrieben.");
+            }
+        }
+        try {
+            bus.client().writeProperty(dst(), index, pid, start, count, data);
+        } catch (KNXRemoteException e) {
+            throw new IllegalStateException("Das Geraet lehnt das Schreiben von Property " + pid + " (Objekt "
+                    + index + ", Wert " + Knx.hex(data) + ") ab. Ist sie in der Firmware beschreibbar?", e);
+        }
         written += data.length;
         if (Json.bool(s, "verify", false)) {
             byte[] back = bus.client().readProperty(dst(), index, pid, start, count);
