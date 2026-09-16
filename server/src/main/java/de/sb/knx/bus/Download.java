@@ -32,6 +32,9 @@ public final class Download {
     /** Nachlesen hoechstens alle 3 s, damit die Transportverbindung lebt (03/05/01 4.23.2.4.1). */
     private static final long LSM_POLL_MS = 1_000;
 
+    /** Anzahl der Elemente je A_PropertyValue_Write: 4 Bit (03/03/07). */
+    private static final int MAX_ELEMENTS = 15;
+
     private static final int PID_IO_LIST = 71;
     private static final int PID_ROUTETABLE_CONTROL = 56;
 
@@ -289,18 +292,27 @@ public final class Download {
                         + " Oktette - wird ohne Abgleich geschrieben.");
             }
         }
-        try {
-            bus.client().writeProperty(dst(), index, pid, start, count, data);
-        } catch (KNXRemoteException e) {
-            throw new IllegalStateException("Das Geraet lehnt das Schreiben von Property " + pid + " (Objekt "
-                    + index + ", Wert " + Knx.hex(data) + ") ab. Ist sie in der Firmware beschreibbar?", e);
-        }
-        written += data.length;
-        if (Json.bool(s, "verify", false)) {
-            byte[] back = bus.client().readProperty(dst(), index, pid, start, count);
-            if (!Arrays.equals(back, data)) {
-                throw new IllegalStateException("Property " + pid + " liest " + Knx.hex(back)
-                        + " statt " + Knx.hex(data) + ".");
+        // Die Elementanzahl im A_PropertyValue_Write hat 4 Bit - laengere Felder wie der
+        // Geraetename (30 Elemente) gehen in Bloecken von hoechstens 15 Elementen.
+        int size = count > 0 && data.length % count == 0 ? data.length / count : 0;
+        int step = count > MAX_ELEMENTS && size > 0 ? MAX_ELEMENTS : count;
+        boolean verify = Json.bool(s, "verify", false);
+        for (int done = 0; done < count; done += step) {
+            int n = Math.min(step, count - done);
+            byte[] part = step == count ? data : Arrays.copyOfRange(data, done * size, (done + n) * size);
+            try {
+                bus.client().writeProperty(dst(), index, pid, start + done, n, part);
+            } catch (KNXRemoteException e) {
+                throw new IllegalStateException("Das Geraet lehnt das Schreiben von Property " + pid + " (Objekt "
+                        + index + ", Wert " + Knx.hex(part) + ") ab. Ist sie in der Firmware beschreibbar?", e);
+            }
+            written += part.length;
+            if (verify) {
+                byte[] back = bus.client().readProperty(dst(), index, pid, start + done, n);
+                if (!Arrays.equals(back, part)) {
+                    throw new IllegalStateException("Property " + pid + " liest " + Knx.hex(back)
+                            + " statt " + Knx.hex(part) + ".");
+                }
             }
         }
     }
