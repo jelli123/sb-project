@@ -4,7 +4,7 @@
 'use strict';
 
 (() => {
-const A = window.KNXApp, G = window.KNXGA, T = window.KNXTopo, $ = s => document.querySelector(s);
+const A = window.KNXApp, G = window.KNXGA, T = window.KNXTopo, F = window.KNXFn, $ = s => document.querySelector(s);
 /* Datentyp beim Ziehen von Gruppenadressen auf eine Gruppe im Baum */
 const GA_DRAG = 'application/x-knx-ga';
 const state = A.state, esc = A.esc;
@@ -106,7 +106,8 @@ function buildTreeRow(o, index) {
       e.dataTransfer.effectAllowed = 'move';
     };
   }
-  if (o.dropKey) {
+  // Auf eine Gruppe gezogen verschiebt die Adressen, auf eine Funktion ordnet sie zu
+  if (o.dropKey || o.dropFn) {
     const accepts = e => [...e.dataTransfer.types].includes(GA_DRAG);
     row.ondragover = e => { if (accepts(e)) { e.preventDefault(); row.classList.add('drop'); } };
     row.ondragleave = () => row.classList.remove('drop');
@@ -114,7 +115,9 @@ function buildTreeRow(o, index) {
       row.classList.remove('drop');
       if (!accepts(e)) return;
       e.preventDefault();
-      G.moveGasTo(JSON.parse(e.dataTransfer.getData(GA_DRAG)), o.dropKey);
+      const ids = JSON.parse(e.dataTransfer.getData(GA_DRAG));
+      if (o.dropFn) F.dropGas(ids, o.dropFn);
+      else G.moveGasTo(ids, o.dropKey);
     };
   }
 
@@ -140,26 +143,57 @@ function buildingNode(node, depth) {
   const isRoot = node.id === p.tree.id;
   const holds = KNX.kindHolds(node.kind);
   const devs = KNX.DEVICE_HOSTS.has(node.kind) ? KNX.devicesInRoom(node.id).length : 0;
+  const fns = KNX.functionsAt(node.id);
 
   emit({
     depth, key: node.id, ref: { kind: 'node', id: node.id },
     icon: A.IC[node.kind] || A.IC.room, iconClass: node.kind,
     label: node.name, title: KNX.kindDe(node.kind),
     meta: devs ? devs + '\u00A0G' : '',
-    hasKids: (node.children || []).length > 0,
+    hasKids: (node.children || []).length + fns.length > 0,
     collapsed: state.collapsed.has(node.id),
     actions: () => {
       const a = [];
       if (!isRoot) a.push(iconBtn(A.IC_TRASH, 'Löschen', () => A.actDeleteNode(node.id)));
       if (KNX.DEVICE_HOSTS.has(node.kind))
         a.push(iconBtn(A.IC.device, 'Gerät hier verbauen', () => T.actNewDevice({ roomId: node.id })));
+      a.push(iconBtn(KNXIcons.svg('shapes', 13), 'Neue Funktion', () => F.actNewFunction(node.id)));
       a.push(iconBtn('+', holds.length ? 'Untergeordnetes Element' : 'Keine Unterteilung möglich',
         () => A.actNewNode(node.id), !holds.length));
       return a;
     },
     onSelect: () => A.selectNode(node.id),
     onEdit: () => A.actRenameNode(node.id),
-    children: () => node.children.forEach(c => buildingNode(c, depth + 1))
+    children: () => {
+      node.children.forEach(c => buildingNode(c, depth + 1));
+      fns.forEach(f => fnNode(f, depth + 1));
+    }
+  });
+}
+
+/* Funktionen stehen unter ihrem Raum; aufgeklappt zeigen sie ihre Adressen.
+   Anders als Räume starten sie zugeklappt — der Merker heißt deshalb „offen“. */
+function fnNode(fn, depth) {
+  const t = KNX.fnType(fn.type);
+  const open = 'fn-open:' + fn.id;
+  emit({
+    depth, key: open, ref: { kind: 'fn', id: fn.id },
+    icon: KNXIcons.svg(KNX.fnIcon(fn), 15), iconClass: 'fn-ic fn-' + t.cat,
+    label: fn.name, title: t.de,
+    meta: fn.gas.length ? fn.gas.length + '\u00A0GA' : '',
+    hasKids: fn.gas.length > 0, collapsed: !state.collapsed.has(open),
+    actions: () => [
+      iconBtn(A.IC_TRASH, 'Funktion löschen', () => F.actDeleteFunction(fn.id)),
+      iconBtn(A.IC_LINK, 'Adressen zuordnen', () => F.actAssignFunctionGas(fn.id))
+    ],
+    dropFn: fn.id,
+    onSelect: () => { state.filter = { kind: 'fn', id: fn.id }; A.select('fn', fn.id); },
+    onEdit: () => F.actEditFunction(fn.id),
+    children: () => fn.gas.forEach(x => {
+      const g = KNX.gaById(x.ga);
+      const r = KNX.fnRole(fn, x.role);
+      if (g) gaLeafNode(g, depth + 1, { key: 'fn:' + fn.id + ':' + g.id, role: r ? r.de : '' });
+    })
   });
 }
 
@@ -307,12 +341,15 @@ function gaGroupNode(n, depth) {
 }
 
 /* Gruppenadresse als Blatt ihrer Gruppe — auswählen, bearbeiten, ziehen. */
-function gaLeafNode(g, depth) {
+function gaLeafNode(g, depth, under) {
   const links = KNX.gaLinks(g.id);
+  const fn = KNX.functionsOfGa(g.id)[0];
   emit({
-    depth, key: 'ga:' + g.id, ref: { kind: 'ga', id: g.id },
-    icon: A.IC.obj, iconClass: 'obj',
-    label: g.name, title: g.dpt + (g.note ? ' · ' + g.note : ''), addr: KNX.addrStr(g),
+    depth, key: under ? under.key : 'ga:' + g.id, ref: { kind: 'ga', id: g.id },
+    icon: fn ? KNXIcons.svg(KNX.fnIcon(fn), 15) : A.IC.obj,
+    iconClass: fn ? 'fn-ic fn-' + KNX.fnType(fn.type).cat : 'obj',
+    label: g.name, addr: KNX.addrStr(g),
+    title: (under && under.role ? under.role + ' · ' : '') + g.dpt + (g.note ? ' · ' + g.note : ''),
     meta: links.length ? links.length + '\u00A0KO' : '',
     hasKids: false, collapsed: false,
     actions: () => [
@@ -539,7 +576,9 @@ function gaRow(ga) {
 
   const tdN = document.createElement('td');
   tdN.className = 'cell-name';
-  tdN.innerHTML = esc(ga.name) + (ga.note ? ' <span class="ga-note">' + esc(ga.note) + '</span>' : '');
+  const fns = KNX.functionsOfGa(ga.id);
+  tdN.innerHTML = (fns.length ? `<span title="${esc(fns.map(f => f.name).join(', '))}">${F.fnIc(fns[0], 14)}</span> ` : '') +
+    esc(ga.name) + (ga.note ? ' <span class="ga-note">' + esc(ga.note) + '</span>' : '');
 
   const tdD = document.createElement('td');
   tdD.className = 'cell-dpt';
@@ -714,6 +753,7 @@ function filterLabel(f) {
     case 'area': return 'Bereich ' + (KNX.project().areas.find(a => a.id === f.id)?.name || '');
     case 'dev':  return 'Gerät ' + (KNX.deviceById(f.id)?.name || '');
     case 'grp':  return (KNX.project().gaNames[f.id] || 'Gruppe') + ' ' + f.id;
+    case 'fn':   return 'Funktion ' + (KNX.functionById(f.id)?.name || '');
     default:     return '';
   }
 }
@@ -819,10 +859,12 @@ function detailNode(node) {
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       ${holds.length ? '<button class="btn btn-sm" id="d-add">+ Untergeordnet</button>' : ''}
       ${KNX.DEVICE_HOSTS.has(node.kind) ? '<button class="btn btn-sm" id="d-adddev">+ Gerät</button>' : ''}
+      <button class="btn btn-sm" id="d-addfn">+ Funktion</button>
       ${node.id !== p.tree.id
         ? '<button class="btn btn-sm btn-danger" id="d-delete">' + A.IC_TRASH + ' Löschen</button>' : ''}
     </div>
     ${noteSection(node.note)}
+    ${fnListSection(KNX.functionsAt(node.id), 'Funktionen')}
     ${devs.length
       ? '<h3 class="detail-h">Geräte</h3><ul class="detail-list">' +
         devs.map(d => `<li class="jump" data-kind="dev" data-id="${d.id}">
@@ -830,6 +872,78 @@ function detailNode(node) {
           <span class="grow">${esc(d.name)}</span>
           <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>'
       : '<p class="hint">Hier ist noch kein Gerät verbaut.</p>'}`;
+}
+
+function fnListSection(fns, title) {
+  if (!fns.length) return '';
+  return `<h3 class="detail-h">${esc(title)}</h3><ul class="detail-list">` + fns.map(f => `
+    <li class="jump" data-kind="fn" data-id="${f.id}">
+      ${F.fnIc(f)}
+      <span class="grow">${esc(f.name)}</span>
+      <span class="dpt-tag">${f.gas.length} GA</span></li>`).join('') + '</ul>';
+}
+
+/* Funktion: Rollen des Typs mit ihren Adressen, dann alles Weitere. */
+function detailFn(fn) {
+  const t = KNX.fnType(fn.type);
+  const path = KNX.nodePath(fn.nodeId);
+  const devs = KNX.functionDevices(fn);
+  const byRole = new Map(fn.gas.filter(x => x.role).map(x => [x.role, x.ga]));
+  const free = t.roles.filter(r => !byRole.has(r.key));
+  const gaCells = (g, dptWant) => `
+    <span class="addr">${KNX.addrStr(g)}</span>
+    <span class="grow">${esc(g.name)}</span>
+    <span class="dpt-tag${dptWant && dptWant.split('.')[0] !== g.dpt.split('.')[0] ? ' bad' : ''}">${g.dpt}</span>`;
+  const unlink = gaId => `<button class="icon-btn fn-detach" data-ga="${gaId}" title="Aus der Funktion lösen">×</button>`;
+
+  const roleRows = t.roles.map(r => {
+    const g = byRole.has(r.key) ? KNX.gaById(byRole.get(r.key)) : null;
+    return g
+      ? `<li class="jump" data-kind="ga" data-id="${g.id}"><span class="fn-role">${esc(r.de)}</span>
+           ${gaCells(g, r.dpt)}${unlink(g.id)}</li>`
+      : `<li><span class="fn-role">${esc(r.de)}</span><span class="grow hint">frei</span>
+           <span class="dpt-tag">${r.dpt}</span>
+           <button class="btn btn-sm fn-create" data-role="${r.key}" title="Neue Adresse für diese Rolle">anlegen</button></li>`;
+  }).join('');
+  const extra = fn.gas.filter(x => !x.role).map(x => KNX.gaById(x.ga)).filter(Boolean);
+  const extraRows = extra.map(g => `
+    <li class="jump" data-kind="ga" data-id="${g.id}">${gaCells(g)}
+      ${free.length ? `<select class="select fn-role-pick" data-ga="${g.id}" title="Einer Rolle zuweisen">
+        <option value="">Rolle …</option>${free.map(r =>
+          `<option value="${r.key}">${esc(r.de)}</option>`).join('')}</select>` : ''}
+      ${unlink(g.id)}</li>`).join('');
+
+  return `
+    <div class="detail-head">
+      <span class="lvl-ic big">${F.fnIc(fn, 22)}</span>
+      <div>
+        <h2 data-pt-id="detail-fn-title">${esc(fn.name)}</h2>
+        <p class="detail-sub">Funktion · ${esc(t.de)} · ${esc(path ? path.trail : '')}</p>
+      </div>
+    </div>
+    <div class="detail-meta">
+      <div class="meta-item"><span class="meta-num">${fn.gas.length}</span><span class="meta-lbl">Adressen</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Geräte beteiligt</span></div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Adressen zuordnen</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+    </div>
+    ${issueList(fn.id)}
+    ${t.roles.length ? `<h3 class="detail-h">Rollen</h3><ul class="detail-list">${roleRows}</ul>` : ''}
+    ${extra.length || !t.roles.length
+      ? `<h3 class="detail-h">${t.roles.length ? 'Weitere Adressen' : 'Adressen'}</h3>` +
+        (extra.length ? `<ul class="detail-list">${extraRows}</ul>`
+          : '<p class="hint">Noch keine Adressen — zuordnen oder aus der Tabelle auf die Funktion im Baum ziehen.</p>')
+      : ''}
+    ${devs.length
+      ? '<h3 class="detail-h">Geräte</h3><ul class="detail-list">' + devs.map(d => `
+          <li class="jump" data-kind="dev" data-id="${d.id}">
+            <span class="addr">${KNX.paStr(d.addr)}</span>
+            <span class="grow">${esc(d.name)}</span></li>`).join('') + '</ul>'
+      : ''}
+    ${noteSection(fn.note)}`;
 }
 
 function detailGa(ga) {
@@ -866,6 +980,7 @@ function detailGa(ga) {
             <span class="flags">${KNX.flagStr(l.obj.flags)}</span>
           </li>`).join('') + '</ul>'
       : '<p class="hint">Kein Objekt zugeordnet — die Adresse ist wirkungslos.</p>'}
+    ${fnListSection(KNX.functionsOfGa(ga.id), 'Funktionen')}
     ${rooms.length
       ? '<h3 class="detail-h">Wirksam in</h3><ul class="detail-list">' + rooms.map(r =>
           `<li class="jump" data-kind="node" data-id="${r.id}">${esc(KNX.nodePath(r.id).sub)}</li>`).join('') + '</ul>'
@@ -1243,6 +1358,20 @@ function renderDetail() {
     on('#d-delete', () => A.actDeleteNode(target.id));
     on('#d-add', () => A.actNewNode(target.id));
     on('#d-adddev', () => T.actNewDevice({ roomId: target.id }));
+    on('#d-addfn', () => F.actNewFunction(target.id));
+  } else if (sel.kind === 'fn') {
+    panel.innerHTML = detailFn(target);
+    on('#d-assign', () => F.actAssignFunctionGas(target.id));
+    on('#d-rename', () => F.actEditFunction(target.id));
+    on('#d-delete', () => F.actDeleteFunction(target.id));
+    panel.querySelectorAll('.fn-create').forEach(b =>
+      b.addEventListener('click', () => F.createRoleGa(target.id, b.dataset.role)));
+    panel.querySelectorAll('.fn-detach').forEach(b =>
+      b.addEventListener('click', e => { e.stopPropagation(); F.detach(target.id, b.dataset.ga); }));
+    panel.querySelectorAll('.fn-role-pick').forEach(s => {
+      s.addEventListener('click', e => e.stopPropagation());
+      s.addEventListener('change', () => { if (s.value) F.setRole(target.id, s.dataset.ga, s.value); });
+    });
   } else if (sel.kind === 'ga') {
     panel.innerHTML = detailGa(target);
     on('#d-assign', () => G.actAssignGa(target.id));
@@ -1305,7 +1434,7 @@ function renderDetail() {
 
 /* Springt zu einem Element und schaltet dafür nötigenfalls die Ansicht um. */
 function jumpTo(kind, id) {
-  if (kind === 'node') state.view = 'building';
+  if (kind === 'node' || kind === 'fn') state.view = 'building';
   else if (['dev', 'obj', 'line', 'seg', 'area'].includes(kind)) state.view = 'topology';
   else if (kind === 'grp') state.view = 'ga';
   if (kind === 'ga') state.mid = 'ga';
@@ -1333,6 +1462,9 @@ function expandTo(kind, id) {
   } else if (kind === 'seg') {
     const s = KNX.segmentInfo(id);
     if (s) openLine(s.line.id);
+  } else if (kind === 'fn') {
+    const fn = KNX.functionById(id);
+    if (fn) { state.collapsed.delete(fn.nodeId); expandTo('node', fn.nodeId); }
   } else if (kind === 'node') {
     let cur = KNX.parentOf(id);
     while (cur) { state.collapsed.delete(cur.id); cur = KNX.parentOf(cur.id); }

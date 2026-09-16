@@ -13,8 +13,8 @@ window.KNXBackend = null;
 (() => {
 
 const SCRIPTS = [
-  'knx-data.js', 'knx-prod.js', 'knx-download.js',
-  'app.js', 'app-ga.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
+  'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-download.js',
+  'app.js', 'app-ga.js', 'app-fn.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
 ];
 
 const DEFAULT_PROJECT_ID = 'Projekt';

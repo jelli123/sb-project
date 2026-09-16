@@ -227,6 +227,7 @@ function showIssues() {
     if (i.kind === 'device') { const d = KNX.deviceById(i.id); return d ? KNX.paStr(d.addr) + ' ' + d.name : ''; }
     if (i.kind === 'line') return 'Linie ' + KNX.lineLabel(i.id);
     if (i.kind === 'seg') { const s = KNX.segmentInfo(i.id); return s ? 'Linie ' + KNX.lineLabel(s.line.id) + ' · ' + s.name : ''; }
+    if (i.kind === 'fn') { const f = KNX.functionById(i.id); return f ? 'Funktion ' + f.name : ''; }
     if (i.kind === 'area') { const a = KNX.project().areas.find(x => x.id === i.id); return a ? 'Bereich ' + a.name : ''; }
     return '';
   };

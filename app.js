@@ -79,6 +79,7 @@ function resolve(ref) {
     case 'seg':  return KNX.segmentInfo(ref.id);
     case 'area': return KNX.project().areas.find(a => a.id === ref.id) || null;
     case 'grp':  return typeof ref.id === 'string' ? ref : null;
+    case 'fn':   return KNX.functionById(ref.id);
     default:     return null;
   }
 }
@@ -308,6 +309,10 @@ function gaPassesFilter(g, f) {
       const v = KNX.gaSplit(g.raw);
       return pre.every((x, i) => v[i] === x);
     }
+    case 'fn': {
+      const fn = KNX.functionById(f.id);
+      return !!fn && fn.gas.some(x => x.ga === g.id);
+    }
     default: return true;
   }
 }
@@ -315,7 +320,8 @@ function gaPassesFilter(g, f) {
 function visibleGAs() {
   let gs = KNX.project().groups.filter(g => gaPassesFilter(g, state.filter));
   if (state.search)
-    gs = gs.filter(g => matchesSearch(g.name + ' ' + KNX.addrStr(g) + ' ' + g.dpt + ' ' + g.note));
+    gs = gs.filter(g => matchesSearch(g.name + ' ' + KNX.addrStr(g) + ' ' + g.dpt + ' ' + g.note + ' ' +
+      KNX.functionsOfGa(g.id).map(f => f.name).join(' ')));
   const { key, dir } = state.sort;
   gs.sort((a, b) => {
     let r = 0;
@@ -351,6 +357,10 @@ function devPassesFilter(d, f) {
         const v = KNX.gaSplit(g.raw);
         return pre.every((x, i) => v[i] === x);
       }));
+    }
+    case 'fn': {
+      const fn = KNX.functionById(f.id);
+      return !!fn && KNX.functionDevices(fn).includes(d);
     }
     default: return true;
   }
@@ -494,8 +504,10 @@ function actDeleteNode(id) {
   if (!n || n.id === KNX.project().tree.id) return;
   const roomIds = KNX.roomIdsUnder(id);
   const devs = roomIds.reduce((s, r) => s + KNX.devicesInRoom(r).length, 0);
+  const fns = KNX.functionsUnder(id).length;
   openModal(`${KNX.kindDe(n.kind)} „${esc(n.name)}“ löschen?`, `
-    <p>Das Element und alles, was darunter liegt, wird entfernt.</p>
+    <p>Das Element und alles, was darunter liegt, wird entfernt${fns
+      ? `, auch ${fns === 1 ? 'eine Funktion' : fns + ' Funktionen'}. Deren Gruppenadressen bleiben erhalten` : ''}.</p>
     ${devs
       ? `<p class="hint warn">${devs} Geräte verlieren ihre Raumzuordnung. Die Geräte selbst
          bleiben mit allen Objekten und Adressen in der Topologie erhalten.</p>`

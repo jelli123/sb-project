@@ -1188,3 +1188,40 @@ table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--border); 
 
 /* Die Projektliste braucht mehr Breite als ein normaler Dialog. */
 #modal:has(table.ga.mini) { max-width: 720px; }
+
+/* ---------- Funktionen ---------- *
+ * Symbole aus Lucide, eingefärbt nach Kategorie — Licht warm, Beschattung
+ * kühl, Heizung rot: in Baum und Tabelle auf einen Blick zu unterscheiden. */
+.fn-ic { display: inline-flex; vertical-align: -2px; color: var(--muted); flex: 0 0 auto; }
+.fn-ic.fn-light  { color: oklch(62% 0.14 75); }
+.fn-ic.fn-shade  { color: oklch(52% 0.12 240); }
+.fn-ic.fn-hvac   { color: oklch(55% 0.16 30); }
+.fn-ic.fn-power  { color: oklch(52% 0.12 150); }
+.fn-ic.fn-sensor { color: oklch(50% 0.13 300); }
+.fn-ic.fn-scene  { color: oklch(52% 0.10 190); }
+.fn-ic.fn-meter  { color: oklch(50% 0.06 240); }
+
+.fn-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.fn-type {
+  font: inherit; font-size: 12px; color: var(--fg); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 4px; text-align: center; line-height: 1.2;
+  background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius);
+}
+.fn-type:hover { background: var(--surface2); }
+.fn-type.on { border-color: var(--accent); background: var(--accent-weak); }
+
+.fn-icons summary { cursor: pointer; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; margin-top: 8px; }
+.icon-pick {
+  height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.icon-pick:hover { background: var(--surface2); }
+.icon-pick.on { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+.icon-pick.std { grid-column: span 2; font: inherit; font-size: 11px; }
+
+.detail-list .fn-role { flex: 0 0 8em; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-list .fn-create { min-height: 22px; padding: 0 7px; font-size: 11px; }
+.detail-list .fn-role-pick { width: auto; min-height: 24px; padding: 0 4px; font-size: 11px; }
+.detail-list .fn-detach { width: 22px; height: 22px; font-size: 14px; }

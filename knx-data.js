@@ -35,10 +35,12 @@ const KNX = (() => {
     { id: '1.001', name: 'Schalten',              desc: 'EIN / AUS' },
     { id: '1.002', name: 'Boolean',               desc: 'wahr / falsch' },
     { id: '1.003', name: 'Freigabe',              desc: 'freigegeben / gesperrt' },
+    { id: '1.007', name: 'Schritt',               desc: 'Jalousie-Stopp, Lamelle' },
     { id: '1.008', name: 'Auf/Ab',                desc: 'Jalousie-Fahrbefehl' },
     { id: '1.009', name: 'Öffnen/Schließen',      desc: 'Ventil, Tür' },
     { id: '1.010', name: 'Start/Stopp',           desc: 'Jalousie-Stopp, Lamelle' },
     { id: '1.011', name: 'Status',                desc: 'inaktiv / aktiv' },
+    { id: '1.018', name: 'Belegung',              desc: 'nicht belegt / belegt' },
     { id: '1.019', name: 'Fenster/Tür',           desc: 'geschlossen / offen' },
     { id: '2.001', name: 'Schalten mit Priorität',desc: 'Zwangsführung 2 Bit' },
     { id: '3.007', name: 'Dimmen relativ',        desc: 'heller / dunkler, Schrittweite' },
@@ -200,6 +202,73 @@ const KNX = (() => {
 
   const LEGACY_KINDS = { object: 'site', zone: 'building', building: 'floor', room: 'room' };
 
+  /* ---------- Funktionen ---------- *
+   * Wie in der ETS: Eine Funktion ist das, was der Nutzer in einem Raum
+   * bedient — „Deckenlicht“, „Rollladen Süd“. Sie bündelt die zugehörigen
+   * Gruppenadressen. Der Typ legt die Rollen mit ihrem DPT fest, daraus
+   * entstehen beim Anlegen die Adressen; „Benutzerdefiniert“ hat keine.
+   * Die Kategorie bestimmt die Hauptgruppe, in der die Adressen landen.    */
+  const FN_CATS = {
+    light:  { de: 'Beleuchtung',     match: /licht|beleucht|light/i },
+    shade:  { de: 'Beschattung',     match: /beschatt|jalousie|rollla|shading/i },
+    hvac:   { de: 'Heizung / Klima', match: /heiz|klima|hvac/i },
+    power:  { de: 'Steckdosen',      match: /steckdose|verbraucher/i },
+    sensor: { de: 'Meldungen',       match: /meldung|sensor|kontakt|sicherheit/i },
+    scene:  { de: 'Szenen',          match: /szene/i },
+    meter:  { de: 'Messwerte',       match: /messwert|zähler|energie/i },
+    other:  { de: 'Sonstiges',       match: /sonstig|allgemein/i }
+  };
+  const role = (key, de, dpt) => ({ key, de, dpt });
+  const R_SWITCH = role('switch', 'schalten', '1.001'), R_STATUS = role('status', 'Status', '1.001');
+  const R_VALUE = role('value', 'Helligkeit', '5.001'), R_STVAL = role('statusValue', 'Status Helligkeit', '5.001');
+  const R_MOVE = role('move', 'Auf/Ab', '1.008'), R_POS = role('position', 'Position', '5.001');
+  const R_STPOS = role('statusPos', 'Status Position', '5.001');
+  const R_ACTUAL = role('actual', 'Isttemperatur', '9.001'), R_SET = role('setpoint', 'Solltemperatur', '9.001');
+  const R_MODE = role('mode', 'Betriebsart', '20.102');
+  const FN_TYPES = [
+    { key: 'light-switch', de: 'Schaltbares Licht', short: 'Licht', cat: 'light', icon: 'lightbulb',
+      roles: [R_SWITCH, R_STATUS] },
+    { key: 'light-dim', de: 'Dimmbares Licht', short: 'Licht', cat: 'light', icon: 'lamp-ceiling',
+      roles: [R_SWITCH, role('dim', 'dimmen', '3.007'), R_VALUE, R_STATUS, R_STVAL] },
+    { key: 'light-tw', de: 'Tunable White', short: 'Licht', cat: 'light', icon: 'lamp',
+      roles: [R_SWITCH, R_VALUE, role('ct', 'Farbtemperatur', '7.600'), R_STATUS, R_STVAL,
+              role('statusCt', 'Status Farbtemperatur', '7.600')] },
+    { key: 'light-rgb', de: 'Farbiges Licht', short: 'Licht', cat: 'light', icon: 'palette',
+      roles: [R_SWITCH, R_VALUE, role('rgb', 'Farbe', '232.600'), R_STATUS,
+              role('statusRgb', 'Status Farbe', '232.600')] },
+    { key: 'blind', de: 'Jalousie', short: 'Jalousie', cat: 'shade', icon: 'blinds',
+      roles: [R_MOVE, role('step', 'Stopp/Lamelle', '1.007'), R_POS, role('slat', 'Lamelle', '5.001'),
+              R_STPOS, role('statusSlat', 'Status Lamelle', '5.001')] },
+    { key: 'shutter', de: 'Rollladen', short: 'Rollladen', cat: 'shade', icon: 'panel-top-close',
+      roles: [R_MOVE, role('stop', 'Stopp', '1.007'), R_POS, R_STPOS] },
+    { key: 'awning', de: 'Markise', short: 'Markise', cat: 'shade', icon: 'umbrella',
+      roles: [R_MOVE, role('stop', 'Stopp', '1.007'), R_POS, R_STPOS] },
+    { key: 'heating', de: 'Heizen stetig', short: 'Heizung', cat: 'hvac', icon: 'thermometer',
+      roles: [R_ACTUAL, R_SET, R_MODE, role('output', 'Stellgröße', '5.001')] },
+    { key: 'heating-switch', de: 'Heizen schaltend', short: 'Heizung', cat: 'hvac', icon: 'heater',
+      roles: [R_ACTUAL, R_SET, R_MODE, role('output', 'Stellgröße', '1.001')] },
+    { key: 'socket', de: 'Steckdose', short: 'Steckdose', cat: 'power', icon: 'plug',
+      roles: [R_SWITCH, R_STATUS] },
+    { key: 'window', de: 'Fensterkontakt', short: 'Fenster', cat: 'sensor', icon: 'app-window',
+      roles: [role('state', 'Zustand', '1.019')] },
+    { key: 'presence', de: 'Präsenz', short: 'Präsenz', cat: 'sensor', icon: 'person-standing',
+      roles: [role('presence', 'Präsenz', '1.018'), role('lux', 'Helligkeit', '9.004')] },
+    { key: 'scene', de: 'Szene', short: 'Szene', cat: 'scene', icon: 'clapperboard',
+      roles: [role('scene', 'Szene', '18.001')] },
+    { key: 'meter', de: 'Energiezähler', short: 'Zähler', cat: 'meter', icon: 'gauge',
+      roles: [role('power', 'Leistung', '14.056'), role('energy', 'Arbeit', '13.013')] },
+    { key: 'weather', de: 'Wetter', short: 'Wetter', cat: 'meter', icon: 'cloud-sun',
+      roles: [role('temp', 'Außentemperatur', '9.001'), role('wind', 'Wind', '9.005'),
+              role('lux', 'Helligkeit', '9.004')] },
+    { key: 'custom', de: 'Benutzerdefiniert', short: 'Funktion', cat: 'other', icon: 'shapes', roles: [] }
+  ];
+  const FN_TYPE_INDEX = new Map(FN_TYPES.map(t => [t.key, t]));
+  const fnType = k => FN_TYPE_INDEX.get(k) || FN_TYPE_INDEX.get('custom');
+  const fnRole = (fn, key) => (key && fnType(fn.type).roles.find(r => r.key === key)) || null;
+  const fnIcon = fn => fn.icon || fnType(fn.type).icon;
+  /* Knoten, deren Name die Mittelgruppe einer Funktion vorgibt. */
+  const FLOOR_KINDS = new Set(['floor', 'part', 'building', 'outdoor']);
+
   const kindDe = k => (NODE_KINDS[k] || NODE_KINDS.room).de;
   const kindHolds = k => (NODE_KINDS[k] || NODE_KINDS.room).holds;
   const isRoom = n => DEVICE_HOSTS.has(n.kind);
@@ -340,6 +409,7 @@ const KNX = (() => {
       devices: [],       // { id, name, product, lineId, addr, roomId, serial, note, objs[] }
       groups: [],        // { id, raw, name, dpt, note }
       gaNames: {},       // '1' / '1/2' → Name der Haupt- bzw. Mittelgruppe
+      functions: [],     // { id, nodeId, type, name, icon, note, gas[{ ga, role }] }
       catalog: []        // aus .knxprod übernommene Produkte
     };
   }
@@ -507,6 +577,28 @@ const KNX = (() => {
       if (g.raw) usedRaw.add(g.raw);
     });
     const gaIds = new Set(p.groups.map(g => g.id));
+
+    // Funktionen: hängen an einem Gebäudeknoten; verwaiste landen an der Wurzel
+    const seenFn = new Set();
+    let orphans = 0;
+    p.functions = (Array.isArray(p.functions) ? p.functions : [])
+      .filter(f => f && typeof f === 'object').map(f => {
+        const type = fnType(f.type).key;
+        const nodeId = seenNodes.has(f.nodeId) ? f.nodeId : (orphans++, p.tree.id);
+        const seen = new Set();
+        const fn = { id: takeId(f.id, 'f', seenFn), nodeId, type,
+                     name: String(f.name || fnType(type).de),
+                     icon: /^[a-z0-9-]{1,40}$/.test(f.icon) ? f.icon : '',
+                     note: normNote(f.note), gas: [] };
+        (Array.isArray(f.gas) ? f.gas : []).forEach(x => {
+          if (!x || !gaIds.has(x.ga) || seen.has(x.ga)) return;
+          seen.add(x.ga);
+          fn.gas.push({ ga: x.ga, role: fnRole(fn, x.role) ? x.role : '' });
+        });
+        return fn;
+      });
+    if (orphans)
+      note(`${orphans} ${orphans === 1 ? 'Funktion hing' : 'Funktionen hingen'} an keinem Gebäudeteil mehr — jetzt an der Liegenschaft.`);
 
     // Geräte und Kommunikationsobjekte
     const seenDev = new Set(), usedPa = new Set();
@@ -764,6 +856,34 @@ const KNX = (() => {
       syDatum:ga(0, 0, 2,  'Systemdatum',                  '11.001', 'Broadcast')
     };
 
+    /* --- Funktionen: was man im Raum bedient, mit den Adressen dazu --- */
+    const fn = (node, type, name, gas, icon = '') => p.functions.push({
+      id: uid('f'), nodeId: node.id, type, name, icon, note: '',
+      gas: Object.entries(gas).map(([k, g]) => ({ ga: g, role: k.startsWith('_') ? '' : k }))
+    });
+    fn(rwd, 'light-dim', 'Deckenlicht Wohnzimmer',
+       { switch: G.liWzS, dim: G.liWzD, value: G.liWzW, status: G.liWzR });
+    fn(rwd, 'shutter', 'Rollladen Wohnzimmer',
+       { move: G.beWzF, stop: G.beWzS, position: G.beWzP, statusPos: G.beWzR });
+    fn(rwd, 'heating', 'Heizung Wohnzimmer', { actual: G.hzWzI, setpoint: G.hzWzO, output: G.hzWzY });
+    fn(rwd, 'scene', 'Szenen Wohnzimmer', { scene: G.szWz });
+    fn(rkw, 'light-switch', 'Licht Küche', { switch: G.liKuS, status: G.liKuR });
+    fn(rkw, 'shutter', 'Rollladen Küche', { move: G.beKuF });
+    fn(rfg, 'light-switch', 'Licht Flur EG', { switch: G.liFlS });
+    fn(rfg, 'presence', 'Präsenzmelder Flur EG', { lux: G.weFlu });
+    fn(rhb, 'light-switch', 'Licht Hausbad', { switch: G.liBaS });
+    fn(rhr, 'meter', 'Wärmezähler', { power: G.meLei, energy: G.meArb });
+    fn(rsch, 'light-switch', 'Nachttischlampe', { switch: G.liScS }, 'lamp-desk');
+    fn(rsch, 'heating', 'Heizung Schlafen', { actual: G.hzScI, setpoint: G.hzScO });
+    fn(rk, 'light-switch', 'Licht Kinderzimmer', { switch: G.liKiS });
+    fn(rbd, 'light-switch', 'Licht Badezimmer', { switch: G.liBdS });
+    fn(rsts, 'light-switch', 'Licht Südterrasse', { switch: G.liTeS });
+    fn(rsts, 'awning', 'Markise Südterrasse', { move: G.beMaF });
+    fn(rnts, 'weather', 'Wetterstation', { temp: G.weTem, wind: G.weWin, lux: G.weHel });
+    fn(hh, 'custom', 'Zentral AUS', { _1: G.liZeA, _2: G.beZeF }, 'power');
+    fn(hh, 'custom', 'Anwesenheit', { _1: G.szZe, _2: G.hzZeM }, 'house');
+    fn(hh, 'custom', 'Uhrzeit & Datum', { _1: G.syZeit, _2: G.syDatum }, 'clock');
+
     /* --- Geräte und Kommunikationsobjekte --- *
      * S = sendend (K,Ü), E = empfangend (K,S), R = Rückmeldung (K,L,Ü)     */
     const S = { c: true, r: false, w: false, t: true,  u: false };
@@ -987,8 +1107,15 @@ const KNX = (() => {
       });
     });
 
+    const fn = new Map(), fnByNode = new Map(), fnByGa = new Map();
+    project.functions.forEach(f => {
+      fn.set(f.id, f);
+      push(fnByNode, f.nodeId, f);
+      f.gas.forEach(x => push(fnByGa, x.ga, f));
+    });
+
     idx = { nodes, parent, trail, roomList, ga, gaByRaw, lines, areaOfLine, segs,
-            dev, obj, gaLinks, devByRoom, devByLine, devBySeg };
+            dev, obj, gaLinks, devByRoom, devByLine, devBySeg, fn, fnByNode, fnByGa };
     return idx;
   }
 
@@ -1583,6 +1710,20 @@ const KNX = (() => {
       });
     });
 
+    /* Funktionen: Eine Adresse, deren DPT-Hauptnummer nicht zur Rolle passt,
+       ist fast immer falsch zugeordnet (1.001 statt 1.011 ist dagegen normal). */
+    project.functions.forEach(f => {
+      if (!f.gas.length) {
+        add('info', 'fn', f.id, 'Funktion ohne Gruppenadressen.');
+        return;
+      }
+      f.gas.forEach(x => {
+        const r = fnRole(f, x.role), g = ix.ga.get(x.ga);
+        if (r && g && r.dpt.split('.')[0] !== String(g.dpt).split('.')[0])
+          add('warn', 'fn', f.id, `„${r.de}“ erwartet DPT ${r.dpt}, ${addrStr(g)} hat ${g.dpt}.`);
+      });
+    });
+
     /* Backbone: nur Linie 0.0, bei IP eine gültige Multicast-Adresse. Eine
        IP-Hauptlinie unter einem TP-Backbone lässt die Bereichskoppler zwei
        Medien verbinden — meist ein Planungsfehler.                         */
@@ -1691,6 +1832,150 @@ const KNX = (() => {
 
   function addGa(g) { project.groups.push(g); invalidate(); return g; }
 
+  /* ---------- Funktionen ---------- */
+  const functionById = id => index().fn.get(id) || null;
+  const functionsAt = nodeId => index().fnByNode.get(nodeId) || [];
+  const functionsOfGa = gaId => index().fnByGa.get(gaId) || [];
+  function functionsUnder(nodeId) {
+    const node = findNode(nodeId);
+    const out = [];
+    if (node) walk(node, n => out.push(...functionsAt(n.id)));
+    return out;
+  }
+  /* Geräte, deren Objekte auf den Adressen der Funktion liegen. */
+  function functionDevices(fn) {
+    const seen = new Set(), out = [];
+    fn.gas.forEach(x => gaLinks(x.ga).forEach(l => {
+      if (!seen.has(l.dev.id)) { seen.add(l.dev.id); out.push(l.dev); }
+    }));
+    return out;
+  }
+  function addFunction(fn) { project.functions.push(fn); invalidate(); return fn; }
+
+  /* Entfernt die Funktion. Mit `withGas` gehen auch ihre Adressen, sofern
+     keine andere Funktion sie nutzt. Liefert die Zahl gelöschter Adressen. */
+  function deleteFunction(id, withGas) {
+    const fn = functionById(id);
+    if (!fn) return 0;
+    project.functions = project.functions.filter(f => f !== fn);
+    let n = 0;
+    if (withGas) fn.gas.forEach(x => {
+      if (!project.functions.some(f => f.gas.some(y => y.ga === x.ga)) && deleteGa(x.ga)) n++;
+    });
+    invalidate();
+    return n;
+  }
+
+  /* Hängt Adressen an. Ohne Rollenangabe bekommt eine Adresse die erste freie
+     Rolle mit gleichem DPT, sonst läuft sie als weitere Adresse mit.        */
+  function attachGas(fnId, gaIds) {
+    const fn = functionById(fnId);
+    if (!fn) return 0;
+    let n = 0;
+    gaIds.forEach(id => {
+      const g = gaById(id);
+      if (!g || fn.gas.some(x => x.ga === id)) return;
+      const free = fnType(fn.type).roles.find(r => r.dpt === g.dpt && !fn.gas.some(x => x.role === r.key));
+      fn.gas.push({ ga: id, role: free ? free.key : '' });
+      n++;
+    });
+    invalidate();
+    return n;
+  }
+  function detachGa(fnId, gaId) {
+    const fn = functionById(fnId);
+    if (!fn) return;
+    fn.gas = fn.gas.filter(x => x.ga !== gaId);
+    invalidate();
+  }
+
+  /* Wo die Adressen einer Funktion hingehören: Hauptgruppe nach Kategorie,
+     Mittelgruppe nach dem Geschoss, in dem die Funktion liegt. Vorhandene
+     Gruppen werden am Namen erkannt, fehlende vorgeschlagen.
+     → { key, create: { key: name }, label } oder null bei freier Adressierung */
+  function functionFolder(nodeId, typeKey) {
+    const style = gaStyle();
+    const depth = style.parts.length - 1;
+    if (depth < 1) return null;
+    const names = project.gaNames;
+    const used = key => names[key] != null || gasInGroup(key).length > 0;
+    const freeNum = (pre, max) => {
+      for (let n = 0; n <= max; n++) if (!used(pre.concat(n).join('/'))) return n;
+      return -1;
+    };
+    const cat = FN_CATS[fnType(typeKey).cat];
+    const create = {};
+
+    let main = Object.keys(names).find(k => !k.includes('/') && cat.match.test(names[k]));
+    if (main == null) {
+      const n = freeNum([], style.parts[0].max);
+      if (n < 0) return null;
+      main = String(n);
+      create[main] = cat.de;
+    }
+    if (depth === 1)
+      return { key: main, create, label: `${main} ${names[main] || cat.de}` };
+
+    let floor = null;
+    for (let n = findNode(nodeId); n; n = parentOf(n.id))
+      if (FLOOR_KINDS.has(n.kind)) { floor = n.name; break; }
+    floor = floor || 'Zentral';
+    /* „Außen“ passt zu „Außenanlagen“: Namen gelten als gleich, wenn einer
+       mit dem anderen beginnt. Hat ein anderes Gewerk das Geschoss schon,
+       bekommt es hier dieselbe Mittelgruppennummer, sofern sie frei ist.  */
+    const a = floor.trim().toLowerCase();
+    const same = k => {
+      const b = String(names[k]).trim().toLowerCase();
+      return a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+    };
+    const mids = Object.keys(names).filter(k => k.split('/').length === 2 && same(k));
+    let mid = mids.find(k => k.startsWith(main + '/'));
+    if (mid == null) {
+      const other = mids.find(k => !used(main + '/' + k.split('/')[1]));
+      const n = other ? +other.split('/')[1] : create[main] ? 0 : freeNum([+main], style.parts[1].max);
+      if (n < 0) return null;
+      mid = main + '/' + n;
+      create[mid] = other ? names[other] : floor;
+    }
+    return { key: mid, create,
+             label: `${mid} ${names[main] || create[main]} › ${names[mid] || create[mid]}` };
+  }
+
+  /* Legt für die Rollen Adressen an: in `folder` die nächsten freien, bei
+     freier Adressierung irgendwo. Liefert die Zahl der Rollen ohne Platz.  */
+  function createRoleGas(fn, roleKeys, folder) {
+    const style = gaStyle();
+    const depth = style.parts.length - 1;
+    if (folder) Object.entries(folder.create || {}).forEach(([k, v]) => {
+      if (project.gaNames[k] == null) project.gaNames[k] = v;
+    });
+    const pre = folder && depth >= 1 ? String(folder.key).split('/').map(Number) : null;
+    let missing = 0;
+    roleKeys.forEach(key => {
+      const r = fnRole(fn, key);
+      if (!r || fn.gas.some(x => x.role === key)) return;
+      let raw = 0;
+      if (pre) {
+        for (let i = 1; i <= style.parts[depth].max && !raw; i++) {
+          const cand = gaJoin([...pre, i], style);
+          if (freeAddress(cand)) raw = cand;
+        }
+      } else raw = suggestAddress(0);
+      if (!raw) { missing++; return; }
+      const g = addGa({ id: nid('g'), raw, name: `${fn.name} ${r.de}`, dpt: r.dpt, note: '' });
+      fn.gas.push({ ga: g.id, role: key });
+    });
+    invalidate();
+    return missing;
+  }
+
+  /* Gruppe, in der die Funktion schon Adressen hat — dorthin kommen weitere. */
+  function functionGroupKey(fn) {
+    const depth = gaStyle().parts.length - 1;
+    const g = fn.gas.map(x => gaById(x.ga)).find(Boolean);
+    return g && depth >= 1 ? gaSplit(g.raw).slice(0, depth).join('/') : null;
+  }
+
   /* Haupt- oder Mittelgruppe samt allen Adressen darin löschen — wie in der ETS.
      Die Namen der Gruppe und ihrer Untergruppen verschwinden mit.            */
   const inGroup = (g, key, style = gaStyle()) => {
@@ -1705,6 +1990,7 @@ const KNX = (() => {
     const ids = new Set(gasInGroup(key).map(g => g.id));
     project.groups = project.groups.filter(g => !ids.has(g.id));
     project.devices.forEach(d => d.objs.forEach(o => { o.gas = o.gas.filter(x => !ids.has(x)); }));
+    project.functions.forEach(f => { f.gas = f.gas.filter(x => !ids.has(x.ga)); });
     Object.keys(project.gaNames).forEach(k => {
       if (k === key || k.startsWith(key + '/')) delete project.gaNames[k];
     });
@@ -1748,6 +2034,7 @@ const KNX = (() => {
     project.devices.forEach(d => d.objs.forEach(o => {
       o.gas = o.gas.filter(x => x !== id);
     }));
+    project.functions.forEach(f => { f.gas = f.gas.filter(x => x.ga !== id); });
     invalidate();
     return true;
   }
@@ -1760,6 +2047,9 @@ const KNX = (() => {
     project.devices.forEach(d => { if (ids.has(d.roomId)) d.roomId = null; });
     const parent = parentOf(id);
     if (!parent) return false;
+    // Funktionen gehören zum Raum und gehen mit; ihre Adressen bleiben
+    const fns = new Set(functionsUnder(id));
+    project.functions = project.functions.filter(f => !fns.has(f));
     parent.children = parent.children.filter(c => c.id !== id);
     invalidate();
     return true;
@@ -1771,6 +2061,9 @@ const KNX = (() => {
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa, hasPa, byPa,
     NOTE_MAX, normNote, normSerial,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
+    FN_CATS, FN_TYPES, fnType, fnRole, fnIcon,
+    functionById, functionsAt, functionsOfGa, functionsUnder, functionDevices,
+    addFunction, deleteFunction, attachGas, detachGa, functionFolder, createRoleGas, functionGroupKey,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
     BACKBONE_MEDIA, backbone, isBackboneLine, regularAreas,
     isMainLine, segmentsOf, segmentInfo, segmentKeys, segKeyOf, devicesInSegment, addSegment, deleteSegment,
