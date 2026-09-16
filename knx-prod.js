@@ -569,7 +569,9 @@ function collect(docs, prefer) {
         coupler: attr(hw, 'IsCoupler') === 'true',
         ipEnabled: attr(hw, 'IsIPEnabled') === 'true',
         powerSupply: attr(hw, 'IsPowerSupply') === 'true',
-        noAddress: attr(hw, 'HasIndividualAddress') === 'false'
+        choke: attr(hw, 'IsChoke') === 'true',
+        noAddress: attr(hw, 'HasIndividualAddress') === 'false',
+        noApp: attr(hw, 'HasApplicationProgram') === 'false'
       };
       tags(hw, 'Product').forEach(pr => {
         const id = attr(pr, 'Id');
@@ -623,16 +625,24 @@ function collect(docs, prefer) {
     coupler: !!(hw && hw.coupler),
     ip: app.ip || !!(hw && hw.ipEnabled),
     powerSupply: !!(hw && hw.powerSupply),
+    choke: !!(hw && hw.choke),
+    noAddress: !!(hw && hw.noAddress),
+    hwOnly: app === NO_APP,
     objCount: Object.keys(app.objs).length,
     paramCount: Object.keys(app.params).length
   });
 
+  /* Drosseln, Netzteile und passives Zubehör haben keine Applikation, gehören
+     aber für Busstrom und Topologie trotzdem in den Katalog. */
+  const NO_APP = { name: '', types: {}, params: {}, objs: {}, dyn: [], prog: null, mask: '', ip: false };
+
   docs.forEach(doc => tags(doc, 'CatalogItem').forEach(ci => {
     const h2pId = attr(ci, 'Hardware2ProgramRefId');
     const appId = h2p.get(h2pId);
-    const app = appId && apps.get(appId);
-    if (!app) return;
     const prod = products.get(attr(ci, 'ProductRefId')) || {};
+    const hw = hwOf.get(h2pId) || prod.hw;
+    const app = (appId && apps.get(appId)) || (!appId && hw && hw.noApp ? NO_APP : null);
+    if (!app) return;
     const key = attr(ci, 'Id');
     if (seen.has(key)) return;
     seen.add(key);
@@ -645,7 +655,7 @@ function collect(docs, prefer) {
     apps.forEach((app, id) => out.push(entry(id, app.name, '', app, null)));
 
   // Koppler und IP-Schnittstellen haben oft keine Objekte, aber Einstellungen
-  return out.filter(p => p.objCount || p.paramCount)
+  return out.filter(p => p.objCount || p.paramCount || p.hwOnly)
             .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
@@ -680,7 +690,7 @@ async function read(file, prefer) {
 
   const products = collect(docs, prefer || ['de-DE', 'de-AT', 'de-CH', 'en-US', 'en-GB']);
   if (!products.length)
-    throw new Error('Keine Produkte mit Objekten oder Parametern gefunden.');
+    throw new Error('Keine Produkte gefunden.');
   return { products, binaries, extras };
 }
 

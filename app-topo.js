@@ -184,6 +184,19 @@ function actNewDevice(ctx) {
       hint.textContent = 'Ohne Produkt entsteht ein leeres Gerät — Objekte legt man später einzeln an.';
       return;
     }
+    if (c.hwOnly) {
+      // Die Produktdatei nennt nur, was das Gerät selbst dem Bus entnimmt — die
+      // Einspeisung einer Drossel hängt vom angeschlossenen Netzteil ab.
+      hint.innerHTML = 'Ohne Applikation' + (c.manufacturer ? ` · ${esc(c.manufacturer)}` : '') +
+        (c.choke || c.powerSupply
+          ? '. Die Einspeisung steht nicht in der Produktdatei — bitte unten den Nennstrom '
+            + (c.choke ? 'des angeschlossenen Netzteils' : 'des Netzteils') + ' eintragen.' : '.') +
+        (c.noAddress ? ' Das Gerät hat keine physikalische Adresse; die Adresse hier dient nur der Ablage im Projekt.' : '');
+      if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
+      if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
+      if (c.ma) $('#m-ma').placeholder = String(c.ma);
+      return;
+    }
     const r = KNX.resolveProduct(c, {});
     const nParams = r.groups.reduce((s, g) => s + g.params.filter(ref => {
       const p = c.params[ref];
@@ -284,7 +297,7 @@ function actCatalog(onPick) {
               <b>${esc(c.name)}</b>
               <span>${esc([c.manufacturer, c.order, c.appName].filter(Boolean).join(' · '))}</span>
             </div>
-            <span class="dpt-tag">${objCount(c)
+            <span class="dpt-tag">${c.hwOnly ? 'ohne Applikation' : objCount(c)
               ? objCount(c) + ' KO'
               : Object.keys(c.params || {}).length + ' P'}</span>            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="Aus dem Katalog entfernen">
               ${A.IC_TRASH}</button>
@@ -356,7 +369,8 @@ function actImportPick(products, fileName, onDone, info) {
           ? 'Ladeprozeduren vollständig gelesen — das Gerät lässt sich programmieren'
           : 'Für einen Download fehlen Angaben oder es wird ein herstellereigenes Programm gebraucht'}"
         >Maske ${esc(mask)}</span>` : ''}
-      <span class="dpt-tag" title="Objekte und Parameter der Produktdatei">${p.objCount} KO · ${p.paramCount} P</span>
+      <span class="dpt-tag" title="Objekte und Parameter der Produktdatei">${p.hwOnly
+        ? 'ohne Applikation' : p.objCount + ' KO · ' + p.paramCount + ' P'}</span>
     </label>`;
   }).join('');
 

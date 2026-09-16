@@ -725,6 +725,8 @@ function plan(project, dev, item, opts = {}) {
   }
   if (dev.ip && ['all', 'par', 'par,grp', 'cfg'].includes(kind)) {
     const ipCfg = { ...{ name: '', mode: 'dhcp', addr: '', mask: '', gw: '', mcast: '224.0.23.12' }, ...dev.ip };
+    // Ein leerer Name hieße 30 Nullbytes im Gerät; wie die ETS gilt dann der Gerätename
+    if (!String(ipCfg.name || '').trim()) ipCfg.name = dev.name || '';
     ctx.ip = ipSteps(ipCfg, dl.addAddr, errors);
   }
 

@@ -493,9 +493,12 @@ const KNX = (() => {
         medium: String(c.medium || ''),
         ma: clamp(c.ma, 0, 5000, 0),
         coupler: !!c.coupler,
-        powerSupply: !!c.powerSupply
+        powerSupply: !!c.powerSupply,
+        choke: !!c.choke,
+        noAddress: !!c.noAddress,
+        hwOnly: !!c.hwOnly
       };
-    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length);
+    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length || c.hwOnly);
     const catIds = new Set(p.catalog.map(c => c.id));
     p.devices.forEach(d => {
       if (!catIds.has(d.catalogId)) { d.catalogId = null; d.params = {}; }
@@ -1278,7 +1281,10 @@ const KNX = (() => {
         medium: String(it.medium || ''),
         ma: +it.ma || 0,
         coupler: !!it.coupler,
-        powerSupply: !!it.powerSupply
+        powerSupply: !!it.powerSupply,
+        choke: !!it.choke,
+        noAddress: !!it.noAddress,
+        hwOnly: !!it.hwOnly
       };
       const old = known.get(key(c));
       if (old) {
@@ -1411,6 +1417,11 @@ const KNX = (() => {
       // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
       if (!d.objs.length && !d.catalogId && !couplerScope(d))
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
+
+      const cat = d.catalogId && catalogById(d.catalogId);
+      if (cat && (cat.choke || cat.powerSupply) && !(+d.supply > 0))
+        add('warn', 'device', d.id, (cat.choke ? 'Drossel' : 'Netzteil') +
+          ' ohne eingetragene Einspeisung — der Nennstrom steht nicht in der Produktdatei.');
 
       if (deviceIsIp(d)) {
         const c = ipConfig(d);
