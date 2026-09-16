@@ -277,7 +277,9 @@ function ensureOverlay() {
             <span id="bus-scan-info" class="pane-meta"></span>
           </div>
           <p class="hint">Fragt alle 256 Teilnehmeradressen der Linie ab und dauert einige Minuten.
-             Das Fenster darf dabei geschlossen oder im Hintergrund sein.</p>
+             Das Fenster darf dabei geschlossen oder im Hintergrund sein.
+             Ein Klick auf eine gefundene Zeile übernimmt deren Adresse in die Felder
+             der Abschnitte 3 bis 5.</p>
           <div class="ovl-table-wrap">
             <table class="ga mini"><thead><tr>
               <th>Adresse</th><th>Maske</th><th>Profil</th><th>Im Projekt</th><th></th>
@@ -794,6 +796,23 @@ function pollJob(id) {
   });
 }
 
+/* Ein Klick auf einen gefundenen Teilnehmer setzt dessen Adresse in alle
+   Aktionsfelder — Auslesen, Adressvergabe und Neustart arbeiten danach daran. */
+function applyPa(pa, quiet) {
+  ['#bus-addr', '#bus-target-manual', '#bus-rst-addr'].forEach(sel => {
+    const el = q(sel);
+    el.value = pa;
+    el.classList.remove('invalid');
+  });
+  // Steht die Adresse im Projekt, zeigt auch das Auswahlfeld darauf.
+  const target = q('#bus-target');
+  target.value = [...target.options].some(o => o.value === pa) ? pa : '';
+  suggestSerial();
+  q('#bus-scan-rows').querySelectorAll('tr').forEach(tr =>
+    tr.classList.toggle('sel', tr.dataset.pa === pa));
+  if (!quiet) A.toast('Adresse ' + pa + ' übernommen', 1400);
+}
+
 function renderScan(list, live) {
   const byAddr = new Map();
   KNX.project().devices.forEach(d => byAddr.set(KNX.paStr(d.addr), d));
@@ -813,14 +832,15 @@ function renderScan(list, live) {
   }
   q('#bus-scan-rows').innerHTML = list.map(d => {
     const known = byAddr.get(d.address);
-    return `<tr>
+    return `<tr class="pick" data-pa="${esc(d.address)}" title="Adresse in die Felder unten übernehmen">
       <td><b>${esc(d.address)}</b></td>
       <td>${esc(d.maskVersion || pending)}</td>
       <td>${esc(d.profile || pending)}</td>
       <td>${known ? esc(known.name) : '<span class="hint warn">nicht im Projekt</span>'}</td>
       <td class="col-act"><button class="btn btn-sm" data-read="${esc(d.address)}">Auslesen</button></td>
     </tr>`;
-  }).join('') + (selfMissing ? `<tr class="self">
+  }).join('') + (selfMissing ? `<tr class="pick self" data-pa="${esc(self)}"
+      title="Adresse in die Felder unten übernehmen">
       <td><b>${esc(self)}</b></td>
       <td>—</td>
       <td>Schnittstelle dieser Verbindung</td>
@@ -830,9 +850,12 @@ function renderScan(list, live) {
       ? 'Noch keine Antwort — die Linie wird abgefragt …'
       : 'Kein Teilnehmer hat geantwortet'}</td></tr>`;
 
-  q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b => b.onclick = () => {
-    q('#bus-addr').value = b.dataset.read;
-    q('#bus-addr').classList.remove('invalid');
+  q('#bus-scan-rows').querySelectorAll('tr.pick').forEach(tr =>
+    tr.onclick = () => applyPa(tr.dataset.pa));
+  // Der Knopf in der Zeile liest zusätzlich aus; der Klick darf nicht doppelt wirken.
+  q('#bus-scan-rows').querySelectorAll('[data-read]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    applyPa(b.dataset.read, true);
     q('#bus-sec-device').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     readDevice();
   });

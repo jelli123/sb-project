@@ -1157,6 +1157,12 @@ table.ga.mini th { font-size: 11.5px; color: var(--muted); font-weight: 600; }
 table.ga.mini td.num, table.ga.mini th.num { text-align: right; font-family: var(--mono); }
 table.ga.mini tr.current { background: var(--accent-weak); }
 
+/* Gefundene Teilnehmer: Klick übernimmt die Adresse in die Aktionsfelder. */
+table.ga.mini tr.pick { cursor: pointer; }
+table.ga.mini tr.pick:hover { background: var(--surface2); }
+table.ga.mini tr.pick.sel { background: var(--accent-weak); box-shadow: inset 2px 0 0 var(--accent); }
+table.ga.mini tr.pick.sel td:first-child { font-weight: 700; }
+
 table.kv { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 table.kv th {
   width: 34%;

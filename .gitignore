@@ -1,0 +1,18 @@
+# Bauergebnisse des lokalen Dienstes — entstehen aus server/src und der pom.xml
+server/target/
+
+# Unterlagen
+docs/*
+#!docs/README.md
+
+# Zeitweilige Testdateien, die beim Prüfen im Browser entstehen
+_*.html
+_*.knxprod
+
+# Editoren und Betriebssysteme
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
