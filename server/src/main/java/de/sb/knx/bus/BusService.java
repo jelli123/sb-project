@@ -3,8 +3,10 @@ package de.sb.knx.bus;
 import de.sb.knx.http.Events;
 import de.sb.knx.json.Json;
 import tuwien.auto.calimero.CloseEvent;
+import tuwien.auto.calimero.DataUnitBuilder;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
+import tuwien.auto.calimero.KNXRemoteException;
 import tuwien.auto.calimero.knxnetip.Discoverer;
 import tuwien.auto.calimero.knxnetip.servicetype.SearchResponse;
 import tuwien.auto.calimero.knxnetip.util.DeviceDIB;
@@ -25,6 +27,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +57,32 @@ public final class BusService implements AutoCloseable {
         TransportLayer sharedTransportLayer() {
             return transportLayer();
         }
+
+        /**
+         * A_PropertyValue_Write fuer Properties, deren Antwort anders aussieht als der Schreibwert.
+         * PID_LOAD_STATE_CONTROL (PDT_CONTROL) nimmt 10 Oktette an und antwortet mit einem Oktett
+         * Ladezustand (03/05/01 4.23.2.1) - writeProperty verlangt gleich lange Antwortdaten und wirft.
+         * Liefert die Daten der A_PropertyValue_Response.
+         */
+        byte[] writeControlProperty(Destination dst, int objIndex, int pid, int start, int elements, byte[] data)
+                throws KNXException, InterruptedException {
+            byte[] asdu = new byte[4 + data.length];
+            asdu[0] = (byte) objIndex;
+            asdu[1] = (byte) pid;
+            asdu[2] = (byte) ((elements << 4) | ((start >> 8) & 0x0F));
+            asdu[3] = (byte) start;
+            System.arraycopy(data, 0, asdu, 4, data.length);
+            byte[] apdu = DataUnitBuilder.createAPDU(PROPERTY_WRITE, asdu);
+            byte[] res = sendWait(dst, getPriority(), apdu, PROPERTY_RESPONSE, 4, 250, responseTimeout());
+            // Antwort: 2 Oktette APCI, Objektindex, PID, Anzahl/Start, Start, Daten
+            if (res.length < 6 || ((res[4] & 0xFF) >> 4) == 0) {
+                throw new KNXRemoteException("Property " + pid + ": Schreiben abgelehnt");
+            }
+            return Arrays.copyOfRange(res, 6, res.length);
+        }
+
+        private static final int PROPERTY_WRITE = 0x03D7;
+        private static final int PROPERTY_RESPONSE = 0x03D6;
     }
 
     static final class SharedProcedures extends ManagementProceduresImpl {

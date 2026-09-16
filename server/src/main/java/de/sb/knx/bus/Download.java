@@ -175,8 +175,15 @@ public final class Download {
             waitForState(expect, () -> memState(lsm));
         } else {
             int index = objectIndex(s);
-            bus.client().writeProperty(dst(), index, PID.LOAD_STATE_CONTROL, 1, 1, data);
+            // Die Antwort traegt bereits den neuen Zustand; nachgelesen wird nur bei Zwischenzustaenden.
+            byte[] res = bus.client().writeControlProperty(dst(), index, PID.LOAD_STATE_CONTROL, 1, 1, data);
+            int[] first = {res.length > 0 ? res[0] & 0xFF : -1};
             waitForState(expect, () -> {
+                if (first[0] >= 0) {
+                    int v = first[0];
+                    first[0] = -1;
+                    return v;
+                }
                 byte[] v = bus.client().readProperty(dst(), index, PID.LOAD_STATE_CONTROL, 1, 1);
                 return v.length > 0 ? v[0] & 0xFF : -1;
             });

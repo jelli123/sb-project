@@ -213,7 +213,10 @@ public final class Commissioning {
     }
 
     private int propertyLsm(Destination d, int objectIndex, int event) throws KNXException, InterruptedException {
-        bus.client().writeProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1, Knx.loadEvent(event));
+        byte[] res = bus.client().writeControlProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1,
+                Knx.loadEvent(event));
+        int state = res.length > 0 ? res[0] & 0xFF : -1;
+        if (state >= 0 && state != 4 && state != 5) return state;
         return pollState(() -> Knx.unsigned(bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1)));
     }
 
