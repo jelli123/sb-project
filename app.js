@@ -459,7 +459,10 @@ function actRenameNode(id) {
   const n = KNX.findNode(id);
   if (!n) return;
   const isRoot = n.id === KNX.project().tree.id;
-  const holds = isRoot ? [] : Object.keys(KNX.NODE_KINDS).filter(k => k !== 'site');
+  // Nur Typen, die das übergeordnete Element aufnehmen kann — sonst wäre die
+  // Struktur ungültig und die Migration müsste sie beim nächsten Laden umbauen.
+  const allowed = isRoot ? [] : KNX.kindHolds(KNX.parentOf(id).kind);
+  const holds = isRoot ? [] : allowed.includes(n.kind) ? allowed : [n.kind, ...allowed];
   openModal(`${KNX.kindDe(n.kind)} bearbeiten`, `
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(n.name)}">
@@ -477,6 +480,11 @@ function actRenameNode(id) {
     const name = $('#m-name').value.trim();
     if (!name) { $('#m-name').focus(); return false; }
     const kind = $('#m-kind')?.value || n.kind;
+    if (!isRoot && !allowed.includes(kind)) {
+      $('#m-err').innerHTML = `<span class="hint warn">„${esc(KNX.parentOf(id).name)}“ kann kein ` +
+        `${esc(KNX.kindDe(kind))} enthalten — erlaubt: ${allowed.map(k => esc(KNX.kindDe(k))).join(', ')}.</span>`;
+      return false;
+    }
     if (kind !== n.kind) {
       const holdsNew = KNX.kindHolds(kind);
       const bad = n.children.find(c => !holdsNew.includes(c.kind));

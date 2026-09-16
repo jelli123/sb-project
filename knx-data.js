@@ -446,22 +446,67 @@ const KNX = (() => {
     // Gebäudestruktur: unbekannte Typen auf erlaubte Kindtypen kappen
     const seenNodes = new Set();
     const roomIds = new Set();
-    const fixNode = (n, allowed) => {
-      let k = n.kind || LEGACY_KINDS[n.level] || n.level;
-      if (!NODE_KINDS[k] || (allowed && !allowed.includes(k))) k = allowed ? allowed[allowed.length - 1] : 'room';
-      n.kind = k;
-      delete n.level;
-      n.name = String(n.name || kindDe(k));
-      n.note = normNote(n.note);
-      n.id = takeId(n.id, 'n', seenNodes);
-      if (DEVICE_HOSTS.has(k)) roomIds.add(n.id);
-      n.children = Array.isArray(n.children) ? n.children : [];
-      const holds = kindHolds(k);
-      if (!holds.length) n.children = [];
-      else n.children.forEach(c => fixNode(c, holds));
+    /* Passt ein Typ nicht unter seinen Elternknoten, geht nichts verloren:
+       Zuerst wird die fehlende Ebene eingezogen (Geschoss unter der
+       Liegenschaft → Gebäude dazwischen), sonst ein Typ gewählt, der die
+       Kinder aufnehmen kann, und erst zuletzt rücken Kinder eine Ebene hoch. */
+    const kindOf = n => {
+      const k = n.kind || LEGACY_KINDS[n.level] || n.level;
+      return NODE_KINDS[k] ? k : 'room';
     };
-    fixNode(p.tree, null);
+    const fixList = (list, allowed, parentName) => {
+      const queue = (Array.isArray(list) ? list : []).filter(n => n && typeof n === 'object');
+      const out = [], wrappers = new Map();
+      while (queue.length) {
+        const n = queue.shift();
+        let k = kindOf(n);
+        const kids = Array.isArray(n.children) ? n.children : [];
+        if (!allowed.includes(k)) {
+          const wrap = allowed.find(a => kindHolds(a).includes(k));
+          const alt = allowed.find(a => kids.every(c => kindHolds(a).includes(kindOf(c))));
+          if (wrap) {
+            let w = wrappers.get(wrap);
+            if (!w) {
+              w = { id: takeId(null, 'n', seenNodes), kind: wrap, name: kindDe(wrap), note: '', children: [] };
+              wrappers.set(wrap, w);
+              out.push(w);
+              note(`Unter „${parentName}“ ist kein ${kindDe(k)} vorgesehen — ` +
+                   `${kindDe(wrap)} „${w.name}“ dazwischen eingefügt.`);
+            }
+            w.children.push(n);
+            continue;
+          }
+          const to = alt || allowed[allowed.length - 1];
+          note(`${kindDe(k)} „${n.name || ''}“ passt nicht unter „${parentName}“ — jetzt ${kindDe(to)}` +
+               (alt ? '.' : ', der Inhalt rückt eine Ebene höher.'));
+          if (!alt) { queue.unshift(...kids); n.children = []; }
+          k = to;
+        }
+        n.kind = k;
+        delete n.level;
+        n.name = String(n.name || kindDe(k));
+        n.note = normNote(n.note);
+        n.id = takeId(n.id, 'n', seenNodes);
+        if (DEVICE_HOSTS.has(k)) roomIds.add(n.id);
+        out.push(n);
+      }
+      // Kinder erst nach der Ebene selbst — Einschübe brauchen die Ids der Geschwister nicht
+      out.forEach(n => { n.children = fixList(n.children, kindHolds(n.kind), n.name); });
+      return out;
+    };
+    // Eingefügte Ebenen brauchen neue Ids, die keine vorhandene treffen dürfen
+    (function bump(n) {
+      if (!n || typeof n !== 'object') return;
+      const num = +String(n.id || '').replace(/\D/g, '');
+      if (num > seq) seq = num;
+      (Array.isArray(n.children) ? n.children : []).forEach(bump);
+    })(p.tree);
     p.tree.kind = 'site';
+    delete p.tree.level;
+    p.tree.name = String(p.tree.name || kindDe('site'));
+    p.tree.note = normNote(p.tree.note);
+    p.tree.id = takeId(p.tree.id, 'n', seenNodes);
+    p.tree.children = fixList(p.tree.children, kindHolds('site'), p.tree.name);
 
     // Topologie
     const seenTopo = new Set();
