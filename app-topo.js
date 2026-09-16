@@ -153,7 +153,7 @@ function readDraft() {
 }
 function actNewDevice(ctx) {
   const p = KNX.project();
-  const lineId = ctx?.lineId || (state.filter?.kind === 'line' ? state.filter.id : p.areas[0].lines[0]?.id);
+  const lineId = ctx?.lineId || (state.filter?.kind === 'line' ? state.filter.id : KNX.regularAreas()[0].lines[0]?.id);
   const roomId = ctx?.roomId
     || (state.sel?.kind === 'node' && KNX.DEVICE_HOSTS.has(KNX.findNode(state.sel.id)?.kind || '')
         ? state.sel.id : null);
@@ -537,7 +537,8 @@ function actParams(devId) {
       <section class="prm-group" data-name="ip netzwerk adresse ${esc(KNX.IP_FIELDS.map(f => f.label.toLowerCase()).join(' '))}">
         <h4>IP-Konfiguration</h4>
         <p class="prm-note">Diese Angaben stehen nicht in der Produktdatei — die ETS
-        führt sie im Eigenschaftsfenster des Geräts.</p>
+        führt sie im Eigenschaftsfenster des Geräts. Die Routing-Multicast-Adresse
+        (${esc(KNX.ipConfig(dev).mcast)}) gilt für das ganze Projekt und wird am Backbone eingestellt.</p>
         ${KNX.IP_FIELDS.map(ipField).join('')}
       </section>` : '';
     return `
@@ -755,8 +756,8 @@ function actNewArea() {
   let free = 1;
   while (free <= KNX.PA_MAX.area && used.has(free)) free++;
   A.openModal('Neuen Bereich anlegen', `
-    <label class="field"><span>Bereichsnummer <em>0–15</em></span>
-      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${Math.min(free, 15)}">
+    <label class="field"><span>Bereichsnummer <em>1–15, 0 ist der Backbone</em></span>
+      <input class="input mono" id="m-addr" type="number" min="1" max="15" value="${Math.min(free, 15)}">
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" placeholder="z. B. Nebengebäude">
@@ -770,8 +771,8 @@ function actNewArea() {
     const addr = $('#m-addr').valueAsNumber;
     const name = $('#m-name').value.trim();
     if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
-    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.area)
-      { showErr('Bereichsnummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (!Number.isInteger(addr) || addr < 1 || addr > KNX.PA_MAX.area)
+      { showErr('Bereichsnummer muss zwischen 1 und 15 liegen — Bereich 0 ist der Backbone.'); return false; }
     if (used.has(addr)) { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
     const a = { id: KNX.uid('a'), addr, name, note: $('#m-note').value.trim(),
                 lines: [ { id: KNX.uid('l'), addr: 1, name: 'Hauptlinie', medium: 'tp', note: '' } ] };
@@ -785,9 +786,10 @@ function actNewArea() {
 function actEditArea(id) {
   const a = KNX.project().areas.find(x => x.id === id);
   if (!a) return;
+  if (a.backbone) { actEditLine(a.lines[0].id); return; }
   A.openModal('Bereich bearbeiten', `
-    <label class="field"><span>Bereichsnummer <em>0–15</em></span>
-      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${a.addr}">
+    <label class="field"><span>Bereichsnummer <em>1–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="1" max="15" value="${a.addr}">
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(a.name)}">
@@ -803,8 +805,8 @@ function actEditArea(id) {
     const addr = $('#m-addr').valueAsNumber;
     const name = $('#m-name').value.trim();
     if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
-    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.area)
-      { showErr('Bereichsnummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (!Number.isInteger(addr) || addr < 1 || addr > KNX.PA_MAX.area)
+      { showErr('Bereichsnummer muss zwischen 1 und 15 liegen — Bereich 0 ist der Backbone.'); return false; }
     if (KNX.project().areas.some(x => x.id !== id && x.addr === addr))
       { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
     if (addr !== a.addr) {
@@ -827,7 +829,8 @@ function actEditArea(id) {
 function actDeleteArea(id) {
   const a = KNX.project().areas.find(x => x.id === id);
   if (!a) return;
-  if (KNX.project().areas.length < 2) { A.warn('Der letzte Bereich kann nicht gelöscht werden.'); return; }
+  if (a.backbone) { A.warn('Der Backbone gehört zu jedem Projekt und lässt sich nicht löschen.'); return; }
+  if (KNX.regularAreas().length < 2) { A.warn('Der letzte Bereich kann nicht gelöscht werden.'); return; }
   const n = a.lines.reduce((s, l) => s + KNX.devicesOnLine(l.id).length, 0);
   A.openModal(`Bereich „${esc(a.name)}“ löschen?`, `
     <p>Der Bereich mit ${a.lines.length} Linien wird entfernt.</p>
@@ -843,6 +846,7 @@ function actDeleteArea(id) {
 function actNewLine(areaId) {
   const a = KNX.project().areas.find(x => x.id === areaId);
   if (!a) return;
+  if (a.backbone) { A.warn('Der Backbone hat nur die Linie 0.0 — neue Linien gehören in einen Bereich.'); return; }
   const used = new Set(a.lines.map(l => l.addr));
   let free = 1;
   while (free <= KNX.PA_MAX.line && used.has(free)) free++;
@@ -881,6 +885,7 @@ function actNewLine(areaId) {
 function actEditLine(id) {
   const l = KNX.lineById(id), a = KNX.areaOfLine(id);
   if (!l || !a) return;
+  if (a.backbone) { actEditBackbone(l); return; }
   A.openModal('Linie bearbeiten', `
     <label class="field"><span>Liniennummer <em>0–15</em></span>
       <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${l.addr}">
@@ -922,9 +927,51 @@ function actEditLine(id) {
   });
 }
 
+/* Backbone: Nummer fest 0.0, Medium IP oder TP, bei IP die Multicast-Adresse
+   aller KNXnet/IP-Router des Projekts (03/08/03 2.5.17).                   */
+function actEditBackbone(l) {
+  const mcastRow = medium => medium === 'ip' ? '' : ' hidden';
+  A.openModal('Backbone bearbeiten', `
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" value="${esc(l.name)}">
+    </label>
+    <label class="field"><span>Medium</span>
+      <select class="select" id="m-medium">${KNX.BACKBONE_MEDIA.map(k =>
+        `<option value="${k}"${k === l.medium ? ' selected' : ''}>${esc(KNX.MEDIA[k])}</option>`).join('')}</select>
+    </label>
+    <label class="field" id="m-mcast-row"${mcastRow(l.medium)}><span>Routing-Multicast-Adresse <em>IPv4</em></span>
+      <input class="input mono" id="m-mcast" value="${esc(l.mcast || '224.0.23.12')}" inputmode="decimal">
+    </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="Freitext zur Dokumentation">${esc(l.note || '')}</textarea>
+    </label>
+    <p class="hint">Der Backbone verbindet die Bereiche. Die Multicast-Adresse gilt für alle
+       KNXnet/IP-Router und wird beim Programmieren in jeden geschrieben.</p>
+    <div id="m-err"></div>
+  `, () => {
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    const medium = $('#m-medium').value;
+    const mcast = $('#m-mcast').value.trim();
+    // Multicast-Gruppen liegen in 224.0.0.0/4
+    if (medium === 'ip' && (!KNX.isIpV4(mcast) || +mcast.split('.')[0] < 224 || +mcast.split('.')[0] > 239))
+      { showErr('Die Multicast-Adresse muss zwischen 224.0.0.0 und 239.255.255.255 liegen.'); return false; }
+    l.name = name;
+    l.medium = medium;
+    if (medium === 'ip') l.mcast = mcast;
+    l.note = $('#m-note').value.trim();
+    KNX.areaOfLine(l.id).name = name;
+    KNX.touch();
+    A.commit();
+  });
+  $('#m-medium').addEventListener('change', e => { $('#m-mcast-row').hidden = e.target.value !== 'ip'; });
+}
+
 function actDeleteLine(id) {
   const l = KNX.lineById(id), a = KNX.areaOfLine(id);
   if (!l || !a) return;
+  if (a.backbone) { A.warn('Der Backbone gehört zu jedem Projekt und lässt sich nicht löschen.'); return; }
   const n = KNX.devicesOnLine(id).length;
   A.openModal(`Linie ${a.addr}.${l.addr} „${esc(l.name)}“ löschen?`, `
     ${n ? `<p class="hint warn">${n} Geräte werden auf eine andere Linie verschoben —

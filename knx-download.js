@@ -724,7 +724,10 @@ function plan(project, dev, item, opts = {}) {
     summary.filter = ctx.filter.count;
   }
   if (dev.ip && ['all', 'par', 'par,grp', 'cfg'].includes(kind)) {
-    const ipCfg = { ...{ name: '', mode: 'dhcp', addr: '', mask: '', gw: '', mcast: '224.0.23.12' }, ...dev.ip };
+    // Die Multicast-Adresse gilt projektweit und steht am Backbone
+    const bb = project.areas.find(a => a.backbone);
+    const ipCfg = { ...{ name: '', mode: 'dhcp', addr: '', mask: '', gw: '' }, ...dev.ip,
+                    mcast: (bb && bb.lines[0] && bb.lines[0].mcast) || (dev.ip && dev.ip.mcast) || '224.0.23.12' };
     // Ein leerer Name hieße 30 Nullbytes im Gerät; wie die ETS gilt dann der Gerätename
     if (!String(ipCfg.name || '').trim()) ipCfg.name = dev.name || '';
     ctx.ip = ipSteps(ipCfg, dl.addAddr, errors);

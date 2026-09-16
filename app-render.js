@@ -156,9 +156,30 @@ function buildingNode(node, depth) {
 }
 
 /* ---------- Ansicht 2: Topologie ---------- */
-function areaNode(a) {
+function backboneNode(bb) {
+  const devs = KNX.devicesOnLine(bb.line.id);
+  const areas = KNX.regularAreas().slice().sort((x, y) => x.addr - y.addr);
   emit({
-    depth: 0, key: a.id, ref: { kind: 'area', id: a.id },
+    depth: 0, key: bb.area.id, ref: { kind: 'line', id: bb.line.id },
+    icon: A.IC.area, iconClass: 'area',
+    label: bb.line.name, title: 'Backbone · ' + KNX.MEDIA[bb.line.medium], addr: '0.0.-',
+    meta: devs.length ? devs.length + '\u00A0T' : '',
+    hasKids: devs.length + areas.length > 0, collapsed: state.collapsed.has(bb.area.id),
+    actions: () => [
+      iconBtn(A.IC.device, 'Gerät auf dem Backbone', () => T.actNewDevice({ lineId: bb.line.id })),
+      iconBtn('+', 'Neuer Bereich', () => T.actNewArea())
+    ],
+    onSelect: () => { state.filter = { kind: 'line', id: bb.line.id }; A.select('line', bb.line.id); },
+    onEdit: () => T.actEditLine(bb.line.id),
+    children: () => {
+      devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, 1));
+      areas.forEach(a => areaNode(a, 1));
+    }
+  });
+}
+function areaNode(a, depth = 0) {
+  emit({
+    depth, key: a.id, ref: { kind: 'area', id: a.id },
     icon: A.IC.area, iconClass: 'area',
     label: a.name, title: 'Bereich', addr: a.addr + '.-.-',
     hasKids: a.lines.length > 0, collapsed: state.collapsed.has(a.id),
@@ -168,13 +189,13 @@ function areaNode(a) {
     ],
     onSelect: () => { state.filter = { kind: 'area', id: a.id }; A.select('area', a.id); },
     onEdit: () => T.actEditArea(a.id),
-    children: () => a.lines.slice().sort((x, y) => x.addr - y.addr).forEach(l => lineNode(a, l))
+    children: () => a.lines.slice().sort((x, y) => x.addr - y.addr).forEach(l => lineNode(a, l, depth + 1))
   });
 }
-function lineNode(a, l) {
+function lineNode(a, l, depth = 1) {
   const devs = KNX.devicesOnLine(l.id);
   emit({
-    depth: 1, key: l.id, ref: { kind: 'line', id: l.id },
+    depth, key: l.id, ref: { kind: 'line', id: l.id },
     icon: A.IC.line, iconClass: 'line',
     label: l.name, title: KNX.MEDIA[l.medium], addr: a.addr + '.' + l.addr + '.-',
     meta: devs.length ? devs.length + '\u00A0T' : '',
@@ -185,7 +206,7 @@ function lineNode(a, l) {
     ],
     onSelect: () => { state.filter = { kind: 'line', id: l.id }; A.select('line', l.id); },
     onEdit: () => T.actEditLine(l.id),
-    children: () => devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, 2))
+    children: () => devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, depth + 1))
   });
 }
 function deviceNode(d, depth) {
@@ -262,10 +283,14 @@ function renderTree() {
     $('#btn-tree-add').textContent = '+ Element';
     $('#btn-tree-add').title = 'Unter dem gewählten Element anlegen';
   } else if (state.view === 'topology') {
-    p.areas.slice().sort((a, b) => a.addr - b.addr).forEach(areaNode);
-    const nLines = p.areas.reduce((s, a) => s + a.lines.length, 0);
+    const bb = KNX.backbone();
+    if (bb) backboneNode(bb);
+    else KNX.regularAreas().slice().sort((a, b) => a.addr - b.addr).forEach(a => areaNode(a));
+    const regular = KNX.regularAreas();
+    const nLines = regular.reduce((s, a) => s + a.lines.length, 0);
     $('#tree-count').textContent =
-      `${p.areas.length} Bereiche · ${nLines} Linien · ${p.devices.length} Teilnehmer`;
+      `${bb ? 'Backbone ' + KNX.MEDIA[bb.line.medium] + ' · ' : ''}${regular.length} Bereiche · ` +
+      `${nLines} Linien · ${p.devices.length} Teilnehmer`;
     $('#btn-tree-add').textContent = '+ Bereich';
     $('#btn-tree-add').title = 'Neuen Bereich anlegen';
   } else {
@@ -875,7 +900,7 @@ function detailDev(d) {
       <li><span class="grow">IP-Adresse</span><span class="addr">${esc(ip.addr || '—')}</span></li>
       <li><span class="grow">Subnetzmaske</span><span class="addr">${esc(ip.mask || '—')}</span></li>
       <li><span class="grow">Standardgateway</span><span class="addr">${esc(ip.gw || '—')}</span></li>` : ''}
-      <li><span class="grow">Routing-Multicast</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
+      <li><span class="grow">Routing-Multicast (Backbone)</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
       <li><span class="grow">Tunnelverbindungen${KNX.tunnelCountFixed(d) ? ' (laut Produktdatei)' : ''}</span>
         <span class="addr">${KNX.tunnelCount(d)}</span></li>
       ${KNX.tunnelAddrs(d).length ? `<li><span class="grow">Tunneladressen</span>
@@ -943,9 +968,50 @@ function detailObj(dev, o) {
       : '<p class="hint">Keine Adresse zugeordnet.</p>'}`;
 }
 
+function detailBackbone(l) {
+  const devs = KNX.devicesOnLine(l.id);
+  const areas = KNX.regularAreas().slice().sort((x, y) => x.addr - y.addr);
+  return `
+    <div class="detail-head">
+      <span class="addr big">0.0</span>
+      <div>
+        <h2>${esc(l.name)}</h2>
+        <p class="detail-sub">Backbone · ${esc(KNX.MEDIA[l.medium])}${l.medium === 'ip'
+          ? ' · Multicast ' + esc(l.mcast || '—') : ''}</p>
+      </div>
+    </div>
+    <div class="detail-meta">
+      <div class="meta-item"><span class="meta-num">${areas.length}</span><span class="meta-lbl">Bereiche</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
+      <button class="btn btn-sm" id="d-addarea">+ Bereich</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
+    </div>
+    ${issueList(l.id)}
+    <p class="hint">Der Backbone verbindet die Bereiche über ihre Bereichskoppler (x.0.0).
+      ${l.medium === 'ip' ? 'Die Multicast-Adresse gilt für alle KNXnet/IP-Router des Projekts.' : ''}</p>
+    ${noteSection(l.note)}
+    <h3 class="detail-h">Bereiche</h3>
+    <ul class="detail-list">${areas.map(a =>
+      `<li class="jump" data-kind="area" data-id="${a.id}">
+        <span class="addr">${a.addr}</span>
+        <span class="grow">${esc(a.name)}</span>
+        <span class="dpt-tag">${a.lines.length} L</span></li>`).join('')}</ul>
+    ${devs.length
+      ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
+        devs.slice().sort(KNX.byPa).map(d =>
+          `<li class="jump" data-kind="dev" data-id="${d.id}">
+            <span class="addr">${KNX.paStr(d.addr)}</span>
+            <span class="grow">${esc(d.name)}</span>
+            <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>' : ''}`;
+}
+
 function detailLine(l) {
   const a = KNX.areaOfLine(l.id);
   const devs = KNX.devicesOnLine(l.id);
+  if (a.backbone) return detailBackbone(l);
   return `
     <div class="detail-head">
       <span class="addr big">${a.addr}.${l.addr}</span>
@@ -1081,6 +1147,7 @@ function renderDetail() {
   } else if (sel.kind === 'line') {
     panel.innerHTML = detailLine(target);
     on('#d-adddev', () => T.actNewDevice({ lineId: target.id }));
+    on('#d-addarea', () => T.actNewArea());
     on('#d-rename', () => T.actEditLine(target.id));
     on('#d-delete', () => T.actDeleteLine(target.id));
   } else if (sel.kind === 'area') {
@@ -1117,11 +1184,16 @@ function jumpTo(kind, id) {
 }
 function expandTo(kind, id) {
   const openLine = lineId => {
+    const bb = KNX.backbone();
+    if (bb) state.collapsed.delete(bb.area.id);
     state.collapsed.delete(lineId);
     const a = KNX.areaOfLine(lineId);
     if (a) state.collapsed.delete(a.id);
   };
-  if (kind === 'obj') {
+  if (kind === 'area') {
+    const bb = KNX.backbone();
+    if (bb) state.collapsed.delete(bb.area.id);
+  } else if (kind === 'obj') {
     const e = KNX.objById(id);
     if (e) { state.collapsed.delete(e.dev.id); openLine(e.dev.lineId); }
   } else if (kind === 'dev') {

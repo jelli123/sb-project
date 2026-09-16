@@ -232,7 +232,6 @@ const KNX = (() => {
     { key: 'addr',    label: 'IP-Adresse',        kind: 'ip', manualOnly: true },
     { key: 'mask',    label: 'Subnetzmaske',      kind: 'ip', manualOnly: true },
     { key: 'gw',      label: 'Standardgateway',   kind: 'ip', manualOnly: true },
-    { key: 'mcast',   label: 'Routing-Multicast', kind: 'ip' },
     { key: 'tunnels', label: 'Tunnelverbindungen', kind: 'num', min: 0, max: 8 }
   ];
   const IP_DEFAULTS = { name: '', mode: 'dhcp', addr: '', mask: '255.255.255.0',
@@ -254,7 +253,30 @@ const KNX = (() => {
     const l = dev && lineById(dev.lineId);
     return !!l && l.medium === 'ip';
   }
-  const ipConfig = dev => ({ ...IP_DEFAULTS, ...(dev.ip || {}) });
+  /* Die Routing-Multicast-Adresse gilt für alle KNXnet/IP-Router eines Projekts
+     und wird wie in der ETS am IP-Backbone eingestellt.                    */
+  const ipConfig = dev => {
+    const bb = backbone();
+    return { ...IP_DEFAULTS, ...(dev.ip || {}), mcast: (bb && bb.line.mcast) || IP_DEFAULTS.mcast };
+  };
+
+  /* ---------- Backbone ---------- *
+   * Oberste Linie 0.0 über allen Bereichen. Auf ihr sitzen die Bereichskoppler
+   * mit ihrer Primärseite und zentrale Geräte 0.0.x. Geführt wird er als
+   * Bereich 0 mit genau einer Linie 0, damit Geräte und Adressen wie auf jeder
+   * anderen Linie funktionieren. Sein Medium ist IP oder TP.               */
+  const BACKBONE_MEDIA = ['ip', 'tp'];
+  const MCAST_DEFAULT = '224.0.23.12';
+  function makeBackbone(medium = 'ip', mcast = MCAST_DEFAULT, ids = {}) {
+    return { id: ids.area || 'a0', addr: 0, name: 'Backbone', backbone: true, note: '',
+             lines: [ { id: ids.line || 'l0', addr: 0, name: 'Backbone', medium, mcast, note: '' } ] };
+  }
+  function backbone(p = project) {
+    const area = p && p.areas.find(a => a.backbone);
+    return area && area.lines[0] ? { area, line: area.lines[0] } : null;
+  }
+  const isBackboneLine = lineId => { const bb = backbone(); return !!bb && bb.line.id === lineId; };
+  const regularAreas = () => project.areas.filter(a => !a.backbone);
 
   /* ---------- Busstrom ---------- *
    * TP-Teilnehmer ziehen typisch 10 mA; die Produktdateien nennen den Wert
@@ -300,7 +322,8 @@ const KNX = (() => {
       gaStyle: 'three',
       seq: 2,
       tree: { id: 'n1', kind: 'site', name: n, children: [] },
-      areas: [ { id: 'a1', addr: 1, name: 'Bereich 1',
+      areas: [ makeBackbone('ip', MCAST_DEFAULT, { area: 'a0', line: 'l0' }),
+               { id: 'a1', addr: 1, name: 'Bereich 1',
                  lines: [ { id: 'l1', addr: 1, name: 'Hauptlinie', medium: 'tp' } ] } ],
       devices: [],       // { id, name, product, lineId, addr, roomId, serial, note, objs[] }
       groups: [],        // { id, raw, name, dpt, note }
@@ -365,20 +388,47 @@ const KNX = (() => {
       addr: clamp(a.addr, 0, PA_MAX.area, 1),
       name: String(a.name || 'Bereich'),
       note: normNote(a.note),
+      ...(a.backbone ? { backbone: true } : {}),
       lines: (Array.isArray(a.lines) ? a.lines : []).map(l => ({
         id: takeId(l.id, 'l', seenTopo),
         addr: clamp(l.addr, 0, PA_MAX.line, 1),
         name: String(l.name || 'Linie'),
         medium: MEDIA[l.medium] ? l.medium : 'tp',
-        note: normNote(l.note)
+        note: normNote(l.note),
+        ...(a.backbone ? { mcast: isIpV4(l.mcast) ? l.mcast : MCAST_DEFAULT } : {})
       }))
     }));
-    if (!p.areas.length) p.areas = newProject(p.name).areas;
-    if (!p.areas.some(a => a.lines.length))
-      p.areas[0].lines.push({ id: 'l' + (++seq), addr: 1, name: 'Hauptlinie', medium: 'tp' });
+    /* Backbone nachrüsten: Ein vorhandener Bereich 0 wird zum Backbone, sonst
+       entsteht einer. Medium IP, sobald eine Hauptlinie x.0 IP ist; die
+       Multicast-Adresse übernimmt der bisherige Wert der IP-Geräte.        */
+    if (!p.areas.some(a => a.backbone)) {
+      const zero = p.areas.find(a => a.addr === 0);
+      const ipMain = p.areas.some(a => a.lines.some(l => l.addr === 0 && l.medium === 'ip'));
+      const mcasts = (Array.isArray(p.devices) ? p.devices : [])
+        .map(d => d && d.ip && d.ip.mcast).filter(isIpV4);
+      const mcast = mcasts[0] || MCAST_DEFAULT;
+      if (zero) {
+        zero.backbone = true;
+        if (!zero.lines.some(l => l.addr === 0))
+          zero.lines.unshift({ id: takeId(null, 'l', seenTopo), addr: 0, name: 'Backbone', medium: ipMain ? 'ip' : 'tp', note: '' });
+        zero.lines.sort((x, y) => x.addr - y.addr);
+        const l0 = zero.lines[0];
+        if (!BACKBONE_MEDIA.includes(l0.medium)) l0.medium = ipMain ? 'ip' : 'tp';
+        l0.mcast = mcast;
+        note('Bereich 0 ist jetzt der Backbone des Projekts.');
+      } else {
+        p.areas.unshift(makeBackbone(ipMain ? 'ip' : 'tp', mcast,
+          { area: takeId(null, 'a', seenTopo), line: takeId(null, 'l', seenTopo) }));
+      }
+    }
+    p.areas.sort((a, b) => a.addr - b.addr);
+    if (!p.areas.some(a => !a.backbone)) p.areas.push(newProject(p.name).areas[1]);
+    const firstArea = p.areas.find(a => !a.backbone);
+    if (!firstArea.lines.length)
+      firstArea.lines.push({ id: 'l' + (++seq), addr: 1, name: 'Hauptlinie', medium: 'tp' });
     const lineIds = new Set();
     p.areas.forEach(a => a.lines.forEach(l => lineIds.add(l.id)));
-    const firstLine = p.areas.find(a => a.lines.length).lines[0].id;
+    const firstLine = firstArea.lines[0].id;
 
     // Gruppenadressen: Adresse auf 16-Bit-Rohwert bringen, DPT umschlüsseln
     const seenGa = new Set();
@@ -619,11 +669,12 @@ const KNX = (() => {
     /* --- Topologie --- *
      * Heute üblich: IP als Backbone, darunter TP-Linien. Der IP-Router sitzt
      * mit seiner physikalischen Adresse auf der TP-Seite.                  */
-    const lHl  = { id: uid('l'), addr: 0, name: 'IP-Backbone', medium: 'ip' };
+    const lHl  = { id: uid('l'), addr: 0, name: 'Hauptlinie',  medium: 'ip' };
     const lEg  = { id: uid('l'), addr: 1, name: 'Linie EG',    medium: 'tp' };
     const lOg  = { id: uid('l'), addr: 2, name: 'Linie OG',    medium: 'tp' };
     const lAus = { id: uid('l'), addr: 3, name: 'Linie Außen', medium: 'tp' };
-    p.areas = [ { id: uid('a'), addr: 1, name: 'Haupthaus', lines: [lHl, lEg, lOg, lAus] } ];
+    p.areas = [ makeBackbone('ip', MCAST_DEFAULT, { area: uid('a'), line: uid('l') }),
+                { id: uid('a'), addr: 1, name: 'Haupthaus', lines: [lHl, lEg, lOg, lAus] } ];
 
     /* --- Gruppenadress-Struktur --- */
     p.gaNames = {
@@ -1106,10 +1157,10 @@ const KNX = (() => {
   }
   function deleteLine(lineId) {
     const a = areaOfLine(lineId);
-    if (!a) return false;
+    if (!a || a.backbone) return false;
     // Geräte werden nicht mitgelöscht, sondern auf eine verbleibende Linie gehoben
     const rest = [];
-    project.areas.forEach(x => x.lines.forEach(l => { if (l.id !== lineId) rest.push(l); }));
+    regularAreas().forEach(x => x.lines.forEach(l => { if (l.id !== lineId) rest.push(l); }));
     if (!rest.length) return false;
     project.devices.forEach(d => { if (d.lineId === lineId) d.lineId = rest[0].id; });
     a.lines = a.lines.filter(l => l.id !== lineId);
@@ -1117,11 +1168,11 @@ const KNX = (() => {
     return true;
   }
   function deleteArea(areaId) {
-    if (project.areas.length < 2) return false;
+    if (regularAreas().length < 2) return false;
     const a = project.areas.find(x => x.id === areaId);
-    if (!a) return false;
+    if (!a || a.backbone) return false;
     const ids = new Set(a.lines.map(l => l.id));
-    const rest = project.areas.find(x => x.id !== areaId && x.lines.length);
+    const rest = regularAreas().find(x => x.id !== areaId && x.lines.length);
     if (!rest) return false;
     project.devices.forEach(d => { if (ids.has(d.lineId)) d.lineId = rest.lines[0].id; });
     project.areas = project.areas.filter(x => x.id !== areaId);
@@ -1443,8 +1494,6 @@ const KNX = (() => {
           if (c.gw && !isIpV4(c.gw))
             add('error', 'device', d.id, 'IP-Konfiguration: Standardgateway ist ungültig.');
         }
-        if (c.mcast && !isIpV4(c.mcast))
-          add('error', 'device', d.id, 'IP-Konfiguration: Multicast-Adresse ist ungültig.');
         const dup = c.mode === 'manual' && isIpV4(c.addr) && ipSeen.get(c.addr);
         if (dup)
           add('error', 'device', d.id, `IP-Adresse ${c.addr} ist doppelt vergeben (auch: ${dup.name}).`);
@@ -1458,6 +1507,20 @@ const KNX = (() => {
             'vorgesehen, trägt aber noch Adressen.');
       });
     });
+
+    /* Backbone: nur Linie 0.0, bei IP eine gültige Multicast-Adresse. Eine
+       IP-Hauptlinie unter einem TP-Backbone lässt die Bereichskoppler zwei
+       Medien verbinden — meist ein Planungsfehler.                         */
+    const bb = backbone();
+    if (bb) {
+      if (bb.area.lines.length > 1)
+        add('error', 'area', bb.area.id, 'Der Backbone hat nur die Linie 0.0 — weitere Linien gehören in Bereiche 1–15.');
+      if (bb.line.medium === 'ip' && !isIpV4(bb.line.mcast))
+        add('error', 'line', bb.line.id, 'Routing-Multicast-Adresse des Backbones fehlt oder ist ungültig.');
+      if (bb.line.medium === 'tp')
+        regularAreas().forEach(a => a.lines.filter(l => l.addr === 0 && l.medium === 'ip').forEach(l =>
+          add('warn', 'line', l.id, `Hauptlinie ${a.addr}.0 ist IP, der Backbone aber TP.`)));
+    }
 
     project.areas.forEach(a => a.lines.forEach(l => {
       const devs = devicesOnLine(l.id);
@@ -1624,6 +1687,7 @@ const KNX = (() => {
     NOTE_MAX, normNote, normSerial,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
+    BACKBONE_MEDIA, backbone, isBackboneLine, regularAreas,
     tunnelCount, tunnelCountFixed, tunnelAddrs, ensureTunnelAddrs,
     project: () => project,
     setProject: p => { project = p; dirty = true; invalidate(); },
