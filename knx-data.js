@@ -2084,6 +2084,58 @@ const KNX = (() => {
     return true;
   }
 
+  /* ---------- Umhängen in der Gebäudestruktur ---------- */
+  function isInside(id, ancestorId) {
+    for (let n = findNode(id); n; n = parentOf(n.id)) if (n.id === ancestorId) return true;
+    return false;
+  }
+  /* Warum `id` nicht unter `parentId` liegen darf — leer, wenn es geht. */
+  function nodeMoveError(id, parentId) {
+    const n = findNode(id), to = findNode(parentId);
+    if (!n || !to) return 'Element nicht gefunden.';
+    if (n.id === project.tree.id) return 'Die Liegenschaft ist die Wurzel und bleibt oben.';
+    if (isInside(parentId, id)) return `„${n.name}“ kann nicht in sich selbst liegen.`;
+    if (!kindHolds(to.kind).includes(n.kind))
+      return `${kindDe(to.kind)} „${to.name}“ kann kein ${kindDe(n.kind)} enthalten.`;
+    return '';
+  }
+  /* Hängt einen Knoten um: ans Ende von `parentId` oder vor/nach `refId`. */
+  function moveNode(id, parentId, refId, where) {
+    if (nodeMoveError(id, parentId)) return false;
+    const n = findNode(id), from = parentOf(id), to = findNode(parentId);
+    from.children = from.children.filter(c => c !== n);
+    let i = refId ? to.children.findIndex(c => c.id === refId) : -1;
+    i = i < 0 ? to.children.length : i + (where === 'after' ? 1 : 0);
+    to.children.splice(i, 0, n);
+    invalidate();
+    return true;
+  }
+  /* Funktion in einen anderen Knoten; die Reihenfolge folgt der Projektliste. */
+  function moveFunction(id, nodeId, refId, where) {
+    const fn = functionById(id);
+    if (!fn || !findNode(nodeId) || id === refId) return false;
+    const list = project.functions.filter(f => f !== fn);
+    fn.nodeId = nodeId;
+    let i = refId ? list.findIndex(f => f.id === refId) : -1;
+    i = i < 0 ? list.length : i + (where === 'after' ? 1 : 0);
+    list.splice(i, 0, fn);
+    project.functions = list;
+    invalidate();
+    return true;
+  }
+  /* Einbauort eines Geräts; nur Räume, Flure, Verteiler und Außenbereiche. */
+  function setDeviceRoom(devId, nodeId) {
+    const d = deviceById(devId);
+    if (!d) return false;
+    if (nodeId) {
+      const n = findNode(nodeId);
+      if (!n || !DEVICE_HOSTS.has(n.kind)) return false;
+    }
+    d.roomId = nodeId || null;
+    invalidate();
+    return true;
+  }
+
   function deleteNode(id) {
     const node = findNode(id);
     if (!node || node.id === project.tree.id) return false;
@@ -2129,7 +2181,7 @@ const KNX = (() => {
     resolveProduct, applyProduct, paramValue,
     gaTree, issues,
     gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,
-    deleteNode, uid: nid
+    deleteNode, isInside, nodeMoveError, moveNode, moveFunction, setDeviceRoom, uid: nid
   };
 })();
 

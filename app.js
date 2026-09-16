@@ -529,6 +529,96 @@ function actDeleteNode(id) {
   });
 }
 
+/* ---------- Umhängen ---------- */
+
+/* Auswahl vorhandener Einträge mit Suche. items: { id, label, sub, icon } */
+function pickDialog(title, hint, items, onPick) {
+  if (!items.length) { toast('Nichts Passendes vorhanden'); return; }
+  openModal(title, `
+    ${hint ? `<p class="hint">${hint}</p>` : ''}
+    <input class="input" id="m-search" placeholder="Filtern …">
+    <div class="chk-list tall" id="m-pick">${items.map(it => `
+      <label class="chk-row" data-name="${esc((it.label + ' ' + (it.sub || '')).toLowerCase())}">
+        <input type="checkbox" class="chk" data-id="${esc(it.id)}">
+        ${it.icon || ''}
+        <span class="chk-label"><span>${esc(it.label)}</span>${it.sub ? `<span class="ga-note">${esc(it.sub)}</span>` : ''}</span>
+      </label>`).join('')}
+    </div>
+  `, () => {
+    const ids = [...$('#m-pick').querySelectorAll('.chk:checked')].map(c => c.dataset.id);
+    if (!ids.length) return;
+    onPick(ids);
+  });
+  $('#m-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    $('#m-pick').querySelectorAll('.chk-row').forEach(el => { el.hidden = !!q && !el.dataset.name.includes(q); });
+  });
+}
+
+const trailOf = id => KNX.nodePath(id)?.sub || KNX.project().tree.name;
+
+function moveNode(id, parentId, refId, where) {
+  const err = KNX.nodeMoveError(id, parentId);
+  if (err) { warn(err); return false; }
+  KNX.moveNode(id, parentId, refId, where);
+  state.collapsed.delete(parentId);
+  commit();
+  return true;
+}
+
+/* Vorhandene Elemente unter `nodeId` einordnen. */
+function actPickChildren(nodeId) {
+  const node = KNX.findNode(nodeId);
+  if (!node) return;
+  const items = [];
+  KNX.walk(KNX.project().tree, n => {
+    if (KNX.parentOf(n.id)?.id !== nodeId && !KNX.nodeMoveError(n.id, nodeId))
+      items.push({ id: n.id, label: n.name, sub: KNX.kindDe(n.kind) + ' · ' + trailOf(n.id),
+                   icon: `<span class="lvl-ic ${n.kind}">${IC[n.kind] || IC.room}</span>` });
+  });
+  pickDialog(`Vorhandenes in „${node.name}“ einordnen`,
+    `Angeboten wird, was ein ${esc(KNX.kindDe(node.kind))} enthalten kann. Unterelemente wandern mit.`,
+    items, ids => {
+      ids.forEach(id => KNX.moveNode(id, nodeId));
+      state.collapsed.delete(nodeId);
+      commit();
+    });
+}
+
+/* Vorhandene Geräte in diesem Raum verbauen. */
+function actPickDevices(nodeId) {
+  const node = KNX.findNode(nodeId);
+  if (!node || !KNX.DEVICE_HOSTS.has(node.kind)) return;
+  const items = KNX.project().devices.filter(d => d.roomId !== nodeId).slice().sort(KNX.byPa).map(d => ({
+    id: d.id, label: KNX.paStr(d.addr) + '  ' + d.name,
+    sub: d.roomId ? 'bisher ' + trailOf(d.roomId) : 'ohne Raum',
+    icon: `<span class="lvl-ic device">${IC.device}</span>`
+  }));
+  pickDialog(`Geräte in „${node.name}“ verbauen`, 'Ein Gerät hat genau einen Einbauort — der bisherige wird ersetzt.',
+    items, ids => {
+      ids.forEach(id => KNX.setDeviceRoom(id, nodeId));
+      state.collapsed.delete(nodeId);
+      commit();
+    });
+}
+
+function setDeviceRoom(devId, nodeId) {
+  if (!KNX.setDeviceRoom(devId, nodeId)) { warn('Geräte lassen sich nur in Räumen, Fluren, Verteilern und Außenbereichen verbauen.'); return; }
+  if (nodeId) state.collapsed.delete(nodeId);
+  commit();
+}
+
+/* Knoten, unter die `id` passt — für die Auswahl des übergeordneten Elements. */
+function parentOptions(id) {
+  const cur = KNX.parentOf(id)?.id;
+  const out = [];
+  KNX.walk(KNX.project().tree, n => {
+    if (n.id === cur || !KNX.nodeMoveError(id, n.id))
+      out.push(`<option value="${n.id}"${n.id === cur ? ' selected' : ''}>${esc(trailOf(n.id))} (${esc(KNX.kindDe(n.kind))})</option>`);
+  });
+  return out.join('');
+}
+
 /* ============================================================
    Export für app-ga.js / app-topo.js / Rendering / Init
    ============================================================ */
@@ -545,6 +635,7 @@ window.KNXApp = {
   inSubtree, visibleGAs, visibleDevices,
   select, selectNode, toggleCollapse,
   actNewNode, actRenameNode, actDeleteNode,
+  pickDialog, trailOf, moveNode, actPickChildren, actPickDevices, setDeviceRoom, parentOptions,
   iconBtn,
   IC, IC_PENCIL, IC_TRASH, IC_LINK
 };

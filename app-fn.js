@@ -270,6 +270,26 @@ function dropGas(ids, fnId) {
   } else A.toast('Die Adressen gehören schon zu „' + fn.name + '“');
 }
 
+/* ---------- Umhängen ---------- */
+function moveFunction(id, nodeId, refId, where) {
+  if (!KNX.moveFunction(id, nodeId, refId, where)) return;
+  state.collapsed.delete(nodeId);
+  A.commit();
+}
+function actPickFunctions(nodeId) {
+  const node = KNX.findNode(nodeId);
+  if (!node) return;
+  const items = KNX.project().functions.filter(f => f.nodeId !== nodeId).map(f => ({
+    id: f.id, label: f.name, sub: KNX.fnType(f.type).de + ' · bisher ' + A.trailOf(f.nodeId), icon: fnIc(f)
+  }));
+  A.pickDialog(`Funktionen nach „${node.name}“ holen`, 'Die Funktionen behalten ihre Adressen.', items, ids => {
+    ids.forEach(id => KNX.moveFunction(id, nodeId));
+    state.collapsed.delete(nodeId);
+    A.commit();
+  });
+}
+
 window.KNXFn = { fnIc, typeIc, actNewFunction, actEditFunction, actDeleteFunction,
-                 actAssignFunctionGas, createRoleGa, setRole, detach, dropGas };
+                 actAssignFunctionGas, createRoleGa, setRole, detach, dropGas,
+                 moveFunction, actPickFunctions };
 })();
