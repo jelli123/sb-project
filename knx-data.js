@@ -1014,19 +1014,76 @@ const KNX = (() => {
     return { scope, inside, pass, local, high };
   }
 
+  /* ---------- Tunneladressen ---------- *
+   * Ein KNXnet/IP-Gerät braucht je Tunnelverbindung eine eigene physikalische
+   * Adresse auf seiner Linie (PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, 03/08/03
+   * 2.5.4). Wie viele, legt das Gerät fest — die Produktdatei nennt es als
+   * AdditionalAddressesCount. Nur ohne Produktdatei gilt der eingetragene Wert. */
+  function tunnelCount(dev) {
+    const item = dev && dev.catalogId && catalogById(dev.catalogId);
+    const n = item && item.prog && item.prog.dl && item.prog.dl.addAddr;
+    if (n) return n;
+    return dev && dev.ip ? Math.max(0, Math.min(8, parseInt(dev.ip.tunnels, 10) || 0)) : 0;
+  }
+  const tunnelCountFixed = dev => {
+    const item = dev && dev.catalogId && catalogById(dev.catalogId);
+    return !!(item && item.prog && item.prog.dl && item.prog.dl.addAddr);
+  };
+  const tunnelAddrs = dev =>
+    (dev && dev.ip && Array.isArray(dev.ip.tunnelAddrs) ? dev.ip.tunnelAddrs : [])
+      .filter(r => Number.isInteger(r) && r > 0 && r <= 0xFFFF);
+
+  /* Alle belegten Adressen: Geräte und Tunnel, ohne das genannte Gerät selbst. */
+  function usedPas(exceptDevId) {
+    const used = new Set();
+    project.devices.forEach(d => {
+      if (d.id !== exceptDevId) used.add(d.addr);
+      tunnelAddrs(d).forEach(r => used.add(r));
+    });
+    return used;
+  }
+
+  /* Hält die Tunneladressen eines Geräts vollständig: gültige bleiben stehen,
+     fehlende kommen von oben aus der Linie (x.y.254 abwärts), damit sie sich
+     nicht mit den Teilnehmern mischen. Liefert true, wenn sich etwas ändert. */
+  function ensureTunnelAddrs(dev) {
+    const n = tunnelCount(dev);
+    const l = lineById(dev.lineId), a = areaOfLine(dev.lineId);
+    if (!l || !a || (!n && !tunnelAddrs(dev).length)) return false;
+    const others = new Set();
+    project.devices.forEach(d => {
+      others.add(d.addr);
+      if (d.id !== dev.id) tunnelAddrs(d).forEach(r => others.add(r));
+    });
+    const onLine = r => paSplit(r)[0] === a.addr && paSplit(r)[1] === l.addr && paSplit(r)[2] > 0;
+    const keep = [];
+    tunnelAddrs(dev).forEach(r => {
+      if (keep.length < n && onLine(r) && !others.has(r) && !keep.includes(r)) keep.push(r);
+    });
+    for (let d = 254; keep.length < n && d > 0; d--) {
+      const raw = paJoin(a.addr, l.addr, d);
+      if (!others.has(raw) && !keep.includes(raw)) keep.push(raw);
+    }
+    keep.sort((x, y) => x - y);
+    const before = tunnelAddrs(dev);
+    if (before.length === keep.length && before.every((r, i) => r === keep[i])) return false;
+    dev.ip = { ...ipConfig(dev), tunnelAddrs: keep };
+    invalidate();
+    return true;
+  }
+
   /* Kleinste freie Teilnehmernummer auf einer Linie (0 bleibt dem Koppler). */
   function freePa(lineId, exceptDevId) {
     const l = lineById(lineId), a = areaOfLine(lineId);
     if (!l || !a) return 0;
-    const used = new Set(project.devices.filter(d => d.id !== exceptDevId).map(d => d.addr));
+    const used = usedPas(exceptDevId);
     for (let d = 1; d <= PA_MAX.device; d++) {
       const raw = paJoin(a.addr, l.addr, d);
       if (!used.has(raw)) return raw;
     }
     return paJoin(a.addr, l.addr, 0);
   }
-  const paFree = (raw, exceptDevId) =>
-    !project.devices.some(d => d.addr === raw && d.id !== exceptDevId);
+  const paFree = (raw, exceptDevId) => !usedPas(exceptDevId).has(raw);
 
   function addDevice(d) {
     project.devices.push(d);
@@ -1322,6 +1379,19 @@ const KNX = (() => {
 
     const paSeen = new Map();
     const ipSeen = new Map();
+    // Tunneladressen belegen Adressen wie Geräte
+    project.devices.forEach(d => {
+      const l = ix.lines.get(d.lineId), a = ix.areaOfLine.get(d.lineId);
+      tunnelAddrs(d).forEach(r => {
+        const [ta, tl] = paSplit(r);
+        if (l && a && (ta !== a.addr || tl !== l.addr))
+          add('error', 'device', d.id, `Tunneladresse ${paStr(r)} liegt nicht auf der Linie des Geräts.`);
+        const other = project.devices.find(x => x.addr === r)
+          || project.devices.find(x => x !== d && tunnelAddrs(x).includes(r));
+        if (other) add('error', 'device', d.id,
+          `Tunneladresse ${paStr(r)} ist doppelt vergeben (auch: ${other.name}).`);
+      });
+    });
     project.devices.forEach(d => {
       if (!d.roomId)
         add('warn', 'device', d.id, 'Keinem Raum zugeordnet — die Gebäudesicht bleibt unvollständig.');
@@ -1484,6 +1554,7 @@ const KNX = (() => {
     NOTE_MAX, normNote, normSerial,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
+    tunnelCount, tunnelCountFixed, tunnelAddrs, ensureTunnelAddrs,
     project: () => project,
     setProject: p => { project = p; dirty = true; invalidate(); },
     newProject, seedProject, migrate, save, load,

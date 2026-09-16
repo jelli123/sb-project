@@ -1109,6 +1109,10 @@ function renderPlan() {
   const item = dev && KNX.catalogById(dev.catalogId);
   bus.plan = null;
   if (!dev || !item) { box.innerHTML = ''; syncControls(); return; }
+  if (KNX.deviceCanIp(dev) && KNX.ensureTunnelAddrs(dev)) {
+    A.commit();
+    appendLog('info', `Tunneladressen für ${dev.name}: ${KNX.tunnelAddrs(dev).map(KNX.paStr).join(', ')}`);
+  }
   let plan;
   try {
     plan = KNXDownload.plan(KNX.project(), dev, item, { kind: q('#bus-prog-kind').value });

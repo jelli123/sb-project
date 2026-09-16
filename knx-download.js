@@ -375,7 +375,7 @@ function filterTable(project, dev, size) {
 }
 
 /* KNXnet/IP-Parameterobjekt (Objekttyp 11) nach 03/08/03. */
-function ipSteps(ip, addAddr, warn) {
+function ipSteps(ip, addAddr, errors) {
   const steps = [];
   const ipv4 = s => {
     const p = String(s || '').split('.').map(Number);
@@ -399,7 +399,14 @@ function ipSteps(ip, addAddr, warn) {
     name[i] = code < 256 ? code : 0x3F;
   });
   prop(76, name, 'Gerätename „' + (ip.name || '') + '“', 30);
-  if (addAddr) warn(`Die ${addAddr} zusätzlichen Adressen für Tunnelverbindungen werden noch nicht geschrieben — das Gerät behält seine bisherigen.`);
+  // Tunneladressen: Element 0 ist die Länge, geschrieben werden die Einträge ab 1 (2.5.4)
+  const tunnels = (ip.tunnelAddrs || []).filter(r => Number.isInteger(r) && r > 0);
+  if (addAddr && tunnels.length !== addAddr) {
+    errors.push(`Das Gerät braucht ${addAddr} Tunneladressen, im Projekt stehen ${tunnels.length}.`);
+  } else if (tunnels.length) {
+    prop(53, tunnels.flatMap(u16), 'Tunneladressen ' + tunnels.map(r =>
+      [(r >> 12) & 15, (r >> 8) & 15, r & 255].join('.')).join(', '), tunnels.length);
+  }
   return steps;
 }
 
@@ -718,7 +725,7 @@ function plan(project, dev, item, opts = {}) {
   }
   if (dev.ip && ['all', 'par', 'par,grp', 'cfg'].includes(kind)) {
     const ipCfg = { ...{ name: '', mode: 'dhcp', addr: '', mask: '', gw: '', mcast: '224.0.23.12' }, ...dev.ip };
-    ctx.ip = ipSteps(ipCfg, dl.addAddr, warn);
+    ctx.ip = ipSteps(ipCfg, dl.addAddr, errors);
   }
 
   const proc = pickProcedure(prog, kind);

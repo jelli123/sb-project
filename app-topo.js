@@ -419,6 +419,10 @@ function actParams(devId) {
      die ETS führt sie im Eigenschaftsfenster des Geräts.                  */
   const ipField = f => {
     if (f.manualOnly && ip.mode !== 'manual') return '';
+    if (f.key === 'tunnels' && KNX.tunnelCountFixed(dev)) {
+      return `<label class="prm"><span>${esc(f.label)} <em>laut Produktdatei</em></span>
+        <input class="input mono" type="text" value="${KNX.tunnelCount(dev)}" disabled></label>`;
+    }
     const val = ip[f.key] == null ? '' : String(ip[f.key]);
     if (f.kind === 'enum') {
       return `<label class="prm"><span>${esc(f.label)}</span>
@@ -567,6 +571,7 @@ function actParams(devId) {
     if (hasIp) {
       ip.tunnels = Math.max(0, Math.min(8, parseInt(ip.tunnels, 10) || 0));
       dev.ip = ip;
+      KNX.ensureTunnelAddrs(dev);
     }
     const res = KNX.applyProduct(dev);
     A.commit();

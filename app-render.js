@@ -848,7 +848,10 @@ function detailDev(d) {
       <li><span class="grow">Subnetzmaske</span><span class="addr">${esc(ip.mask || '—')}</span></li>
       <li><span class="grow">Standardgateway</span><span class="addr">${esc(ip.gw || '—')}</span></li>` : ''}
       <li><span class="grow">Routing-Multicast</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
-      <li><span class="grow">Tunnelverbindungen</span><span class="addr">${esc(String(ip.tunnels))}</span></li>
+      <li><span class="grow">Tunnelverbindungen${KNX.tunnelCountFixed(d) ? ' (laut Produktdatei)' : ''}</span>
+        <span class="addr">${KNX.tunnelCount(d)}</span></li>
+      ${KNX.tunnelAddrs(d).length ? `<li><span class="grow">Tunneladressen</span>
+        <span class="addr">${KNX.tunnelAddrs(d).map(KNX.paStr).join(', ')}</span></li>` : ''}
     </ul>` : ''}
     ${d.serial ? `<h3 class="detail-h">Seriennummer</h3><ul class="detail-list">
       <li><span class="grow">6 Byte, für die Adressvergabe ohne Programmiertaste</span>
