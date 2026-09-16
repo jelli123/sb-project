@@ -48,8 +48,9 @@ function showErr(msg) {
 }
 
 /* ---------- Anlegen ---------- */
-function actNewGa() {
-  const near = state.sel?.kind === 'ga' ? KNX.gaById(state.sel.id)?.raw
+function actNewGa(groupKey) {
+  const near = groupKey != null ? gaPrefixRaw(groupKey)
+    : state.sel?.kind === 'ga' ? KNX.gaById(state.sel.id)?.raw
     : state.filter?.kind === 'grp' ? gaPrefixRaw(state.filter.id) : 0;
   const sug = KNX.suggestAddress(near);
   A.openModal('Neue Gruppenadresse anlegen', `
@@ -145,6 +146,45 @@ function actDeleteSelected() {
 }
 
 /* ---------- Haupt- und Mittelgruppen ---------- */
+
+/* Neue Haupt- (parentKey leer) oder Mittelgruppe. Eine leere Gruppe besteht
+   über ihren Namen, deshalb ist der Name Pflicht. Vorgeschlagen wird die
+   kleinste Nummer, die weder benannt noch von Adressen belegt ist.        */
+function actNewGaGroup(parentKey) {
+  const style = KNX.gaStyle();
+  const pre = parentKey ? String(parentKey).split('/').map(Number) : [];
+  const level = pre.length;
+  if (level >= style.parts.length - 1) return;
+  const part = style.parts[level];
+  const p = KNX.project();
+  const keyOf = n => pre.concat(n).join('/');
+  const taken = n => p.gaNames[keyOf(n)] != null || KNX.gasInGroup(keyOf(n)).length > 0;
+  let free = 0;
+  while (free <= part.max && taken(free)) free++;
+  if (free > part.max) { A.warn(`Alle ${part.label}n${parentKey ? ' in ' + parentKey : ''} sind belegt.`); return; }
+  A.openModal(`Neue ${part.label}${parentKey ? ' in ' + parentKey : ''}`, `
+    <label class="field"><span>${esc(part.label)} <em>0–${part.max}</em></span>
+      <input class="input mono" id="m-num" type="number" min="0" max="${part.max}" value="${free}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" placeholder="${level === 0 ? 'z. B. Beleuchtung' : 'z. B. Erdgeschoss'}">
+    </label>
+    <div id="m-err"></div>
+  `, () => {
+    const n = $('#m-num').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!Number.isInteger(n) || n < 0 || n > part.max) { showErr(`${part.label} muss zwischen 0 und ${part.max} liegen.`); return false; }
+    if (taken(n)) { showErr(`${part.label} ${keyOf(n)} gibt es schon.`); return false; }
+    if (!name) { showErr('Bitte einen Namen vergeben — eine leere Gruppe besteht über ihren Namen.'); $('#m-name').focus(); return false; }
+    const key = keyOf(n);
+    p.gaNames[key] = name;
+    if (parentKey) state.collapsed.delete('grp:' + parentKey);
+    state.sel = { kind: 'grp', id: key };
+    KNX.touch();
+    A.commit();
+  });
+  $('#m-name').focus();
+}
 
 /* Löscht die Gruppe mit allen Adressen darin, wie die ETS. */
 function actDeleteGaGroup(key) {
@@ -277,6 +317,6 @@ function actAssignGa(id) {
 }
 
 window.KNXGA = { actNewGa, actEditGa, actDeleteGa, actDeleteSelected, actAssignGa,
-                 actDeleteGaGroup, actMoveGas, moveGasTo, folderDepth,
+                 actDeleteGaGroup, actMoveGas, moveGasTo, folderDepth, actNewGaGroup,
                  dptOptions, addrFields, readAddr, showErr };
 })();

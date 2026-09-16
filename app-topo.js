@@ -15,6 +15,26 @@ function lineOptions(sel) {
       `<option value="${l.id}"${l.id === sel ? ' selected' : ''}>` +
       `${a.addr}.${l.addr} — ${esc(l.name)}</option>`).join('') + '</optgroup>').join('');
 }
+/* Leer, solange die Linie nicht geteilt ist — dann gibt es nur Segment 0. */
+function segmentOptions(lineId, sel) {
+  const line = KNX.lineById(lineId);
+  if (!line || !KNX.segmentsOf(line).length) return '';
+  return KNX.segmentKeys(line).map(key => {
+    const s = KNX.segmentInfo(key);
+    const on = s.seg ? key === sel : !sel;
+    return `<option value="${esc(key)}"${on ? ' selected' : ''}>S${s.num} — ${esc(s.seg ? s.name : 'Segment 0')} · ${esc(KNX.MEDIA[s.medium])}</option>`;
+  }).join('');
+}
+function syncSegments(lineId, sel) {
+  const html = segmentOptions(lineId, sel);
+  $('#m-seg').innerHTML = html;
+  $('#m-seg-row').hidden = !html;
+}
+const readSegment = lineId => {
+  const v = $('#m-seg') && !$('#m-seg-row').hidden ? $('#m-seg').value : '';
+  return v && v !== lineId ? v : null;
+};
+
 function roomOptions(sel) {
   return '<option value="">— kein Raum —</option>' + KNX.rooms().map(r =>
     `<option value="${r.node.id}"${r.node.id === sel ? ' selected' : ''}>${esc(r.trail)}</option>`).join('');
@@ -80,6 +100,9 @@ function deviceForm(d, opt) {
     <label class="field"><span>Linie</span>
       <select class="select" id="m-line">${lineOptions(d.lineId)}</select>
     </label>
+    <label class="field" id="m-seg-row"${segmentOptions(d.lineId, d.segmentId) ? '' : ' hidden'}><span>Segment</span>
+      <select class="select" id="m-seg">${segmentOptions(d.lineId, d.segmentId)}</select>
+    </label>
     <label class="field"><span>Physikalische Adresse <em>nur freie</em></span>
       <select class="select mono" id="m-dev"${noAddr ? ' disabled' : ''}>${deviceOptions(d.lineId, dev, except)}</select>
     </label>
@@ -125,7 +148,7 @@ function readDevice(exceptId) {
   const serial = KNX.normSerial(serialRaw);
   if (serialRaw && !serial)
     return { err: 'Die Seriennummer besteht aus 6 Byte, also 12 Hex-Zeichen (z. B. 00FA12345678).' };
-  return { name, product: $('#m-product').value.trim(), lineId, addr,
+  return { name, product: $('#m-product').value.trim(), lineId, addr, segmentId: readSegment(lineId),
            roomId: $('#m-room').value || null,
            ma: ma === '' ? null : Math.max(0, parseInt(ma, 10) || 0),
            supply: Math.max(0, $('#m-supply').valueAsNumber || 0),
@@ -141,6 +164,7 @@ function readDraft() {
     name: $('#m-name') ? $('#m-name').value : '',
     product: $('#m-product') ? $('#m-product').value : '',
     lineId,
+    segmentId: lineId ? readSegment(lineId) : null,
     addr: $('#m-noaddr') && $('#m-noaddr').checked ? null
       : line && area ? KNX.paJoin(area.addr, line.addr, Number.isInteger(n) ? n : 0) : 0,
     roomId: ($('#m-room') && $('#m-room').value) || null,
@@ -157,7 +181,8 @@ function actNewDevice(ctx) {
   const roomId = ctx?.roomId
     || (state.sel?.kind === 'node' && KNX.DEVICE_HOSTS.has(KNX.findNode(state.sel.id)?.kind || '')
         ? state.sel.id : null);
-  const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId,
+  const draft = ctx?.draft || { name: '', product: '', lineId, segmentId: ctx?.segmentId || null,
+                                addr: KNX.freePa(lineId), roomId,
                                 ma: null, supply: 0, serial: '', note: '' };
   if (ctx?.catalogId) draft.catalogId = ctx.catalogId;
   if (!draft.addr && draft.addr !== null) draft.addr = KNX.freePa(draft.lineId || lineId);
@@ -182,6 +207,7 @@ function actNewDevice(ctx) {
   $('#m-line').addEventListener('change', e => {
     const next = KNX.paSplit(KNX.freePa(e.target.value))[2];
     $('#m-dev').innerHTML = deviceOptions(e.target.value, next);
+    syncSegments(e.target.value, null);
   });
 
   const applyCat = () => {
@@ -258,6 +284,7 @@ function actEditDevice(id) {
   const item = d.catalogId && KNX.catalogById(d.catalogId);
   if (item && item.noAddress) $('#m-noaddr').disabled = true;
   $('#m-line').addEventListener('change', e => {
+    syncSegments(e.target.value, e.target.value === d.lineId ? d.segmentId : null);
     const keep = d.addr === null ? 1 : KNX.paSplit(d.addr)[2];
     const free = KNX.paSplit(KNX.freePa(e.target.value, id))[2];
     $('#m-dev').innerHTML = deviceOptions(e.target.value,
@@ -762,6 +789,9 @@ function actNewArea() {
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" placeholder="z. B. Nebengebäude">
     </label>
+    <label class="field"><span>Medium der Hauptlinie <em>${Math.min(free, 15)}.0</em></span>
+      <select class="select" id="m-medium">${mediumOptions('tp')}</select>
+    </label>
     <label class="field"><span>Notiz</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
                 placeholder="Freitext zur Dokumentation"></textarea>
@@ -775,7 +805,8 @@ function actNewArea() {
       { showErr('Bereichsnummer muss zwischen 1 und 15 liegen — Bereich 0 ist der Backbone.'); return false; }
     if (used.has(addr)) { showErr(`Bereich ${addr} ist bereits vergeben.`); return false; }
     const a = { id: KNX.uid('a'), addr, name, note: $('#m-note').value.trim(),
-                lines: [ { id: KNX.uid('l'), addr: 1, name: 'Hauptlinie', medium: 'tp', note: '' } ] };
+                lines: [ { id: KNX.uid('l'), addr: 0, name: 'Hauptlinie', medium: $('#m-medium').value, note: '', segments: [] },
+                         { id: KNX.uid('l'), addr: 1, name: 'Linie 1', medium: 'tp', note: '', segments: [] } ] };
     KNX.project().areas.push(a);
     KNX.touch();
     state.sel = { kind: 'area', id: a.id };
@@ -793,6 +824,9 @@ function actEditArea(id) {
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(a.name)}">
+    </label>
+    <label class="field"><span>Medium der Hauptlinie <em>${a.addr}.0</em></span>
+      <select class="select" id="m-medium">${mediumOptions((a.lines.find(l => l.addr === 0) || {}).medium || 'tp')}</select>
     </label>
     <label class="field"><span>Notiz</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
@@ -821,6 +855,8 @@ function actEditArea(id) {
     a.addr = addr;
     a.name = name;
     a.note = $('#m-note').value.trim();
+    const mainLine = a.lines.find(l => l.addr === 0);
+    if (mainLine) mainLine.medium = $('#m-medium').value;
     KNX.touch();
     A.commit();
   });
@@ -843,6 +879,9 @@ function actDeleteArea(id) {
   });
 }
 
+const mediumOptions = sel => Object.entries(KNX.MEDIA).map(([k, v]) =>
+  `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
+
 function actNewLine(areaId) {
   const a = KNX.project().areas.find(x => x.id === areaId);
   if (!a) return;
@@ -851,8 +890,8 @@ function actNewLine(areaId) {
   let free = 1;
   while (free <= KNX.PA_MAX.line && used.has(free)) free++;
   A.openModal(`Neue Linie in „${esc(a.name)}“`, `
-    <label class="field"><span>Liniennummer <em>0–15</em></span>
-      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${Math.min(free, 15)}">
+    <label class="field"><span>Liniennummer <em>1–15, 0 ist die Hauptlinie</em></span>
+      <input class="input mono" id="m-addr" type="number" min="1" max="15" value="${Math.min(free, 15)}">
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" placeholder="z. B. Linie Keller">
@@ -870,11 +909,11 @@ function actNewLine(areaId) {
     const addr = $('#m-addr').valueAsNumber;
     const name = $('#m-name').value.trim();
     if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
-    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.line)
-      { showErr('Liniennummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (!Number.isInteger(addr) || addr < 1 || addr > KNX.PA_MAX.line)
+      { showErr('Liniennummer muss zwischen 1 und 15 liegen — Linie 0 ist die Hauptlinie.'); return false; }
     if (used.has(addr)) { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
     const l = { id: KNX.uid('l'), addr, name, medium: $('#m-medium').value,
-                note: $('#m-note').value.trim() };
+                note: $('#m-note').value.trim(), segments: [] };
     a.lines.push(l);
     KNX.touch();
     state.sel = { kind: 'line', id: l.id };
@@ -886,9 +925,10 @@ function actEditLine(id) {
   const l = KNX.lineById(id), a = KNX.areaOfLine(id);
   if (!l || !a) return;
   if (a.backbone) { actEditBackbone(l); return; }
-  A.openModal('Linie bearbeiten', `
-    <label class="field"><span>Liniennummer <em>0–15</em></span>
-      <input class="input mono" id="m-addr" type="number" min="0" max="15" value="${l.addr}">
+  const main = l.addr === 0;
+  A.openModal(main ? `Hauptlinie ${a.addr}.0 bearbeiten` : 'Linie bearbeiten', `
+    <label class="field"${main ? ' hidden' : ''}><span>Liniennummer <em>1–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="1" max="15" value="${l.addr}">
     </label>
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(l.name)}">
@@ -901,15 +941,15 @@ function actEditLine(id) {
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
                 placeholder="Freitext zur Dokumentation">${esc(l.note || '')}</textarea>
     </label>
-    <p class="hint">Beim Ändern der Nummer werden die Adressen der Geräte auf dieser
-    Linie mitgezogen.</p>
+    <p class="hint">${main ? 'Die Hauptlinie gehört fest zum Bereich und behält die Nummer 0.'
+      : 'Beim Ändern der Nummer werden die Adressen der Geräte auf dieser Linie mitgezogen.'}</p>
     <div id="m-err"></div>
   `, () => {
-    const addr = $('#m-addr').valueAsNumber;
+    const addr = main ? 0 : $('#m-addr').valueAsNumber;
     const name = $('#m-name').value.trim();
     if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
-    if (!Number.isInteger(addr) || addr < 0 || addr > KNX.PA_MAX.line)
-      { showErr('Liniennummer muss zwischen 0 und 15 liegen.'); return false; }
+    if (!main && (!Number.isInteger(addr) || addr < 1 || addr > KNX.PA_MAX.line))
+      { showErr('Liniennummer muss zwischen 1 und 15 liegen — Linie 0 ist die Hauptlinie.'); return false; }
     if (a.lines.some(x => x.id !== id && x.addr === addr))
       { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
     if (addr !== l.addr) {
@@ -972,15 +1012,75 @@ function actDeleteLine(id) {
   const l = KNX.lineById(id), a = KNX.areaOfLine(id);
   if (!l || !a) return;
   if (a.backbone) { A.warn('Der Backbone gehört zu jedem Projekt und lässt sich nicht löschen.'); return; }
+  if (l.addr === 0) { A.warn(`Die Hauptlinie ${a.addr}.0 gehört fest zum Bereich und lässt sich nicht löschen.`); return; }
   const n = KNX.devicesOnLine(id).length;
   A.openModal(`Linie ${a.addr}.${l.addr} „${esc(l.name)}“ löschen?`, `
-    ${n ? `<p class="hint warn">${n} Geräte werden auf eine andere Linie verschoben —
+    ${n ? `<p class="hint warn">${n} Geräte werden auf die Hauptlinie ${a.addr}.0 verschoben —
            ihre physikalischen Adressen passen dann nicht mehr und werden als Fehler markiert.</p>`
         : '<p>Auf dieser Linie sind keine Geräte.</p>'}
   `, () => {
     if (!KNX.deleteLine(id)) { A.warn('Die letzte Linie kann nicht gelöscht werden.'); return; }
     if (state.sel?.kind === 'line' && state.sel.id === id) state.sel = null;
     if (state.filter?.kind === 'line' && state.filter.id === id) state.filter = null;
+    A.commit();
+  });
+}
+
+/* ---------- Segmente ---------- */
+function actNewSegment(lineId) {
+  const line = KNX.lineById(lineId);
+  if (!line) return;
+  const s = KNX.addSegment(lineId);
+  state.collapsed.delete(lineId);
+  state.sel = { kind: 'seg', id: s.id };
+  A.commit();
+  A.toast(`${s.name} angelegt — die bisherigen Geräte bleiben in Segment 0`);
+}
+
+function actEditSegment(key) {
+  const s = KNX.segmentInfo(key);
+  if (!s) return;
+  if (!s.seg) { actEditLine(s.line.id); return; }
+  const others = new Set(KNX.segmentsOf(s.line).filter(x => x.id !== key).map(x => x.num));
+  A.openModal('Segment bearbeiten', `
+    <label class="field"><span>Segmentnummer <em>1–15</em></span>
+      <input class="input mono" id="m-addr" type="number" min="1" max="15" value="${s.num}">
+    </label>
+    <label class="field"><span>Name</span>
+      <input class="input" id="m-name" maxlength="40" value="${esc(s.seg.name)}">
+    </label>
+    <label class="field"><span>Medium</span>
+      <select class="select" id="m-medium">${mediumOptions(s.seg.medium)}</select>
+    </label>
+    <label class="field"><span>Notiz</span>
+      <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
+                placeholder="z. B. Linienverstärker im Verteiler OG">${esc(s.seg.note || '')}</textarea>
+    </label>
+    <div id="m-err"></div>
+  `, () => {
+    const num = $('#m-addr').valueAsNumber;
+    const name = $('#m-name').value.trim();
+    if (!name) { showErr('Bitte einen Namen vergeben.'); return false; }
+    if (!Number.isInteger(num) || num < 1 || num > 15)
+      { showErr('Segmentnummer muss zwischen 1 und 15 liegen — Segment 0 ist die Linie selbst.'); return false; }
+    if (others.has(num)) { showErr(`Segment ${num} gibt es auf dieser Linie schon.`); return false; }
+    Object.assign(s.seg, { num, name, medium: $('#m-medium').value, note: $('#m-note').value.trim() });
+    KNX.touch();
+    A.commit();
+  });
+}
+
+function actDeleteSegment(key) {
+  const s = KNX.segmentInfo(key);
+  if (!s || !s.seg) return;
+  const n = KNX.devicesInSegment(key).length;
+  A.openModal(`${esc(s.seg.name)} löschen?`, `
+    <p>Das Segment wird entfernt.</p>
+    ${n ? `<p class="hint">${n} Geräte wechseln in Segment 0 der Linie; ihre Adressen bleiben.</p>` : ''}
+  `, () => {
+    KNX.deleteSegment(key);
+    if (state.sel?.kind === 'seg' && state.sel.id === key) state.sel = { kind: 'line', id: s.line.id };
+    if (state.filter?.kind === 'seg' && state.filter.id === key) state.filter = null;
     A.commit();
   });
 }
@@ -1009,6 +1109,7 @@ window.KNXTopo = {
   actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending,
   actNewArea, actEditArea, actDeleteArea,
   actNewLine, actEditLine, actDeleteLine,
+  actNewSegment, actEditSegment, actDeleteSegment,
   actRenameGaGroup, actCatalog
 };
 })();

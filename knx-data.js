@@ -269,7 +269,18 @@ const KNX = (() => {
   const MCAST_DEFAULT = '224.0.23.12';
   function makeBackbone(medium = 'ip', mcast = MCAST_DEFAULT, ids = {}) {
     return { id: ids.area || 'a0', addr: 0, name: 'Backbone', backbone: true, note: '',
-             lines: [ { id: ids.line || 'l0', addr: 0, name: 'Backbone', medium, mcast, note: '' } ] };
+             lines: [ { id: ids.line || 'l0', addr: 0, name: 'Backbone', medium, mcast, note: '', segments: [] } ] };
+  }
+  const segmentsOf = line => (line && Array.isArray(line.segments) ? line.segments : []);
+  function normSegments(list, takeSegId) {
+    const nums = new Set();
+    return (Array.isArray(list) ? list : []).map(s => {
+      let num = Math.max(1, Math.min(15, parseInt(s && s.num, 10) || 1));
+      while (nums.has(num) && num < 15) num++;
+      nums.add(num);
+      return { id: takeSegId(s && s.id), num, name: String((s && s.name) || 'Segment ' + num),
+               medium: MEDIA[s && s.medium] ? s.medium : 'tp', note: normNote(s && s.note) };
+    });
   }
   function backbone(p = project) {
     const area = p && p.areas.find(a => a.backbone);
@@ -293,12 +304,12 @@ const KNX = (() => {
 
   /* Bedarf und Deckung einer Linie. Ein Gerät kann beides sein: einspeisen
      und als Teilnehmer Strom ziehen.                                       */
-  function powerBudget(lineId) {
-    const line = lineById(lineId);
-    if (!line || line.medium !== 'tp') return null;
+  function powerBudget(segKey) {
+    const seg = segmentInfo(segKey);
+    if (!seg || seg.medium !== 'tp') return null;
     let need = 0, have = 0;
     const supplies = [], loads = [];
-    devicesOnLine(lineId).forEach(d => {
+    devicesInSegment(segKey).forEach(d => {
       const s = +d.supply || 0;
       if (s > 0) { have += s; supplies.push(d); }
       const ma = deviceMa(d);
@@ -320,11 +331,12 @@ const KNX = (() => {
       name: n,
       isSample: false,
       gaStyle: 'three',
-      seq: 2,
+      seq: 3,
       tree: { id: 'n1', kind: 'site', name: n, children: [] },
       areas: [ makeBackbone('ip', MCAST_DEFAULT, { area: 'a0', line: 'l0' }),
                { id: 'a1', addr: 1, name: 'Bereich 1',
-                 lines: [ { id: 'l1', addr: 1, name: 'Hauptlinie', medium: 'tp' } ] } ],
+                 lines: [ { id: 'l2', addr: 0, name: 'Hauptlinie', medium: 'tp', segments: [] },
+                          { id: 'l1', addr: 1, name: 'Linie 1', medium: 'tp', segments: [] } ] } ],
       devices: [],       // { id, name, product, lineId, addr, roomId, serial, note, objs[] }
       groups: [],        // { id, raw, name, dpt, note }
       gaNames: {},       // '1' / '1/2' → Name der Haupt- bzw. Mittelgruppe
@@ -395,6 +407,7 @@ const KNX = (() => {
         name: String(l.name || 'Linie'),
         medium: MEDIA[l.medium] ? l.medium : 'tp',
         note: normNote(l.note),
+        segments: normSegments(l.segments, id => takeId(id, 's', seenTopo)),
         ...(a.backbone ? { mcast: isIpV4(l.mcast) ? l.mcast : MCAST_DEFAULT } : {})
       }))
     }));
@@ -410,7 +423,7 @@ const KNX = (() => {
       if (zero) {
         zero.backbone = true;
         if (!zero.lines.some(l => l.addr === 0))
-          zero.lines.unshift({ id: takeId(null, 'l', seenTopo), addr: 0, name: 'Backbone', medium: ipMain ? 'ip' : 'tp', note: '' });
+          zero.lines.unshift({ id: takeId(null, 'l', seenTopo), addr: 0, name: 'Backbone', medium: ipMain ? 'ip' : 'tp', note: '', segments: [] });
         zero.lines.sort((x, y) => x.addr - y.addr);
         const l0 = zero.lines[0];
         if (!BACKBONE_MEDIA.includes(l0.medium)) l0.medium = ipMain ? 'ip' : 'tp';
@@ -422,12 +435,25 @@ const KNX = (() => {
       }
     }
     p.areas.sort((a, b) => a.addr - b.addr);
-    if (!p.areas.some(a => !a.backbone)) p.areas.push(newProject(p.name).areas[1]);
+    if (!p.areas.some(a => !a.backbone)) {
+      const area = newProject(p.name).areas[1];
+      area.id = takeId(null, 'a', seenTopo);
+      area.lines.forEach(l => { l.id = takeId(null, 'l', seenTopo); });
+      p.areas.push(area);
+    }
+    /* Jeder Bereich hat seine Hauptlinie x.0 — dort sitzen Bereichskoppler x.0.0
+       und die Geräte x.0.1 … Fehlt sie, wird sie ergänzt. */
+    p.areas.filter(a => !a.backbone).forEach(a => {
+      if (a.lines.some(l => l.addr === 0)) return;
+      a.lines.unshift({ id: takeId(null, 'l', seenTopo), addr: 0, name: 'Hauptlinie', medium: 'tp',
+                        note: '', segments: [] });
+    });
     const firstArea = p.areas.find(a => !a.backbone);
-    if (!firstArea.lines.length)
-      firstArea.lines.push({ id: 'l' + (++seq), addr: 1, name: 'Hauptlinie', medium: 'tp' });
-    const lineIds = new Set();
-    p.areas.forEach(a => a.lines.forEach(l => lineIds.add(l.id)));
+    const lineIds = new Set(), segIds = new Set(), segLine = new Map();
+    p.areas.forEach(a => a.lines.forEach(l => {
+      lineIds.add(l.id);
+      l.segments.forEach(s => { segIds.add(s.id); segLine.set(s.id, l.id); });
+    }));
     const firstLine = firstArea.lines[0].id;
 
     // Gruppenadressen: Adresse auf 16-Bit-Rohwert bringen, DPT umschlüsseln
@@ -504,6 +530,7 @@ const KNX = (() => {
         ip: (d.ip && typeof d.ip === 'object') ? d.ip : null,
         ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
         supply: clamp(d.supply, 0, 5000, 0),
+        segmentId: segIds.has(d.segmentId) && segLine.get(d.segmentId) === d.lineId ? d.segmentId : null,
         objs: (Array.isArray(d.objs) ? d.objs : []).map((o, i) => ({
           id: takeId(o.id, 'o', seenObj),
           ref: o.ref || null,
@@ -940,23 +967,28 @@ const KNX = (() => {
     const ga = new Map(), gaByRaw = new Map();
     project.groups.forEach(g => { ga.set(g.id, g); gaByRaw.set(g.raw, g); });
 
-    const lines = new Map(), areaOfLine = new Map();
-    project.areas.forEach(a => a.lines.forEach(l => { lines.set(l.id, l); areaOfLine.set(l.id, a); }));
+    const lines = new Map(), areaOfLine = new Map(), segs = new Map();
+    project.areas.forEach(a => a.lines.forEach(l => {
+      lines.set(l.id, l);
+      areaOfLine.set(l.id, a);
+      segmentsOf(l).forEach(s => segs.set(s.id, { seg: s, line: l }));
+    }));
 
     const dev = new Map(), obj = new Map(), gaLinks = new Map();
-    const devByRoom = new Map(), devByLine = new Map();
+    const devByRoom = new Map(), devByLine = new Map(), devBySeg = new Map();
     project.devices.forEach(d => {
       dev.set(d.id, d);
       if (d.roomId) push(devByRoom, d.roomId, d);
       push(devByLine, d.lineId, d);
+      push(devBySeg, d.segmentId && segs.has(d.segmentId) ? d.segmentId : d.lineId, d);
       d.objs.forEach(o => {
         obj.set(o.id, { dev: d, obj: o });
         o.gas.forEach((gid, i) => push(gaLinks, gid, { dev: d, obj: o, sending: i === 0 && !!o.flags.t }));
       });
     });
 
-    idx = { nodes, parent, trail, roomList, ga, gaByRaw, lines, areaOfLine,
-            dev, obj, gaLinks, devByRoom, devByLine };
+    idx = { nodes, parent, trail, roomList, ga, gaByRaw, lines, areaOfLine, segs,
+            dev, obj, gaLinks, devByRoom, devByLine, devBySeg };
     return idx;
   }
 
@@ -1002,6 +1034,47 @@ const KNX = (() => {
   const objById = id => index().obj.get(id) || null;
   const devicesInRoom = id => index().devByRoom.get(id) || [];
   const devicesOnLine = id => index().devByLine.get(id) || [];
+
+  /* ---------- Hauptlinie und Segmente ---------- *
+   * Linie 0 eines Bereichs ist seine Hauptlinie: Bereichskoppler x.0.0, Geräte
+   * x.0.1 … Sie gehört fest zum Bereich wie die Linie 0.0 zum Backbone.
+   *
+   * Jede Linie lässt sich in Segmente teilen — bei TP hinter Linienverstärkern,
+   * je Segment höchstens 64 Teilnehmer und eine eigene Spannungsversorgung.
+   * Alle Segmente teilen sich den Adressraum ihrer Linie. Segment 0 ist die
+   * Linie selbst (Schlüssel = Linien-Id), weitere stehen in line.segments.  */
+  const isMainLine = lineId => { const l = lineById(lineId); return !!l && l.addr === 0; };
+  const devicesInSegment = key => index().devBySeg.get(key) || [];
+  function segmentInfo(key) {
+    const ix = index();
+    const extra = ix.segs.get(key);
+    if (extra) return { key, line: extra.line, seg: extra.seg, num: extra.seg.num,
+                        medium: extra.seg.medium, name: extra.seg.name };
+    const line = ix.lines.get(key);
+    return line ? { key, line, seg: null, num: 0, medium: line.medium, name: 'Segment 0' } : null;
+  }
+  const segmentKeys = line => [line.id, ...segmentsOf(line).slice().sort((a, b) => a.num - b.num).map(s => s.id)];
+  const segKeyOf = d => (d.segmentId && index().segs.has(d.segmentId) ? d.segmentId : d.lineId);
+  function addSegment(lineId) {
+    const line = lineById(lineId);
+    if (!line) return null;
+    if (!Array.isArray(line.segments)) line.segments = [];
+    const used = new Set(line.segments.map(s => s.num));
+    let num = 1;
+    while (used.has(num)) num++;
+    const s = { id: nid('s'), num, name: 'Segment ' + num, medium: line.medium, note: '' };
+    line.segments.push(s);
+    invalidate();
+    return s;
+  }
+  function deleteSegment(segId) {
+    const info = index().segs.get(segId);
+    if (!info) return false;
+    project.devices.forEach(d => { if (d.segmentId === segId) d.segmentId = null; });
+    info.line.segments = info.line.segments.filter(s => s.id !== segId);
+    invalidate();
+    return true;
+  }
 
   /* Alle Kommunikationsobjekte, die auf einer GA liegen. */
   const gaLinks = gaId => index().gaLinks.get(gaId) || [];
@@ -1157,12 +1230,14 @@ const KNX = (() => {
   }
   function deleteLine(lineId) {
     const a = areaOfLine(lineId);
-    if (!a || a.backbone) return false;
+    if (!a || a.backbone || isMainLine(lineId)) return false;
     // Geräte werden nicht mitgelöscht, sondern auf eine verbleibende Linie gehoben
     const rest = [];
     regularAreas().forEach(x => x.lines.forEach(l => { if (l.id !== lineId) rest.push(l); }));
     if (!rest.length) return false;
-    project.devices.forEach(d => { if (d.lineId === lineId) d.lineId = rest[0].id; });
+    // Geräte gehen auf die Hauptlinie des Bereichs
+    const main = a.lines.find(l => l.addr === 0) || rest[0];
+    project.devices.forEach(d => { if (d.lineId === lineId) { d.lineId = main.id; d.segmentId = null; } });
     a.lines = a.lines.filter(l => l.id !== lineId);
     invalidate();
     return true;
@@ -1523,34 +1598,44 @@ const KNX = (() => {
     }
 
     project.areas.forEach(a => a.lines.forEach(l => {
-      const devs = devicesOnLine(l.id);
-      if (l.medium === 'tp' && devs.length > 64)
+      const tpSegs = segmentsOf(l).filter(s => s.medium === 'tp').length + (l.medium === 'tp' ? 1 : 0);
+      if (tpSegs > 4)
         add('warn', 'line', l.id,
-          `${devs.length} Teilnehmer auf ${a.addr}.${l.addr} — ein TP-Segment trägt 64; Linienverstärker einplanen.`);
+          `${tpSegs} TP-Segmente auf ${a.addr}.${l.addr} — eine Linie trägt höchstens drei Linienverstärker.`);
 
-      /* Auf einer IP-Linie hat nur IP-fähige Technik etwas verloren. Der
-         umgekehrte Fall ist normal: Ein IP-Router sitzt mit seiner
-         physikalischen Adresse auf der TP-Seite.                          */
-      if (l.medium === 'ip')
-        devs.filter(d => !deviceCanIp(d)).forEach(d =>
-          add('warn', 'device', d.id,
-            `Sitzt auf dem IP-Strang ${a.addr}.${l.addr}, ist aber nicht als IP-Gerät hinterlegt.`));
+      segmentKeys(l).forEach(key => {
+        const s = segmentInfo(key);
+        const kind = s.seg ? 'seg' : 'line';
+        const where = `${a.addr}.${l.addr}` + (s.seg ? ` Segment ${s.num}` : '');
+        const devs = devicesInSegment(key);
+        if (s.medium === 'tp' && devs.length > 64)
+          add('warn', kind, key,
+            `${devs.length} Teilnehmer auf ${where} — ein TP-Segment trägt 64; Linienverstärker einplanen.`);
 
-      /* Busstrom: Einspeisung muss den Bedarf tragen. */
-      const p = powerBudget(l.id);
-      if (!p || !p.loads.length) return;
-      if (!p.supplies.length) {
-        add('warn', 'line', l.id,
-          `Keine Spannungsversorgung auf ${a.addr}.${l.addr} eingeplant — ` +
-          `${p.loads.length} Teilnehmer brauchen ${p.need} mA.`);
-      } else if (p.need > p.have) {
-        add('error', 'line', l.id,
-          `Busstrom reicht nicht: ${p.need} mA Bedarf, ${p.have} mA eingespeist ` +
-          `(${p.supplies.length === 1 ? 'ein Netzteil' : p.supplies.length + ' Netzteile'}).`);
-      } else if (p.have - p.need < p.have * 0.1) {
-        add('warn', 'line', l.id,
-          `Busstrom knapp: ${p.need} von ${p.have} mA belegt — unter 10 % Reserve.`);
-      }
+        /* Auf einem IP-Strang hat nur IP-fähige Technik etwas verloren. Der
+           umgekehrte Fall ist normal: Ein IP-Router sitzt mit seiner
+           physikalischen Adresse auf der TP-Seite.                          */
+        if (s.medium === 'ip')
+          devs.filter(d => !deviceCanIp(d)).forEach(d =>
+            add('warn', 'device', d.id,
+              `Sitzt auf dem IP-Strang ${where}, ist aber nicht als IP-Gerät hinterlegt.`));
+
+        /* Busstrom: Einspeisung muss den Bedarf je Segment tragen. */
+        const p = powerBudget(key);
+        if (!p || !p.loads.length) return;
+        if (!p.supplies.length) {
+          add('warn', kind, key,
+            `Keine Spannungsversorgung auf ${where} eingeplant — ` +
+            `${p.loads.length} Teilnehmer brauchen ${p.need} mA.`);
+        } else if (p.need > p.have) {
+          add('error', kind, key,
+            `Busstrom reicht nicht auf ${where}: ${p.need} mA Bedarf, ${p.have} mA eingespeist ` +
+            `(${p.supplies.length === 1 ? 'ein Netzteil' : p.supplies.length + ' Netzteile'}).`);
+        } else if (p.have - p.need < p.have * 0.1) {
+          add('warn', kind, key,
+            `Busstrom knapp auf ${where}: ${p.need} von ${p.have} mA belegt — unter 10 % Reserve.`);
+        }
+      });
     }));
 
     /* Adressen, die Liniengrenzen überschreiten, brauchen dort einen Koppler —
@@ -1688,6 +1773,7 @@ const KNX = (() => {
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
     BACKBONE_MEDIA, backbone, isBackboneLine, regularAreas,
+    isMainLine, segmentsOf, segmentInfo, segmentKeys, segKeyOf, devicesInSegment, addSegment, deleteSegment,
     tunnelCount, tunnelCountFixed, tunnelAddrs, ensureTunnelAddrs,
     project: () => project,
     setProject: p => { project = p; dirty = true; invalidate(); },

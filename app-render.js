@@ -98,6 +98,14 @@ function buildTreeRow(o, index) {
     row.appendChild(act);
   }
 
+  if (o.dragGa) {
+    row.draggable = true;
+    row.ondragstart = e => {
+      const ids = state.checked.has(o.dragGa) ? [...state.checked] : [o.dragGa];
+      e.dataTransfer.setData(GA_DRAG, JSON.stringify(ids));
+      e.dataTransfer.effectAllowed = 'move';
+    };
+  }
   if (o.dropKey) {
     const accepts = e => [...e.dataTransfer.types].includes(GA_DRAG);
     row.ondragover = e => { if (accepts(e)) { e.preventDefault(); row.classList.add('drop'); } };
@@ -164,7 +172,7 @@ function backboneNode(bb) {
     icon: A.IC.area, iconClass: 'area',
     label: bb.line.name, title: 'Backbone · ' + KNX.MEDIA[bb.line.medium], addr: '0.0.-',
     meta: devs.length ? devs.length + '\u00A0T' : '',
-    hasKids: devs.length + areas.length > 0, collapsed: state.collapsed.has(bb.area.id),
+    hasKids: devs.length + areas.length + KNX.segmentsOf(bb.line).length > 0, collapsed: state.collapsed.has(bb.area.id),
     actions: () => [
       iconBtn(A.IC.device, 'Gerät auf dem Backbone', () => T.actNewDevice({ lineId: bb.line.id })),
       iconBtn('+', 'Neuer Bereich', () => T.actNewArea())
@@ -172,7 +180,8 @@ function backboneNode(bb) {
     onSelect: () => { state.filter = { kind: 'line', id: bb.line.id }; A.select('line', bb.line.id); },
     onEdit: () => T.actEditLine(bb.line.id),
     children: () => {
-      devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, 1));
+      if (KNX.segmentsOf(bb.line).length) KNX.segmentKeys(bb.line).forEach(key => segmentNode(key, 1));
+      else devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, 1));
       areas.forEach(a => areaNode(a, 1));
     }
   });
@@ -194,21 +203,46 @@ function areaNode(a, depth = 0) {
 }
 function lineNode(a, l, depth = 1) {
   const devs = KNX.devicesOnLine(l.id);
+  const segmented = KNX.segmentsOf(l).length > 0;
+  const main = l.addr === 0;
   emit({
     depth, key: l.id, ref: { kind: 'line', id: l.id },
     icon: A.IC.line, iconClass: 'line',
-    label: l.name, title: KNX.MEDIA[l.medium], addr: a.addr + '.' + l.addr + '.-',
+    label: l.name, title: (main ? 'Hauptlinie · ' : '') + KNX.MEDIA[l.medium], addr: a.addr + '.' + l.addr + '.-',
     meta: devs.length ? devs.length + '\u00A0T' : '',
-    hasKids: devs.length > 0, collapsed: state.collapsed.has(l.id),
+    hasKids: devs.length > 0 || segmented, collapsed: state.collapsed.has(l.id),
     actions: () => [
-      iconBtn(A.IC_TRASH, 'Linie löschen', () => T.actDeleteLine(l.id)),
+      ...(main ? [] : [iconBtn(A.IC_TRASH, 'Linie löschen', () => T.actDeleteLine(l.id))]),
       iconBtn('+', 'Neues Gerät', () => T.actNewDevice({ lineId: l.id }))
     ],
     onSelect: () => { state.filter = { kind: 'line', id: l.id }; A.select('line', l.id); },
     onEdit: () => T.actEditLine(l.id),
+    children: () => segmented
+      ? KNX.segmentKeys(l).forEach(key => segmentNode(key, depth + 1))
+      : devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, depth + 1))
+  });
+}
+/* Segmente erscheinen erst, wenn eine Linie geteilt ist — wie in der ETS. */
+function segmentNode(key, depth) {
+  const s = KNX.segmentInfo(key);
+  const devs = KNX.devicesInSegment(key);
+  emit({
+    depth, key: 'seg:' + key, ref: { kind: 'seg', id: key },
+    icon: A.IC.line, iconClass: 'line',
+    label: s.seg ? s.name : 'Segment 0', title: 'Segment · ' + KNX.MEDIA[s.medium],
+    addr: 'S' + s.num,
+    meta: devs.length ? devs.length + '\u00A0T' : '',
+    hasKids: devs.length > 0, collapsed: state.collapsed.has('seg:' + key),
+    actions: () => [
+      ...(s.seg ? [iconBtn(A.IC_TRASH, 'Segment löschen', () => T.actDeleteSegment(key))] : []),
+      iconBtn('+', 'Neues Gerät', () => T.actNewDevice({ lineId: s.line.id, segmentId: s.seg ? key : null }))
+    ],
+    onSelect: () => { state.filter = { kind: 'seg', id: key }; A.select('seg', key); },
+    onEdit: () => T.actEditSegment(key),
     children: () => devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, depth + 1))
   });
 }
+
 function deviceNode(d, depth) {
   emit({
     depth, key: d.id, ref: { kind: 'dev', id: d.id },
@@ -248,20 +282,46 @@ function objNode(o, depth) {
 /* ---------- Ansicht 3: Gruppenadressen ---------- */
 function gaGroupNode(n, depth) {
   const count = countGroups(n);
+  const folder = n.level === G.folderDepth() - 1;
   emit({
     depth, key: 'grp:' + n.key, ref: { kind: 'grp', id: n.key },
     icon: A.IC.area, iconClass: 'grp',
     label: n.name || '(ohne Namen)', title: n.label + ' ' + n.key, addr: n.key,
     meta: count ? String(count) : '',
-    hasKids: n.children.length > 0, collapsed: state.collapsed.has('grp:' + n.key),
+    hasKids: n.children.length > 0 || n.groups.length > 0, collapsed: state.collapsed.has('grp:' + n.key),
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gruppe mit allen Adressen löschen', () => G.actDeleteGaGroup(n.key)),
-      iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key))
+      iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key)),
+      folder
+        ? iconBtn('+', 'Neue Gruppenadresse', () => G.actNewGa(n.key))
+        : iconBtn('+', 'Neue ' + (KNX.gaStyle().parts[n.level + 1] || {}).label, () => G.actNewGaGroup(n.key))
     ],
-    dropKey: n.level === G.folderDepth() - 1 ? n.key : null,
+    dropKey: folder ? n.key : null,
     onSelect: () => { state.filter = { kind: 'grp', id: n.key }; A.select('grp', n.key); },
     onEdit: () => T.actRenameGaGroup(n.key),
-    children: () => n.children.forEach(c => gaGroupNode(c, depth + 1))
+    children: () => {
+      n.children.forEach(c => gaGroupNode(c, depth + 1));
+      n.groups.forEach(g => gaLeafNode(g, depth + 1));
+    }
+  });
+}
+
+/* Gruppenadresse als Blatt ihrer Gruppe — auswählen, bearbeiten, ziehen. */
+function gaLeafNode(g, depth) {
+  const links = KNX.gaLinks(g.id);
+  emit({
+    depth, key: 'ga:' + g.id, ref: { kind: 'ga', id: g.id },
+    icon: A.IC.obj, iconClass: 'obj',
+    label: g.name, title: g.dpt + (g.note ? ' · ' + g.note : ''), addr: KNX.addrStr(g),
+    meta: links.length ? links.length + '\u00A0KO' : '',
+    hasKids: false, collapsed: false,
+    actions: () => [
+      iconBtn(A.IC_TRASH, 'Löschen', () => G.actDeleteGa(g.id)),
+      iconBtn(A.IC_LINK, 'Objekte zuordnen', () => G.actAssignGa(g.id))
+    ],
+    dragGa: g.id,
+    onSelect: () => A.select('ga', g.id),
+    onEdit: () => G.actEditGa(g.id)
   });
 }
 function countGroups(n) {
@@ -296,10 +356,13 @@ function renderTree() {
   } else {
     const root = KNX.gaTree();
     root.children.forEach(c => gaGroupNode(c, 0));
-    $('#tree-count').textContent =
-      `${p.groups.length} Adressen in ${root.children.length} Hauptgruppen`;
-    $('#btn-tree-add').textContent = '+ Adresse';
-    $('#btn-tree-add').title = 'Neue Gruppenadresse anlegen';
+    root.groups.forEach(g => gaLeafNode(g, 0));          // freie Adressierung ohne Ordner
+    const folders = G.folderDepth() >= 1;
+    $('#tree-count').textContent = folders
+      ? `${p.groups.length} Adressen in ${root.children.length} Hauptgruppen`
+      : `${p.groups.length} Adressen`;
+    $('#btn-tree-add').textContent = folders ? '+ Hauptgruppe' : '+ Adresse';
+    $('#btn-tree-add').title = folders ? 'Neue Hauptgruppe anlegen' : 'Neue Gruppenadresse anlegen';
   }
 
   document.querySelectorAll('.tab[data-view]').forEach(t =>
@@ -644,6 +707,10 @@ function filterLabel(f) {
   switch (f.kind) {
     case 'node': return KNX.nodePath(f.id)?.sub || '';
     case 'line': return 'Linie ' + KNX.lineLabel(f.id);
+    case 'seg': {
+      const s = KNX.segmentInfo(f.id);
+      return s ? 'Linie ' + KNX.lineLabel(s.line.id) + ' · ' + s.name : '';
+    }
     case 'area': return 'Bereich ' + (KNX.project().areas.find(a => a.id === f.id)?.name || '');
     case 'dev':  return 'Gerät ' + (KNX.deviceById(f.id)?.name || '');
     case 'grp':  return (KNX.project().gaNames[f.id] || 'Gruppe') + ' ' + f.id;
@@ -868,7 +935,8 @@ function detailDev(d) {
       <span class="addr big">${KNX.paStr(d.addr)}</span>
       <div>
         <h2 data-pt-id="detail-dev-title">${esc(d.name)}</h2>
-        <p class="detail-sub">${esc(d.product || 'ohne Produktangabe')} · Linie ${esc(KNX.lineLabel(d.lineId))}
+        <p class="detail-sub">${esc(d.product || 'ohne Produktangabe')} · Linie ${esc(KNX.lineLabel(d.lineId))}${
+          d.segmentId && KNX.segmentInfo(d.segmentId) ? ' · ' + esc(KNX.segmentInfo(d.segmentId).name) : ''}
           · ${room ? esc(KNX.nodePath(room.id).sub) : '<b>kein Raum</b>'}</p>
         <p class="detail-sub"><span class="src-tag${item ? ' prog' : ''}"
           title="${item
@@ -987,9 +1055,11 @@ function detailBackbone(l) {
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
       <button class="btn btn-sm" id="d-addarea">+ Bereich</button>
+      <button class="btn btn-sm" id="d-addseg">+ Segment</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
     </div>
     ${issueList(l.id)}
+    ${segmentList(l)}
     <p class="hint">Der Backbone verbindet die Bereiche über ihre Bereichskoppler (x.0.0).
       ${l.medium === 'ip' ? 'Die Multicast-Adresse gilt für alle KNXnet/IP-Router des Projekts.' : ''}</p>
     ${noteSection(l.note)}
@@ -1008,16 +1078,65 @@ function detailBackbone(l) {
             <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>' : ''}`;
 }
 
+/* Segmente einer Linie mit Teilnehmern und Busstrom. */
+function segmentList(l) {
+  if (!KNX.segmentsOf(l).length) return '';
+  return '<h3 class="detail-h">Segmente</h3><ul class="detail-list">' + KNX.segmentKeys(l).map(key => {
+    const s = KNX.segmentInfo(key);
+    const p = KNX.powerBudget(key);
+    return `<li class="jump" data-kind="seg" data-id="${esc(key)}">
+      <span class="addr">S${s.num}</span>
+      <span class="grow">${esc(s.seg ? s.name : 'Segment 0')} · ${esc(KNX.MEDIA[s.medium])}</span>
+      ${p && p.loads.length ? `<span class="dpt-tag${p.need > p.have ? ' bad' : ''}">${p.need}/${p.have} mA</span>` : ''}
+      <span class="dpt-tag">${KNX.devicesInSegment(key).length} T</span></li>`;
+  }).join('') + '</ul>';
+}
+
+function detailSeg(s) {
+  const a = KNX.areaOfLine(s.line.id);
+  const devs = KNX.devicesInSegment(s.key);
+  return `
+    <div class="detail-head">
+      <span class="addr big">${a.addr}.${s.line.addr} S${s.num}</span>
+      <div>
+        <h2>${esc(s.seg ? s.name : 'Segment 0')}</h2>
+        <p class="detail-sub">Segment der Linie ${esc(KNX.lineLabel(s.line.id))} · ${esc(KNX.MEDIA[s.medium])}</p>
+      </div>
+    </div>
+    <div class="detail-meta">
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
+      ${s.seg ? `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>` : ''}
+    </div>
+    ${issueList(s.key)}
+    <p class="hint">${s.seg ? 'Ein Segment teilt sich den Adressraum der Linie, hat aber eigene Teilnehmer, '
+      + 'eigenen Busstrom und ein eigenes Medium.' : 'Segment 0 ist die Linie selbst; sein Medium ist das der Linie.'}</p>
+    ${s.seg ? noteSection(s.seg.note) : ''}
+    ${powerSection(s.key)}
+    ${devs.length
+      ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
+        devs.slice().sort(KNX.byPa).map(d =>
+          `<li class="jump" data-kind="dev" data-id="${d.id}">
+            <span class="addr">${KNX.paStr(d.addr)}</span>
+            <span class="grow">${esc(d.name)}</span>
+            <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>' : ''}`;
+}
+
 function detailLine(l) {
   const a = KNX.areaOfLine(l.id);
   const devs = KNX.devicesOnLine(l.id);
   if (a.backbone) return detailBackbone(l);
+  const main = l.addr === 0;
+  const segmented = KNX.segmentsOf(l).length > 0;
   return `
     <div class="detail-head">
       <span class="addr big">${a.addr}.${l.addr}</span>
       <div>
         <h2>${esc(l.name)}</h2>
-        <p class="detail-sub">Linie in Bereich ${esc(a.name)} · ${esc(KNX.MEDIA[l.medium])}</p>
+        <p class="detail-sub">${main ? 'Hauptlinie des Bereichs' : 'Linie in Bereich'} ${esc(a.name)} · ${esc(KNX.MEDIA[l.medium])}</p>
       </div>
     </div>
     <div class="detail-meta">
@@ -1026,12 +1145,15 @@ function detailLine(l) {
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
+      <button class="btn btn-sm" id="d-addseg">+ Segment</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      ${main ? '' : `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>`}
     </div>
     ${issueList(l.id)}
+    ${main ? `<p class="hint">Auf der Hauptlinie sitzt der Bereichskoppler ${a.addr}.0.0; weitere Geräte
+      bekommen ${a.addr}.0.1 und folgende. Sie gehört fest zum Bereich.</p>` : ''}
     ${noteSection(l.note)}
-    ${powerSection(l.id)}
+    ${segmented ? segmentList(l) : powerSection(l.id)}
     ${devs.length
       ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
         devs.slice().sort(KNX.byPa).map(d =>
@@ -1089,7 +1211,9 @@ function detailGrp(key) {
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Benennen</button>
-      <button class="btn btn-sm" id="d-addga">+ Adresse</button>
+      ${level < G.folderDepth() - 1
+        ? `<button class="btn btn-sm" id="d-addgrp">+ ${esc(style.parts[level + 1].label)}</button>`
+        : '<button class="btn btn-sm" id="d-addga">+ Adresse</button>'}
       ${gs.length && G.folderDepth() >= 1 ? '<button class="btn btn-sm" id="d-move">Adressen verschieben …</button>' : ''}
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
@@ -1148,8 +1272,14 @@ function renderDetail() {
     panel.innerHTML = detailLine(target);
     on('#d-adddev', () => T.actNewDevice({ lineId: target.id }));
     on('#d-addarea', () => T.actNewArea());
+    on('#d-addseg', () => T.actNewSegment(target.id));
     on('#d-rename', () => T.actEditLine(target.id));
     on('#d-delete', () => T.actDeleteLine(target.id));
+  } else if (sel.kind === 'seg') {
+    panel.innerHTML = detailSeg(target);
+    on('#d-adddev', () => T.actNewDevice({ lineId: target.line.id, segmentId: target.seg ? target.key : null }));
+    on('#d-rename', () => T.actEditSegment(target.key));
+    on('#d-delete', () => T.actDeleteSegment(target.key));
   } else if (sel.kind === 'area') {
     panel.innerHTML = detailArea(target);
     on('#d-addline', () => T.actNewLine(target.id));
@@ -1158,7 +1288,8 @@ function renderDetail() {
   } else if (sel.kind === 'grp') {
     panel.innerHTML = detailGrp(sel.id);
     on('#d-rename', () => T.actRenameGaGroup(sel.id));
-    on('#d-addga', () => G.actNewGa());
+    on('#d-addga', () => G.actNewGa(sel.id));
+    on('#d-addgrp', () => G.actNewGaGroup(sel.id));
     on('#d-move', () => G.actMoveGas(KNX.gasInGroup(sel.id).map(g => g.id)));
     on('#d-delete', () => G.actDeleteGaGroup(sel.id));
   }
@@ -1175,7 +1306,7 @@ function renderDetail() {
 /* Springt zu einem Element und schaltet dafür nötigenfalls die Ansicht um. */
 function jumpTo(kind, id) {
   if (kind === 'node') state.view = 'building';
-  else if (['dev', 'obj', 'line', 'area'].includes(kind)) state.view = 'topology';
+  else if (['dev', 'obj', 'line', 'seg', 'area'].includes(kind)) state.view = 'topology';
   else if (kind === 'grp') state.view = 'ga';
   if (kind === 'ga') state.mid = 'ga';
   if (kind === 'dev') state.mid = 'dev';
@@ -1195,10 +1326,13 @@ function expandTo(kind, id) {
     if (bb) state.collapsed.delete(bb.area.id);
   } else if (kind === 'obj') {
     const e = KNX.objById(id);
-    if (e) { state.collapsed.delete(e.dev.id); openLine(e.dev.lineId); }
+    if (e) { state.collapsed.delete(e.dev.id); openLine(e.dev.lineId); state.collapsed.delete('seg:' + KNX.segKeyOf(e.dev)); }
   } else if (kind === 'dev') {
     const d = KNX.deviceById(id);
-    if (d) openLine(d.lineId);
+    if (d) { openLine(d.lineId); state.collapsed.delete('seg:' + KNX.segKeyOf(d)); }
+  } else if (kind === 'seg') {
+    const s = KNX.segmentInfo(id);
+    if (s) openLine(s.line.id);
   } else if (kind === 'node') {
     let cur = KNX.parentOf(id);
     while (cur) { state.collapsed.delete(cur.id); cur = KNX.parentOf(cur.id); }

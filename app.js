@@ -76,6 +76,7 @@ function resolve(ref) {
     case 'dev':  return KNX.deviceById(ref.id);
     case 'obj':  return KNX.objById(ref.id);
     case 'line': return KNX.lineById(ref.id);
+    case 'seg':  return KNX.segmentInfo(ref.id);
     case 'area': return KNX.project().areas.find(a => a.id === ref.id) || null;
     case 'grp':  return typeof ref.id === 'string' ? ref : null;
     default:     return null;
@@ -293,6 +294,7 @@ function gaPassesFilter(g, f) {
       return KNX.gaLinks(g.id).some(l => ids.has(l.dev.roomId));
     }
     case 'line': return KNX.gaLinks(g.id).some(l => l.dev.lineId === f.id);
+    case 'seg':  return KNX.gaLinks(g.id).some(l => KNX.segKeyOf(l.dev) === f.id);
     case 'area': {
       const ids = new Set((KNX.project().areas.find(a => a.id === f.id)?.lines || []).map(l => l.id));
       return KNX.gaLinks(g.id).some(l => ids.has(l.dev.lineId));
@@ -335,6 +337,7 @@ function devPassesFilter(d, f) {
   switch (f.kind) {
     case 'node': return new Set(KNX.roomIdsUnder(f.id)).has(d.roomId);
     case 'line': return d.lineId === f.id;
+    case 'seg':  return KNX.segKeyOf(d) === f.id;
     case 'area': {
       const ids = new Set((KNX.project().areas.find(a => a.id === f.id)?.lines || []).map(l => l.id));
       return ids.has(d.lineId);

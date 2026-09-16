@@ -199,6 +199,7 @@ $('#btn-tree-add').addEventListener('click', () => {
   if (state.view === 'building')
     A.actNewNode(state.sel?.kind === 'node' ? state.sel.id : KNX.project().tree.id);
   else if (state.view === 'topology') T.actNewArea();
+  else if (G.folderDepth() >= 1) G.actNewGaGroup('');
   else G.actNewGa();
 });
 $('#btn-add-row').addEventListener('click', () =>
@@ -225,6 +226,8 @@ function showIssues() {
     if (i.kind === 'ga') { const g = KNX.gaById(i.id); return g ? KNX.addrStr(g) + ' ' + g.name : ''; }
     if (i.kind === 'device') { const d = KNX.deviceById(i.id); return d ? KNX.paStr(d.addr) + ' ' + d.name : ''; }
     if (i.kind === 'line') return 'Linie ' + KNX.lineLabel(i.id);
+    if (i.kind === 'seg') { const s = KNX.segmentInfo(i.id); return s ? 'Linie ' + KNX.lineLabel(s.line.id) + ' · ' + s.name : ''; }
+    if (i.kind === 'area') { const a = KNX.project().areas.find(x => x.id === i.id); return a ? 'Bereich ' + a.name : ''; }
     return '';
   };
   const order = { error: 0, warn: 1, info: 2 };
