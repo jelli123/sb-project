@@ -144,6 +144,94 @@ function actDeleteSelected() {
   });
 }
 
+/* ---------- Haupt- und Mittelgruppen ---------- */
+
+/* Löscht die Gruppe mit allen Adressen darin, wie die ETS. */
+function actDeleteGaGroup(key) {
+  const style = KNX.gaStyle();
+  const level = String(key).split('/').length - 1;
+  const label = style.parts[level]?.label || 'Gruppe';
+  const name = KNX.project().gaNames[key] || '';
+  const gs = KNX.gasInGroup(key);
+  const links = gs.reduce((s, g) => s + KNX.gaLinks(g.id).length, 0);
+  A.openModal(`${label} ${key} löschen?`, `
+    <p><b>${esc(key)}</b>${name ? ' — „' + esc(name) + '“' : ''} wird entfernt${
+      gs.length ? `, mit <b>${gs.length}</b> Gruppenadressen` : ''}.</p>
+    ${links ? `<p class="hint warn">${links} Objektzuordnungen gehen dabei verloren.</p>` : ''}
+    ${gs.length ? '<p class="hint">Sollen die Adressen erhalten bleiben, vorher markieren und verschieben.</p>' : ''}
+  `, () => {
+    const ids = new Set(gs.map(g => g.id));
+    KNX.deleteGaGroup(key);
+    ids.forEach(id => state.checked.delete(id));
+    if ((state.sel?.kind === 'ga' && ids.has(state.sel.id))
+        || (state.sel?.kind === 'grp' && (state.sel.id === key || String(state.sel.id).startsWith(key + '/'))))
+      state.sel = null;
+    if (state.filter?.kind === 'grp'
+        && (state.filter.id === key || String(state.filter.id).startsWith(key + '/')))
+      state.filter = null;
+    A.commit();
+  });
+}
+
+/* Unterste Ordnerebene: in sie hinein werden Adressen verschoben. */
+const folderDepth = () => KNX.gaStyle().parts.length - 1;
+
+function moveGasTo(ids, key) {
+  const r = KNX.moveGas(ids, key);
+  const name = KNX.project().gaNames[key];
+  if (r.moved) {
+    A.commit();
+    A.toast(`${r.moved} ${r.moved === 1 ? 'Adresse' : 'Adressen'} nach ${key}${name ? ' „' + name + '“' : ''} verschoben`);
+  }
+  if (r.failed) A.warn(`${r.failed} ${r.failed === 1 ? 'Adresse passt' : 'Adressen passen'} nicht mehr in ${key} — dort ist nichts mehr frei.`);
+  else if (!r.moved && r.same) A.toast('Die Adressen liegen bereits in ' + key);
+}
+
+function actMoveGas(ids) {
+  ids = ids.filter(id => KNX.gaById(id));
+  if (!ids.length) return;
+  const style = KNX.gaStyle();
+  const depth = folderDepth();
+  if (depth < 1) { A.warn('Bei freier Adressierung gibt es keine Gruppen zum Verschieben.'); return; }
+  const first = KNX.gaSplit(KNX.gaById(ids[0]).raw, style);
+  const tree = KNX.gaTree();
+  const folders = [];
+  const collect = (n, trail) => n.children.forEach(c => {
+    const t = trail.concat(c.name || '');
+    if (c.level === depth - 1) folders.push({ key: c.key, label: t.filter(Boolean).join(' › ') });
+    else collect(c, t);
+  });
+  collect(tree, []);
+  A.openModal(`${ids.length === 1 ? 'Adresse' : ids.length + ' Adressen'} verschieben`, `
+    <label class="field"><span>Vorhandene Gruppe</span>
+      <select class="select" id="m-folder"><option value="">— Nummer unten eingeben —</option>${folders.map(f =>
+        `<option value="${esc(f.key)}">${esc(f.key)}${f.label ? ' — ' + esc(f.label) : ''}</option>`).join('')}</select>
+    </label>
+    <div class="addr-grid" style="grid-template-columns:repeat(${depth},1fr)">${style.parts.slice(0, depth).map((p, i) => `
+      <div class="field"><span>${esc(p.label)} <em>0–${p.max}</em></span>
+        <input class="input mono" id="m-p${i}" type="number" min="0" max="${p.max}" value="${first[i]}"></div>`).join('')}
+    </div>
+    <p class="hint">Die letzte Stufe bleibt, wenn sie in der Zielgruppe frei ist, sonst gibt es die
+       nächste freie. Zuordnungen zu Objekten bleiben erhalten.</p>
+    <div id="m-err"></div>
+  `, () => {
+    const vals = [];
+    for (let i = 0; i < depth; i++) {
+      const v = $('#m-p' + i).valueAsNumber;
+      if (!Number.isInteger(v) || v < 0 || v > style.parts[i].max) {
+        showErr(`${style.parts[i].label} muss zwischen 0 und ${style.parts[i].max} liegen.`);
+        return false;
+      }
+      vals.push(v);
+    }
+    moveGasTo(ids, vals.join('/'));
+  });
+  $('#m-folder').addEventListener('change', e => {
+    if (!e.target.value) return;
+    e.target.value.split('/').forEach((v, i) => { $('#m-p' + i).value = v; });
+  });
+}
+
 /* ---------- Zuordnung zu Kommunikationsobjekten ---------- *
  * In der ETS liegt eine GA nicht auf einem Raum, sondern auf den Objekten
  * von Geräten. Der Raumbezug ergibt sich daraus, wo das Gerät verbaut ist. */
@@ -189,5 +277,6 @@ function actAssignGa(id) {
 }
 
 window.KNXGA = { actNewGa, actEditGa, actDeleteGa, actDeleteSelected, actAssignGa,
+                 actDeleteGaGroup, actMoveGas, moveGasTo, folderDepth,
                  dptOptions, addrFields, readAddr, showErr };
 })();

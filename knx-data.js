@@ -177,7 +177,11 @@ const KNX = (() => {
   const PA_MAX = { area: 15, line: 15, device: 255 };
   const paJoin = (a, l, d) => (((a & 15) << 12) | ((l & 15) << 8) | (d & 255)) >>> 0;
   const paSplit = raw => [(raw >>> 12) & 15, (raw >>> 8) & 15, raw & 255];
-  const paStr = raw => paSplit(raw).join('.');
+  const paStr = raw => raw == null ? '—' : paSplit(raw).join('.');
+  /* Drosseln, Netzteile und passives Zubehör haben keine physikalische Adresse
+     (HasIndividualAddress="false"); sie hängen nur an ihrer Linie. */
+  const hasPa = d => !!d && Number.isInteger(d.addr);
+  const byPa = (x, y) => (hasPa(x) ? x.addr : 0x10000) - (hasPa(y) ? y.addr : 0x10000);
 
   /* ---------- Gebäudestruktur ---------- *
    * Wie in der ETS: keine feste Ebenenkette, sondern erlaubte Kindtypen.   */
@@ -432,8 +436,9 @@ const KNX = (() => {
     const seenDev = new Set(), usedPa = new Set();
     p.devices = (Array.isArray(p.devices) ? p.devices : []).map(d => {
       const seenObj = new Set();
-      let pa = Number.isInteger(d.addr) ? d.addr : 0;
-      if (usedPa.has(pa)) pa = -1;                       // Dublette → neu vergeben
+      let pa = d.addr === null ? null : Number.isInteger(d.addr) ? d.addr : 0;
+      if (pa === null) { /* Gerät ohne physikalische Adresse */ }
+      else if (usedPa.has(pa)) pa = -1;                  // Dublette → neu vergeben
       else usedPa.add(pa);
       return {
         id: takeId(d.id, 'd', seenDev),
@@ -974,7 +979,7 @@ const KNX = (() => {
    * Teilnehmer 0 einer Linie ist der Koppler. Sitzt er auf der Hauptlinie
    * (Linie 0), koppelt er den ganzen Bereich, sonst nur seine Linie.       */
   function couplerScope(dev) {
-    if (!dev || paSplit(dev.addr)[2] !== 0) return null;
+    if (!hasPa(dev) || paSplit(dev.addr)[2] !== 0) return null;
     const line = lineById(dev.lineId), area = areaOfLine(dev.lineId);
     if (!line || !area) return null;
     return line.addr === 0
@@ -1040,7 +1045,7 @@ const KNX = (() => {
   function usedPas(exceptDevId) {
     const used = new Set();
     project.devices.forEach(d => {
-      if (d.id !== exceptDevId) used.add(d.addr);
+      if (d.id !== exceptDevId && hasPa(d)) used.add(d.addr);
       tunnelAddrs(d).forEach(r => used.add(r));
     });
     return used;
@@ -1055,7 +1060,7 @@ const KNX = (() => {
     if (!l || !a || (!n && !tunnelAddrs(dev).length)) return false;
     const others = new Set();
     project.devices.forEach(d => {
-      others.add(d.addr);
+      if (hasPa(d)) others.add(d.addr);
       if (d.id !== dev.id) tunnelAddrs(d).forEach(r => others.add(r));
     });
     const onLine = r => paSplit(r)[0] === a.addr && paSplit(r)[1] === l.addr && paSplit(r)[2] > 0;
@@ -1401,24 +1406,28 @@ const KNX = (() => {
     project.devices.forEach(d => {
       if (!d.roomId)
         add('warn', 'device', d.id, 'Keinem Raum zugeordnet — die Gebäudesicht bleibt unvollständig.');
-      const dup = paSeen.get(d.addr);
-      if (dup) add('error', 'device', d.id,
-        `Physikalische Adresse ${paStr(d.addr)} ist doppelt vergeben (auch: ${dup.name}).`);
-      else paSeen.set(d.addr, d);
+      const cat = d.catalogId && catalogById(d.catalogId);
+      if (hasPa(d)) {
+        const dup = paSeen.get(d.addr);
+        if (dup) add('error', 'device', d.id,
+          `Physikalische Adresse ${paStr(d.addr)} ist doppelt vergeben (auch: ${dup.name}).`);
+        else paSeen.set(d.addr, d);
 
-      const l = ix.lines.get(d.lineId), a = ix.areaOfLine.get(d.lineId);
-      const [pa, pl, pd] = paSplit(d.addr);
-      if (l && a && (pa !== a.addr || pl !== l.addr))
-        add('error', 'device', d.id,
-          `Adresse ${paStr(d.addr)} passt nicht zur Linie ${a.addr}.${l.addr}.`);
-      // Teilnehmer 0 gehört dem Koppler — bei Geräten mit Objekten ist das ein Fehlgriff
-      if (pd === 0 && d.objs.length)
-        add('warn', 'device', d.id, 'Teilnehmernummer 0 ist dem Linienkoppler vorbehalten.');
+        const l = ix.lines.get(d.lineId), a = ix.areaOfLine.get(d.lineId);
+        const [pa, pl, pd] = paSplit(d.addr);
+        if (l && a && (pa !== a.addr || pl !== l.addr))
+          add('error', 'device', d.id,
+            `Adresse ${paStr(d.addr)} passt nicht zur Linie ${a.addr}.${l.addr}.`);
+        // Teilnehmer 0 gehört dem Koppler — bei Geräten mit Objekten ist das ein Fehlgriff
+        if (pd === 0 && d.objs.length)
+          add('warn', 'device', d.id, 'Teilnehmernummer 0 ist dem Linienkoppler vorbehalten.');
+      } else if (d.objs.length || (cat && !cat.noAddress)) {
+        add('error', 'device', d.id, 'Ohne physikalische Adresse lässt sich das Gerät weder adressieren noch programmieren.');
+      }
       // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
       if (!d.objs.length && !d.catalogId && !couplerScope(d))
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
 
-      const cat = d.catalogId && catalogById(d.catalogId);
       if (cat && (cat.choke || cat.powerSupply) && !(+d.supply > 0))
         add('warn', 'device', d.id, (cat.choke ? 'Drossel' : 'Netzteil') +
           ' ohne eingetragene Einspeisung — der Nennstrom steht nicht in der Produktdatei.');
@@ -1485,7 +1494,7 @@ const KNX = (() => {
        sonst kommt das Telegramm nie an. Die Filtertabelle des Kopplers
        entsteht aus genau dieser Information. */
     const couplerOn = new Set();
-    project.devices.forEach(d => { if (paSplit(d.addr)[2] === 0) couplerOn.add(d.lineId); });
+    project.devices.forEach(d => { if (couplerScope(d)) couplerOn.add(d.lineId); });
     if (couplerOn.size) {
       project.groups.forEach(g => {
         const lines = new Set();
@@ -1534,6 +1543,56 @@ const KNX = (() => {
 
   function addGa(g) { project.groups.push(g); invalidate(); return g; }
 
+  /* Haupt- oder Mittelgruppe samt allen Adressen darin löschen — wie in der ETS.
+     Die Namen der Gruppe und ihrer Untergruppen verschwinden mit.            */
+  const inGroup = (g, key, style = gaStyle()) => {
+    const pre = String(key).split('/').map(Number);
+    const v = gaSplit(g.raw, style);
+    return pre.every((x, i) => v[i] === x);
+  };
+  function gasInGroup(key) {
+    return project.groups.filter(g => inGroup(g, key));
+  }
+  function deleteGaGroup(key) {
+    const ids = new Set(gasInGroup(key).map(g => g.id));
+    project.groups = project.groups.filter(g => !ids.has(g.id));
+    project.devices.forEach(d => d.objs.forEach(o => { o.gas = o.gas.filter(x => !ids.has(x)); }));
+    Object.keys(project.gaNames).forEach(k => {
+      if (k === key || k.startsWith(key + '/')) delete project.gaNames[k];
+    });
+    invalidate();
+    return ids.size;
+  }
+
+  /* Adressen in eine andere Gruppe der untersten Ordnerebene verschieben
+     (Mittelgruppe bei drei Stufen, Hauptgruppe bei zwei). Die Untergruppe
+     bleibt, wenn sie dort frei ist, sonst gibt es die nächste freie. Die
+     Zuordnungen hängen an der Id und bleiben erhalten.                    */
+  function moveGas(ids, key) {
+    const style = gaStyle();
+    const depth = style.parts.length - 1;
+    const pre = String(key).split('/').map(Number);
+    if (depth < 1 || pre.length !== depth || pre.some((v, i) => !(v >= 0 && v <= style.parts[i].max)))
+      return { moved: 0, same: 0, failed: ids.length };
+    const moving = project.groups.filter(g => ids.includes(g.id)).sort((a, b) => a.raw - b.raw);
+    const used = new Set(project.groups.filter(g => !ids.includes(g.id)).map(g => g.raw));
+    const last = style.parts[depth].max;
+    const out = { moved: 0, same: 0, failed: 0 };
+    moving.forEach(g => {
+      if (inGroup(g, key, style)) { used.add(g.raw); out.same++; return; }
+      const want = gaSplit(g.raw, style)[depth];
+      const free = n => { const raw = gaJoin([...pre, n], style); return raw > 0 && !used.has(raw) ? raw : 0; };
+      let raw = free(want);
+      for (let n = 1; !raw && n <= last; n++) raw = free(n);
+      if (!raw) { out.failed++; used.add(g.raw); return; }
+      g.raw = raw;
+      used.add(raw);
+      out.moved++;
+    });
+    invalidate();
+    return out;
+  }
+
   function deleteGa(id) {
     const i = project.groups.findIndex(g => g.id === id);
     if (i < 0) return false;
@@ -1561,7 +1620,7 @@ const KNX = (() => {
   return {
     DPT, dptById, dptGroups,
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
-    PA_MAX, paJoin, paSplit, paStr, paFree, freePa,
+    PA_MAX, paJoin, paSplit, paStr, paFree, freePa, hasPa, byPa,
     NOTE_MAX, normNote, normSerial,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
     IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
@@ -1581,7 +1640,7 @@ const KNX = (() => {
     catalogById, addCatalogItems, deleteCatalogItem,
     resolveProduct, applyProduct, paramValue,
     gaTree, issues,
-    gaById, addGa, deleteGa, freeAddress, suggestAddress,
+    gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,
     deleteNode, uid: nid
   };
 })();

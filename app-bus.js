@@ -739,7 +739,7 @@ function fillLines() {
 }
 
 function fillTargets() {
-  const devs = KNX.project().devices.slice().sort((x, y) => x.addr - y.addr);
+  const devs = KNX.project().devices.filter(KNX.hasPa).sort(KNX.byPa);
   q('#bus-target').innerHTML = '<option value="">— aus dem Projekt übernehmen —</option>' +
     devs.map(d => `<option value="${KNX.paStr(d.addr)}">${KNX.paStr(d.addr)} — ${esc(d.name)}</option>`).join('');
 }
@@ -844,7 +844,7 @@ function applyPa(pa, quiet) {
 
 function renderScan(list, live) {
   const byAddr = new Map();
-  KNX.project().devices.forEach(d => byAddr.set(KNX.paStr(d.addr), d));
+  KNX.project().devices.filter(KNX.hasPa).forEach(d => byAddr.set(KNX.paStr(d.addr), d));
   const pending = live ? '…' : '—';
 
   /* Eine Schnittstelle kann sich über ihren eigenen Tunnel nicht selbst antworten:
@@ -1078,8 +1078,8 @@ const KIND_LABELS = {
 
 function fillProgDevices() {
   const p = KNX.project();
-  const devs = p.devices.filter(d => d.catalogId && KNX.catalogById(d.catalogId))
-    .sort((x, y) => x.addr - y.addr);
+  const devs = p.devices.filter(d => KNX.hasPa(d) && d.catalogId && KNX.catalogById(d.catalogId))
+    .sort(KNX.byPa);
   const keep = q('#bus-prog-dev').value;
   q('#bus-prog-dev').innerHTML = devs.length
     ? devs.map(d => `<option value="${esc(d.id)}">${KNX.paStr(d.addr)} — ${esc(d.name)}</option>`).join('')

@@ -362,8 +362,8 @@ function visibleDevices() {
   ds.sort((a, b) => {
     let r = 0;
     if (key === 'name') r = a.name.localeCompare(b.name, 'de');
-    else r = a.addr - b.addr;
-    return r * dir || a.addr - b.addr;
+    else r = KNX.byPa(a, b);
+    return r * dir || KNX.byPa(a, b);
   });
   return ds;
 }

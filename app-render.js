@@ -5,6 +5,8 @@
 
 (() => {
 const A = window.KNXApp, G = window.KNXGA, T = window.KNXTopo, $ = s => document.querySelector(s);
+/* Datentyp beim Ziehen von Gruppenadressen auf eine Gruppe im Baum */
+const GA_DRAG = 'application/x-knx-ga';
 const state = A.state, esc = A.esc;
 const iconBtn = A.iconBtn;
 
@@ -96,6 +98,18 @@ function buildTreeRow(o, index) {
     row.appendChild(act);
   }
 
+  if (o.dropKey) {
+    const accepts = e => [...e.dataTransfer.types].includes(GA_DRAG);
+    row.ondragover = e => { if (accepts(e)) { e.preventDefault(); row.classList.add('drop'); } };
+    row.ondragleave = () => row.classList.remove('drop');
+    row.ondrop = e => {
+      row.classList.remove('drop');
+      if (!accepts(e)) return;
+      e.preventDefault();
+      G.moveGasTo(JSON.parse(e.dataTransfer.getData(GA_DRAG)), o.dropKey);
+    };
+  }
+
   row.onclick = () => o.onSelect();
   if (o.onEdit) row.ondblclick = e => { e.stopPropagation(); o.onEdit(); };
   row.onkeydown = e => {
@@ -171,7 +185,7 @@ function lineNode(a, l) {
     ],
     onSelect: () => { state.filter = { kind: 'line', id: l.id }; A.select('line', l.id); },
     onEdit: () => T.actEditLine(l.id),
-    children: () => devs.slice().sort((x, y) => x.addr - y.addr).forEach(d => deviceNode(d, 2))
+    children: () => devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, 2))
   });
 }
 function deviceNode(d, depth) {
@@ -219,7 +233,11 @@ function gaGroupNode(n, depth) {
     label: n.name || '(ohne Namen)', title: n.label + ' ' + n.key, addr: n.key,
     meta: count ? String(count) : '',
     hasKids: n.children.length > 0, collapsed: state.collapsed.has('grp:' + n.key),
-    actions: () => [ iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key)) ],
+    actions: () => [
+      iconBtn(A.IC_TRASH, 'Gruppe mit allen Adressen löschen', () => G.actDeleteGaGroup(n.key)),
+      iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key))
+    ],
+    dropKey: n.level === G.folderDepth() - 1 ? n.key : null,
     onSelect: () => { state.filter = { kind: 'grp', id: n.key }; A.select('grp', n.key); },
     onEdit: () => T.actRenameGaGroup(n.key),
     children: () => n.children.forEach(c => gaGroupNode(c, depth + 1))
@@ -405,6 +423,13 @@ function gaRow(ga) {
   tr.tabIndex = -1;
   tr.onclick = () => A.select('ga', ga.id);
   tr.ondblclick = () => G.actEditGa(ga.id);
+  // Auf eine Gruppe im Baum ziehen verschiebt die Adresse — markierte gleich mit
+  tr.draggable = true;
+  tr.ondragstart = e => {
+    const ids = state.checked.has(ga.id) ? [...state.checked] : [ga.id];
+    e.dataTransfer.setData(GA_DRAG, JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = 'move';
+  };
 
   const tdC = document.createElement('td');
   tdC.className = 'cell-chk';
@@ -559,6 +584,8 @@ function syncSelButton(gs) {
   const btn = $('#btn-del-sel');
   btn.hidden = !n;
   btn.textContent = n ? 'Löschen (' + n + ')' : '';
+  $('#btn-move-sel').hidden = !n || G.folderDepth() < 1;
+  $('#btn-move-sel').textContent = n ? 'Verschieben (' + n + ')' : '';
   const head = $('#chk-all');
   head.checked = gs.length > 0 && gs.every(g => state.checked.has(g.id));
   head.indeterminate = gs.some(g => state.checked.has(g.id)) && !head.checked;
@@ -732,6 +759,7 @@ function detailGa(ga) {
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Objekte zuordnen</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
+      ${G.folderDepth() >= 1 ? '<button class="btn btn-sm" id="d-move">Verschieben …</button>' : ''}
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
     ${issueList(ga.id)}
@@ -940,7 +968,7 @@ function detailLine(l) {
     ${powerSection(l.id)}
     ${devs.length
       ? '<h3 class="detail-h">Teilnehmer</h3><ul class="detail-list">' +
-        devs.slice().sort((x, y) => x.addr - y.addr).map(d =>
+        devs.slice().sort(KNX.byPa).map(d =>
           `<li class="jump" data-kind="dev" data-id="${d.id}">
             <span class="addr">${KNX.paStr(d.addr)}</span>
             <span class="grow">${esc(d.name)}</span>
@@ -996,6 +1024,8 @@ function detailGrp(key) {
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Benennen</button>
       <button class="btn btn-sm" id="d-addga">+ Adresse</button>
+      ${gs.length && G.folderDepth() >= 1 ? '<button class="btn btn-sm" id="d-move">Adressen verschieben …</button>' : ''}
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
     </div>
     ${gs.length
       ? '<h3 class="detail-h">Adressen</h3><ul class="detail-list">' + gs.map(g =>
@@ -1027,6 +1057,7 @@ function renderDetail() {
     panel.innerHTML = detailGa(target);
     on('#d-assign', () => G.actAssignGa(target.id));
     on('#d-rename', () => G.actEditGa(target.id));
+    on('#d-move', () => G.actMoveGas([target.id]));
     on('#d-delete', () => G.actDeleteGa(target.id));
   } else if (sel.kind === 'dev') {
     panel.innerHTML = detailDev(target);
@@ -1061,6 +1092,8 @@ function renderDetail() {
     panel.innerHTML = detailGrp(sel.id);
     on('#d-rename', () => T.actRenameGaGroup(sel.id));
     on('#d-addga', () => G.actNewGa());
+    on('#d-move', () => G.actMoveGas(KNX.gasInGroup(sel.id).map(g => g.id)));
+    on('#d-delete', () => G.actDeleteGaGroup(sel.id));
   }
 
   panel.querySelectorAll('.jump').forEach(el => {

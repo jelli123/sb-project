@@ -209,6 +209,7 @@ $('#btn-clear-filter').addEventListener('click', () => {
   window.KNXOnRender();
 });
 $('#btn-del-sel').addEventListener('click', () => G.actDeleteSelected());
+$('#btn-move-sel').addEventListener('click', () => G.actMoveGas([...state.checked]));
 $('#chk-all').addEventListener('change', e => {
   const gs = A.visibleGAs();
   if (e.target.checked) gs.forEach(g => state.checked.add(g.id));

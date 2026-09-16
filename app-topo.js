@@ -58,7 +58,8 @@ function catalogOptions(sel) {
 }
 
 function deviceForm(d, opt) {
-  const [, , dev] = KNX.paSplit(d.addr);
+  const noAddr = d.addr === null;
+  const [, , dev] = noAddr ? [0, 0, KNX.paSplit(KNX.freePa(d.lineId, opt && opt.exceptId))[2]] : KNX.paSplit(d.addr);
   const cat = opt && opt.catalog;
   const except = opt && opt.exceptId;
   return `
@@ -80,8 +81,10 @@ function deviceForm(d, opt) {
       <select class="select" id="m-line">${lineOptions(d.lineId)}</select>
     </label>
     <label class="field"><span>Physikalische Adresse <em>nur freie</em></span>
-      <select class="select mono" id="m-dev">${deviceOptions(d.lineId, dev, except)}</select>
+      <select class="select mono" id="m-dev"${noAddr ? ' disabled' : ''}>${deviceOptions(d.lineId, dev, except)}</select>
     </label>
+    <label class="chk" title="Drosseln, Netzteile und passives Zubehör: nur der Linie zugeordnet, belegen keine Adresse">
+      <input type="checkbox" id="m-noaddr"${noAddr ? ' checked' : ''}> Ohne physikalische Adresse</label>
     <label class="field"><span>Verbaut in</span>
       <select class="select" id="m-room">${roomOptions(d.roomId)}</select>
     </label>
@@ -109,11 +112,14 @@ function readDevice(exceptId) {
   if (!name) return { err: 'Bitte einen Namen vergeben.' };
   const lineId = $('#m-line').value;
   const line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
-  const n = parseInt($('#m-dev').value, 10);
-  if (!Number.isInteger(n)) return { err: 'Auf dieser Linie ist keine Adresse mehr frei.' };
-  const addr = KNX.paJoin(area.addr, line.addr, n);
-  if (!KNX.paFree(addr, exceptId))
-    return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
+  let addr = null;
+  if (!$('#m-noaddr').checked) {
+    const n = parseInt($('#m-dev').value, 10);
+    if (!Number.isInteger(n)) return { err: 'Auf dieser Linie ist keine Adresse mehr frei.' };
+    addr = KNX.paJoin(area.addr, line.addr, n);
+    if (!KNX.paFree(addr, exceptId))
+      return { err: `Physikalische Adresse ${KNX.paStr(addr)} ist bereits vergeben.` };
+  }
   const ma = $('#m-ma').value.trim();
   const serialRaw = $('#m-serial').value.trim();
   const serial = KNX.normSerial(serialRaw);
@@ -135,7 +141,8 @@ function readDraft() {
     name: $('#m-name') ? $('#m-name').value : '',
     product: $('#m-product') ? $('#m-product').value : '',
     lineId,
-    addr: line && area ? KNX.paJoin(area.addr, line.addr, Number.isInteger(n) ? n : 0) : 0,
+    addr: $('#m-noaddr') && $('#m-noaddr').checked ? null
+      : line && area ? KNX.paJoin(area.addr, line.addr, Number.isInteger(n) ? n : 0) : 0,
     roomId: ($('#m-room') && $('#m-room').value) || null,
     ma: $('#m-ma') && $('#m-ma').value !== '' ? parseInt($('#m-ma').value, 10) : null,
     supply: ($('#m-supply') && $('#m-supply').valueAsNumber) || 0,
@@ -153,7 +160,7 @@ function actNewDevice(ctx) {
   const draft = ctx?.draft || { name: '', product: '', lineId, addr: KNX.freePa(lineId), roomId,
                                 ma: null, supply: 0, serial: '', note: '' };
   if (ctx?.catalogId) draft.catalogId = ctx.catalogId;
-  if (!draft.addr) draft.addr = KNX.freePa(draft.lineId || lineId);
+  if (!draft.addr && draft.addr !== null) draft.addr = KNX.freePa(draft.lineId || lineId);
 
   A.openModal('Neues Gerät anlegen', deviceForm(draft, { catalog: true }), () => {
     const r = readDevice();
@@ -180,6 +187,12 @@ function actNewDevice(ctx) {
   const applyCat = () => {
     const c = KNX.catalogById($('#m-cat').value);
     const hint = $('#m-cat-hint');
+    // Ein Produkt ohne physikalische Adresse legt das fest
+    $('#m-noaddr').disabled = !!(c && c.noAddress);
+    if (c && c.noAddress && !$('#m-noaddr').checked) {
+      $('#m-noaddr').checked = true;
+      $('#m-dev').disabled = true;
+    }
     if (!c) {
       hint.textContent = 'Ohne Produkt entsteht ein leeres Gerät — Objekte legt man später einzeln an.';
       return;
@@ -191,7 +204,7 @@ function actNewDevice(ctx) {
         (c.choke || c.powerSupply
           ? '. Die Einspeisung steht nicht in der Produktdatei — bitte unten den Nennstrom '
             + (c.choke ? 'des angeschlossenen Netzteils' : 'des Netzteils') + ' eintragen.' : '.') +
-        (c.noAddress ? ' Das Gerät hat keine physikalische Adresse; die Adresse hier dient nur der Ablage im Projekt.' : '');
+        (c.noAddress ? ' Das Gerät hat keine physikalische Adresse und hängt nur an seiner Linie.' : '');
       if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
       if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
       if (c.ma) $('#m-ma').placeholder = String(c.ma);
@@ -214,6 +227,7 @@ function actNewDevice(ctx) {
     if (c.ma) $('#m-ma').placeholder = String(c.ma);
   };
   $('#m-cat').addEventListener('change', applyCat);
+  wireNoAddr();
   $('#m-cat-open').addEventListener('click', () => {
     const draftNow = readDraft();
     A.closeModal();
@@ -221,6 +235,13 @@ function actNewDevice(ctx) {
   });
   applyCat();
   $('#m-name').focus();
+}
+
+/* Ohne Adresse ist die Nummernauswahl gesperrt; beim Abwählen gibt es die nächste freie. */
+function wireNoAddr() {
+  $('#m-noaddr').addEventListener('change', e => {
+    $('#m-dev').disabled = e.target.checked;
+  });
 }
 
 function actEditDevice(id) {
@@ -233,8 +254,11 @@ function actEditDevice(id) {
     KNX.touch();
     A.commit();
   });
+  wireNoAddr();
+  const item = d.catalogId && KNX.catalogById(d.catalogId);
+  if (item && item.noAddress) $('#m-noaddr').disabled = true;
   $('#m-line').addEventListener('change', e => {
-    const keep = KNX.paSplit(d.addr)[2];
+    const keep = d.addr === null ? 1 : KNX.paSplit(d.addr)[2];
     const free = KNX.paSplit(KNX.freePa(e.target.value, id))[2];
     $('#m-dev').innerHTML = deviceOptions(e.target.value,
       KNX.paFree(KNX.paJoin(KNX.areaOfLine(e.target.value).addr,
@@ -787,6 +811,7 @@ function actEditArea(id) {
       const ids = new Set(a.lines.map(l => l.id));
       KNX.project().devices.forEach(d => {
         if (!ids.has(d.lineId)) return;
+        if (!KNX.hasPa(d)) return;
         const [, l, n] = KNX.paSplit(d.addr);
         d.addr = KNX.paJoin(addr, l, n);
       });
@@ -883,7 +908,7 @@ function actEditLine(id) {
     if (a.lines.some(x => x.id !== id && x.addr === addr))
       { showErr(`Linie ${a.addr}.${addr} ist bereits vergeben.`); return false; }
     if (addr !== l.addr) {
-      KNX.devicesOnLine(id).forEach(d => {
+      KNX.devicesOnLine(id).filter(KNX.hasPa).forEach(d => {
         const [, , n] = KNX.paSplit(d.addr);
         d.addr = KNX.paJoin(a.addr, addr, n);
       });

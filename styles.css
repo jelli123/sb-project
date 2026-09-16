@@ -372,6 +372,7 @@ body.resizing .resizer { background: var(--accent); }
   cursor: pointer;
 }
 .tree-row:hover { background: var(--surface2); }
+.tree-row.drop { background: var(--accent-weak); box-shadow: inset 0 0 0 2px var(--accent); }
 .tree-node.sel .tree-row { background: var(--accent-weak); box-shadow: inset 2px 0 0 var(--accent); }
 .tree-node.sel .tree-row .node-name { font-weight: 650; color: var(--accent); }
 .tree-node.filtered .tree-row { background: var(--ok-weak); }
