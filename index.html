@@ -38,6 +38,9 @@
 })();
 </script>
 <link rel="stylesheet" href="styles.css">
+<!-- Sprache vor dem Aufbau: der feste Text wird sonst erst deutsch gezeigt. -->
+<script src="knx-i18n.js"></script>
+<script src="knx-lang-en.js"></script>
 </head>
 <body>
 <div id="app" data-pt-id="app-shell">
@@ -47,66 +50,70 @@
     <div class="brand" data-pt-id="brand">
       <div class="logo" aria-hidden="true">KNX</div>
       <div class="brand-text">
-        <b>KNX Struktur</b>
-        <span>Wohnobjekt- &amp; Gruppenadress-Editor</span>
+        <b data-i18n>KNX Struktur</b>
+        <span data-i18n>Wohnobjekt- &amp; Gruppenadress-Editor</span>
       </div>
     </div>
 
-    <input id="project-name" data-pt-id="project-name" aria-label="Projektname" spellcheck="false">
-    <span id="project-kind" class="dpt-tag" aria-hidden="true" title="Typ des geladenen Projekts">Musterprojekt</span>
+    <input id="project-name" data-pt-id="project-name" aria-label="Projektname" data-i18n-aria-label spellcheck="false">
+    <span id="project-kind" class="dpt-tag" aria-hidden="true" title="Typ des geladenen Projekts" data-i18n-title data-i18n>Musterprojekt</span>
 
-    <div class="histbar" role="group" aria-label="Verlauf">
-      <button id="btn-back" class="hist-btn" data-pt-id="btn-back" aria-label="Zurück" disabled>
+    <div class="histbar" role="group" aria-label="Verlauf" data-i18n-aria-label>
+      <button id="btn-back" class="hist-btn" data-pt-id="btn-back" aria-label="Zurück" data-i18n-aria-label disabled>
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3 5 8l5 5"/></svg>
       </button>
-      <button id="btn-fwd" class="hist-btn" data-pt-id="btn-fwd" aria-label="Vor" disabled>
+      <button id="btn-fwd" class="hist-btn" data-pt-id="btn-fwd" aria-label="Vor" data-i18n-aria-label disabled>
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>
       </button>
       <span class="hist-sep" aria-hidden="true"></span>
-      <button id="btn-undo" class="hist-btn" data-pt-id="btn-undo" aria-label="Rückgängig" disabled>
+      <button id="btn-undo" class="hist-btn" data-pt-id="btn-undo" aria-label="Rückgängig" data-i18n-aria-label disabled>
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 7h7a3.5 3.5 0 0 1 0 7H7"/><path d="M6 4 3 7l3 3"/></svg>
       </button>
-      <button id="btn-redo" class="hist-btn" data-pt-id="btn-redo" aria-label="Wiederholen" disabled>
+      <button id="btn-redo" class="hist-btn" data-pt-id="btn-redo" aria-label="Wiederholen" data-i18n-aria-label disabled>
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 7H6a3.5 3.5 0 0 0 0 7h3"/><path d="M10 4l3 3-3 3"/></svg>
       </button>
     </div>
 
     <div class="spacer"></div>
 
-    <label class="topbar-field" title="Darstellung der Gruppenadressen (projektweit)">
-      <span>Adressen</span>
-      <select id="ga-style" data-pt-id="ga-style" aria-label="Adressstil">
-        <option value="three">3-stufig</option>
-        <option value="two">2-stufig</option>
-        <option value="free">frei</option>
+    <label class="topbar-field" title="Darstellung der Gruppenadressen (projektweit)" data-i18n-title>
+      <span data-i18n>Adressen</span>
+      <select id="ga-style" data-pt-id="ga-style" aria-label="Adressstil" data-i18n-aria-label>
+        <option value="three" data-i18n>3-stufig</option>
+        <option value="two" data-i18n>2-stufig</option>
+        <option value="free" data-i18n>frei</option>
       </select>
     </label>
 
+    <label class="topbar-field" title="Sprache der Oberfläche" data-i18n-title>
+      <span data-i18n>Sprache</span>
+      <select id="ui-lang" data-pt-id="ui-lang" aria-label="Sprache" data-i18n-aria-label></select>
+    </label>
     <button id="btn-theme" class="btn btn-icon" data-pt-id="btn-theme" aria-label="Darstellung"></button>
-    <button id="btn-export" class="btn" data-pt-id="btn-export" title="Projekt als JSON-Datei speichern">Export</button>
-    <button id="btn-import" class="btn" data-pt-id="btn-import" title="Projekt aus JSON-Datei laden">Import</button>
+    <button id="btn-export" class="btn" data-pt-id="btn-export" title="Projekt als JSON-Datei speichern" data-i18n-title data-i18n>Export</button>
+    <button id="btn-import" class="btn" data-pt-id="btn-import" title="Projekt aus JSON-Datei laden" data-i18n-title data-i18n>Import</button>
     <input type="file" id="import-file" accept=".json,application/json" hidden>
     <input type="file" id="prod-file" accept=".knxprod" hidden>
     <button id="btn-projects" class="btn" data-pt-id="btn-projects" hidden
-            title="Projekte auf diesem Rechner verwalten">Projekte</button>
+            title="Projekte auf diesem Rechner verwalten" data-i18n-title data-i18n>Projekte</button>
     <button id="btn-bus" class="btn" data-pt-id="btn-bus" hidden
-            title="Geräte am Bus suchen, auslesen und adressieren">Inbetriebnahme</button>
-    <button id="btn-new" class="btn btn-primary" data-pt-id="btn-new" title="Leeres Projekt starten">Neues Projekt</button>
+            title="Geräte am Bus suchen, auslesen und adressieren" data-i18n-title data-i18n>Inbetriebnahme</button>
+    <button id="btn-new" class="btn btn-primary" data-pt-id="btn-new" title="Leeres Projekt starten" data-i18n-title data-i18n>Neues Projekt</button>
   </header>
 
   <!-- ================= Hauptbereich ================= -->
   <main id="main">
 
     <!-- Strukturbaum: Gebäude / Topologie / Gruppenadressen -->
-    <section class="pane" data-pt-id="tree-pane" aria-label="Projektstruktur">
+    <section class="pane" data-pt-id="tree-pane" aria-label="Projektstruktur" data-i18n-aria-label>
       <div class="pane-head">
-        <div class="tabs" role="tablist" aria-label="Ansicht">
+        <div class="tabs" role="tablist" aria-label="Ansicht" data-i18n-aria-label>
           <button class="tab" data-view="building" role="tab" data-pt-id="tab-building"
-                  title="Wo ist etwas verbaut">Gebäude</button>
+                  title="Wo ist etwas verbaut" data-i18n-title data-i18n>Gebäude</button>
           <button class="tab" data-view="topology" role="tab" data-pt-id="tab-topology"
-                  title="Bereiche, Linien und Teilnehmer">Topologie</button>
+                  title="Bereiche, Linien und Teilnehmer" data-i18n-title data-i18n>Topologie</button>
           <button class="tab" data-view="ga" role="tab" data-pt-id="tab-ga"
-                  title="Haupt- und Mittelgruppen">Gruppen</button>
+                  title="Haupt- und Mittelgruppen" data-i18n-title data-i18n>Gruppen</button>
         </div>
         <div class="pane-tools">
           <button id="btn-tree-add" class="btn btn-sm" data-pt-id="btn-tree-add">+</button>
@@ -119,41 +126,41 @@
     </section>
 
     <div class="resizer" id="resize-1" data-edge="left" role="separator"
-         aria-orientation="vertical" aria-label="Breite der Strukturspalte" tabindex="0"></div>
+         aria-orientation="vertical" aria-label="Breite der Strukturspalte" data-i18n-aria-label tabindex="0"></div>
 
     <!-- Gruppenadressen / Geräte -->
-    <section class="pane" data-pt-id="ga-pane" aria-label="Adressen und Geräte">
+    <section class="pane" data-pt-id="ga-pane" aria-label="Adressen und Geräte" data-i18n-aria-label>
       <div class="pane-head">
-        <div class="tabs" role="tablist" aria-label="Tabelle">
-          <button class="tab" data-mid="ga" role="tab" data-pt-id="tab-mid-ga">Gruppenadressen</button>
-          <button class="tab" data-mid="dev" role="tab" data-pt-id="tab-mid-dev">Geräte</button>
+        <div class="tabs" role="tablist" aria-label="Tabelle" data-i18n-aria-label>
+          <button class="tab" data-mid="ga" role="tab" data-pt-id="tab-mid-ga" data-i18n>Gruppenadressen</button>
+          <button class="tab" data-mid="dev" role="tab" data-pt-id="tab-mid-dev" data-i18n>Geräte</button>
         </div>
         <input id="search" class="input search" data-pt-id="search" type="search"
-               placeholder="Suchen …" aria-label="Suchen" spellcheck="false">
+               placeholder="Suchen …" aria-label="Suchen" data-i18n-placeholder data-i18n-aria-label spellcheck="false">
         <div class="pane-tools">
           <span id="ga-count" class="pane-meta"></span>
           <button id="btn-del-sel" class="btn btn-sm btn-danger" data-pt-id="btn-del-sel" hidden
-                  title="Markierte Adressen löschen">Löschen</button>
+                  title="Markierte Adressen löschen" data-i18n-title data-i18n>Löschen</button>
           <button id="btn-move-sel" class="btn btn-sm" data-pt-id="btn-move-sel" hidden
-                  title="Markierte Adressen in eine andere Gruppe verschieben — oder auf eine Gruppe im Baum ziehen">Verschieben</button>
-          <button id="btn-add-row" class="btn btn-sm btn-primary" data-pt-id="btn-add-row">+ Adresse</button>
+                  title="Markierte Adressen in eine andere Gruppe verschieben — oder auf eine Gruppe im Baum ziehen" data-i18n-title data-i18n>Verschieben</button>
+          <button id="btn-add-row" class="btn btn-sm btn-primary" data-pt-id="btn-add-row" data-i18n>+ Adresse</button>
         </div>
       </div>
       <div id="filter-bar" hidden>
         <span id="ga-filter-info" class="dpt-tag"></span>
         <button id="btn-clear-filter" class="btn btn-sm" data-pt-id="btn-clear-filter"
-                title="Filter entfernen">✕ Filter</button>
+                title="Filter entfernen" data-i18n-title data-i18n>✕ Filter</button>
       </div>
       <div id="ga-scroll">
         <table class="ga" id="tbl-ga" data-pt-id="ga-table">
           <thead>
             <tr>
-              <th class="col-chk"><input type="checkbox" id="chk-all" aria-label="Alle Adressen markieren"></th>
-              <th class="sortable col-addr" data-key="addr" title="Nach Adresse sortieren">Adresse <span class="arrow"></span></th>
-              <th class="sortable" data-key="name" title="Nach Name sortieren">Name <span class="arrow"></span></th>
-              <th class="sortable col-dpt" data-key="func" title="Nach Datenpunkttyp sortieren">DPT <span class="arrow"></span></th>
-              <th class="col-objs">Objekte</th>
-              <th class="col-rooms">Räume</th>
+              <th class="col-chk"><input type="checkbox" id="chk-all" aria-label="Alle Adressen markieren" data-i18n-aria-label></th>
+              <th class="sortable col-addr" data-key="addr" title="Nach Adresse sortieren" data-i18n-title><span data-i18n>Adresse</span> <span class="arrow"></span></th>
+              <th class="sortable" data-key="name" title="Nach Name sortieren" data-i18n-title><span data-i18n>Name</span> <span class="arrow"></span></th>
+              <th class="sortable col-dpt" data-key="func" title="Nach Datenpunkttyp sortieren" data-i18n-title><span data-i18n>DPT</span> <span class="arrow"></span></th>
+              <th class="col-objs" data-i18n>Objekte</th>
+              <th class="col-rooms" data-i18n>Räume</th>
               <th class="col-act"></th>
             </tr>
           </thead>
@@ -162,11 +169,11 @@
         <table class="ga" id="tbl-dev" data-pt-id="dev-table" hidden>
           <thead>
             <tr>
-              <th class="sortable col-addr" data-key="addr" title="Nach Adresse sortieren">Adresse <span class="arrow"></span></th>
-              <th class="sortable" data-key="name" title="Nach Name sortieren">Gerät <span class="arrow"></span></th>
-              <th class="col-line">Linie</th>
-              <th class="col-rooms">Verbaut in</th>
-              <th class="col-dpt">Objekte</th>
+              <th class="sortable col-addr" data-key="addr" title="Nach Adresse sortieren" data-i18n-title><span data-i18n>Adresse</span> <span class="arrow"></span></th>
+              <th class="sortable" data-key="name" title="Nach Name sortieren" data-i18n-title><span data-i18n>Gerät</span> <span class="arrow"></span></th>
+              <th class="col-line" data-i18n>Linie</th>
+              <th class="col-rooms" data-i18n>Verbaut in</th>
+              <th class="col-dpt" data-i18n>Objekte</th>
               <th class="col-act"></th>
             </tr>
           </thead>
@@ -176,21 +183,21 @@
     </section>
 
     <div class="resizer" id="resize-2" data-edge="right" role="separator"
-         aria-orientation="vertical" aria-label="Breite der Detailspalte" tabindex="0"></div>
+         aria-orientation="vertical" aria-label="Breite der Detailspalte" data-i18n-aria-label tabindex="0"></div>
 
     <!-- Detail -->
-    <section class="pane" data-pt-id="detail-pane" aria-label="Details">
-      <div class="pane-head"><h2>Details</h2></div>
+    <section class="pane" data-pt-id="detail-pane" aria-label="Details" data-i18n-aria-label>
+      <div class="pane-head"><h2 data-i18n>Details</h2></div>
       <div id="detail" data-pt-id="detail"></div>
     </section>
   </main>
 
   <!-- ================= Statusleiste ================= -->
   <footer id="statusbar" data-pt-id="statusbar">
-    <span class="stat">Räume: <b id="stat-rooms">0</b></span>
-    <span class="stat">Geräte: <b id="stat-devs">0</b></span>
-    <span class="stat">Adressen: <b id="stat-ga">0</b></span>
-    <span class="stat">Zuordnungen: <b id="stat-links">0</b></span>
+    <span class="stat"><span data-i18n>Räume:</span> <b id="stat-rooms">0</b></span>
+    <span class="stat"><span data-i18n>Geräte:</span> <b id="stat-devs">0</b></span>
+    <span class="stat"><span data-i18n>Adressen:</span> <b id="stat-ga">0</b></span>
+    <span class="stat"><span data-i18n>Zuordnungen:</span> <b id="stat-links">0</b></span>
     <div id="stat-bar" data-pt-id="stat-bar"></div>
     <span id="stat-bar-info" class="bar-info"></span>
     <div class="spacer"></div>
@@ -206,8 +213,8 @@
     <header id="modal-title"></header>
     <div class="mbody" id="modal-body"></div>
     <footer>
-      <button id="modal-cancel" class="btn" data-pt-id="modal-cancel">Abbrechen</button>
-      <button id="modal-ok" class="btn btn-primary" data-pt-id="modal-ok">OK</button>
+      <button id="modal-cancel" class="btn" data-pt-id="modal-cancel" data-i18n>Abbrechen</button>
+      <button id="modal-ok" class="btn btn-primary" data-pt-id="modal-ok" data-i18n>OK</button>
     </footer>
   </div>
 </div>

@@ -193,15 +193,17 @@ function objectName(text, fn) {
  * TranslationElement/RefId + AttributeName daneben. Die Sprachblöcke liegen
  * je nach Hersteller innerhalb oder neben dem Applikationsprogramm, deshalb
  * wird auf Dokumentebene gesammelt — die RefIds sind vollqualifiziert.    */
-function buildTranslations(doc, prefer) {
+function buildTranslations(doc, prefer, strict) {
   const langs = new Map();
   tags(doc, 'Language').forEach(l => {
     const id = attr(l, 'Identifier');
     if (id && !langs.has(id)) langs.set(id, []);
     if (id) langs.get(id).push(l);
   });
+  /* Streng heißt: nur die verlangte Sprache. Sonst käme beim Sammeln der
+     zweiten Sprache wieder die erste heraus und beide Seiten wären gleich. */
   const pick = prefer.find(id => langs.has(id))
-    || [...langs.keys()].find(id => id.startsWith('de'))
+    || (strict ? null : [...langs.keys()].find(id => id.startsWith('de')))
     || null;
   const out = new Map();                       // "RefId|AttributeName" → Text
   if (!pick) return out;
@@ -214,6 +216,26 @@ function buildTranslations(doc, prefer) {
   }));
   return out;
 }
+
+/* Sprachfamilien für die zweisprachige Ablage. Was in der Produktdatei fehlt,
+   fällt weg — dann bleibt ein einfacher Text statt eines Paares. */
+const LANG_DE = ['de-DE', 'de-AT', 'de-CH'];
+const LANG_EN = ['en-US', 'en-GB', 'en-AU'];
+
+/**
+ * Baut aus zwei Fassungen einen Wert: sind beide da und verschieden, ein Paar
+ * {de, en}; sonst der vorhandene Text. So wächst die Projektdatei nur dort,
+ * wo die Sprachen sich wirklich unterscheiden.
+ */
+function pair(de, en) {
+  const d = String(de == null ? '' : de).trim();
+  const e = String(en == null ? '' : en).trim();
+  if (d && e && d !== e) return { de: d, en: e };
+  return d || e || '';
+}
+
+/** Der deutsche Text eines Paares — für Sortierung und Vergleiche. */
+const plain = v => (v && typeof v === 'object') ? (v.de || v.en || '') : String(v || '');
 
 /* ---------- Programmierdaten ---------- *
  * Was der Download braucht: Speicherlayout, Tabellen, die Lage jedes
@@ -415,7 +437,7 @@ function readMask(mv, opt) {
 
 /* Liest ein Applikationsprogramm in ein kompaktes, speicherbares Modell.
    Ids werden um das Programmpräfix gekürzt — das spart rund die Hälfte.   */
-function readApp(ap, lang) {
+function readApp(ap, lang, langs) {
   const appId = attr(ap, 'Id');
   const cut = s => String(s || '').startsWith(appId + '_') ? s.slice(appId.length + 1) : s;
   const tr = (el, name) => lang.get(attr(el, 'Id') + '|' + name) || attr(el, name);
@@ -581,7 +603,8 @@ function readApp(ap, lang) {
   const prog = readProgramming(ap, cut);
   prog.dl.loc = loc;
   prog.dl.co = co;
-  return { name: lang.get(appId + '|Name') || attr(ap, 'Name'),
+  return { name: pair(langs.de.get(appId + '|Name'),
+                      langs.en.get(appId + '|Name') || attr(ap, 'Name')),
            mask: attr(ap, 'MaskVersion'),
            types, params, objs, dyn, ip, prog };
 }
@@ -598,6 +621,7 @@ function collect(docs, prefer) {
   const masks = new Map();         // MaskVersion-Id → Element aus knx_master.xml
 
   const MEDIUM = { 'MT-0': 'tp', 'MT-1': 'pl', 'MT-2': 'rf', 'MT-5': 'ip' };
+  const docLangs = new Map();      // Dokument → { de, en } Übersetzungskarten
 
   docs.forEach(doc => {
     tags(doc, 'Manufacturer').forEach(m => {
@@ -613,10 +637,16 @@ function collect(docs, prefer) {
     });
 
     const lang = buildTranslations(doc, prefer);
+    // Zusätzlich beide Sprachen einzeln, für die Namen im Katalog
+    const langs = {
+      de: buildTranslations(doc, LANG_DE, true),
+      en: buildTranslations(doc, LANG_EN, true)
+    };
+    docLangs.set(doc, langs);
     tags(doc, 'ApplicationProgram').forEach(ap => {
       const id = attr(ap, 'Id');
       if (!id || apps.has(id)) return;
-      apps.set(id, readApp(ap, lang));
+      apps.set(id, readApp(ap, lang, langs));
     });
 
     /* Die Hardware trägt Busstrom und Kopplerfähigkeit. */
@@ -633,7 +663,12 @@ function collect(docs, prefer) {
       };
       tags(hw, 'Product').forEach(pr => {
         const id = attr(pr, 'Id');
-        if (id) products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber'), hw: info });
+        if (!id) return;
+        const lg = docLangs.get(doc);
+        products.set(id, {
+          text: pair(lg.de.get(id + '|Text'), lg.en.get(id + '|Text') || attr(pr, 'Text')),
+          order: attr(pr, 'OrderNumber'), hw: info
+        });
       });
       tags(hw, 'Hardware2Program').forEach(h => {
         if (attr(h, 'Id')) hwOf.set(attr(h, 'Id'), info);
@@ -648,8 +683,13 @@ function collect(docs, prefer) {
 
     tags(doc, 'Product').forEach(pr => {
       const id = attr(pr, 'Id');
-      if (id && !products.has(id))
-        products.set(id, { text: attr(pr, 'Text'), order: attr(pr, 'OrderNumber'), hw: null });
+      if (id && !products.has(id)) {
+        const lg = docLangs.get(doc);
+        products.set(id, {
+          text: pair(lg.de.get(id + '|Text'), lg.en.get(id + '|Text') || attr(pr, 'Text')),
+          order: attr(pr, 'OrderNumber'), hw: null
+        });
+      }
     });
   });
 
@@ -704,7 +744,9 @@ function collect(docs, prefer) {
     const key = attr(ci, 'Id');
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(entry(key, attr(ci, 'Name') || prod.text || app.name,
+    const lg = docLangs.get(doc);
+    const ciName = pair(lg.de.get(key + '|Name'), lg.en.get(key + '|Name') || attr(ci, 'Name'));
+    out.push(entry(key, plain(ciName) ? ciName : (plain(prod.text) ? prod.text : app.name),
       attr(ci, 'OrderNumber') || prod.order || '', app, hwOf.get(h2pId) || prod.hw));
   }));
 
@@ -714,7 +756,7 @@ function collect(docs, prefer) {
 
   // Koppler und IP-Schnittstellen haben oft keine Objekte, aber Einstellungen
   return out.filter(p => p.objCount || p.paramCount || p.hwOnly)
-            .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+            .sort((a, b) => plain(a.name).localeCompare(plain(b.name), 'de'));
 }
 
 /* Herstellereigene Programme im Archiv. ETS ruft sie beim Parametrieren und

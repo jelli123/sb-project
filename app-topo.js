@@ -74,7 +74,7 @@ function catalogOptions(sel) {
   const items = KNX.project().catalog;
   return '<option value="">— frei definiert —</option>' + items.map(c =>
     `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>` +
-    `${esc(c.name)}${c.order ? ' · ' + esc(c.order) : ''}</option>`).join('');
+    `${esc(A.L(c.name))}${c.order ? ' · ' + esc(c.order) : ''}</option>`).join('');
 }
 
 function deviceForm(d, opt) {
@@ -200,7 +200,7 @@ function actNewDevice(ctx) {
     if (cat) KNX.applyProduct(d);
     state.sel = { kind: 'dev', id: d.id };
     A.commit();
-    if (cat) A.status(`${d.objs.length} Kommunikationsobjekte aus „${cat.name}“ übernommen`);
+    if (cat) A.status(A.t('{0} Kommunikationsobjekte aus „{1}“ übernommen', d.objs.length, A.L(cat.name)));
   });
 
   // Linienwechsel bietet die freien Nummern der neuen Linie an
@@ -231,8 +231,8 @@ function actNewDevice(ctx) {
           ? '. Die Einspeisung steht nicht in der Produktdatei — bitte unten den Nennstrom '
             + (c.choke ? 'des angeschlossenen Netzteils' : 'des Netzteils') + ' eintragen.' : '.') +
         (c.noAddress ? ' Das Gerät hat keine physikalische Adresse und hängt nur an seiner Linie.' : '');
-      if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
-      if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
+      if (!$('#m-name').value.trim()) $('#m-name').value = A.L(c.name).slice(0, 60);
+      if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || A.L(c.name)).slice(0, 60);
       if (c.ma) $('#m-ma').placeholder = String(c.ma);
       return;
     }
@@ -246,9 +246,9 @@ function actNewDevice(ctx) {
         : `<b>${nParams}</b> Parameter, keine Kommunikationsobjekte`) +
       ' in der Grundeinstellung' +
       (c.manufacturer ? ` · ${esc(c.manufacturer)}` : '') +
-      (c.appName ? ` · ${esc(c.appName)}` : '');
-    if (!$('#m-name').value.trim()) $('#m-name').value = c.name.slice(0, 60);
-    if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || c.name).slice(0, 60);
+      (c.appName ? ` · ${esc(A.L(c.appName))}` : '');
+    if (!$('#m-name').value.trim()) $('#m-name').value = A.L(c.name).slice(0, 60);
+    if (!$('#m-product').value.trim()) $('#m-product').value = (c.order || A.L(c.name)).slice(0, 60);
     // Busstrom aus der Produktdatei als Vorbelegung anbieten
     if (c.ma) $('#m-ma').placeholder = String(c.ma);
   };
@@ -347,10 +347,10 @@ function actCatalog(onPick) {
       <div class="chk-list tall" id="m-cat-list">
         ${items.length ? items.map(c => `
           <div class="cat-row" data-id="${c.id}"
-               data-name="${esc((c.name + ' ' + c.order + ' ' + c.manufacturer).toLowerCase())}">
+               data-name="${esc((A.L(c.name) + ' ' + c.order + ' ' + c.manufacturer).toLowerCase())}">
             <div class="cat-main">
-              <b>${esc(c.name)}</b>
-              <span>${esc([c.manufacturer, c.order, c.appName].filter(Boolean).join(' · '))}</span>
+              <b>${esc(A.L(c.name))}</b>
+              <span>${esc([c.manufacturer, c.order, A.L(c.appName)].filter(Boolean).join(' · '))}</span>
             </div>
             <span class="dpt-tag">${c.hwOnly ? 'ohne Applikation' : objCount(c)
               ? objCount(c) + ' KO'
@@ -384,7 +384,7 @@ function actCatalog(onPick) {
       A.commit();
       $('#modal-body').innerHTML = render();
       wire();
-      A.status(`„${c ? c.name : 'Produkt'}“ aus dem Katalog entfernt`);
+      A.status(A.t('„{0}“ aus dem Katalog entfernt', c ? A.L(c.name) : A.t('Produkt')));
     }));
     $('#m-search').addEventListener('input', e => {
       const q = e.target.value.trim().toLowerCase();
@@ -424,10 +424,10 @@ function actImportPick(products, fileName, onDone, info) {
       && !g.unsupported.length && !g.plugin);
     const mask = g && g.mask ? g.mask.replace(/^MV-/, '') : '';
     return `
-    <label class="chk-row" data-name="${esc((p.name + ' ' + p.order + ' ' + p.manufacturer).toLowerCase())}">
+    <label class="chk-row" data-name="${esc((A.L(p.name) + ' ' + p.order + ' ' + p.manufacturer).toLowerCase())}">
       <input type="checkbox" class="chk" data-i="${i}"${products.length === 1 ? ' checked' : ''}>
       <span class="chk-label">
-        <b>${esc(p.name)}</b>
+        <b>${esc(A.L(p.name))}</b>
         ${p.order || p.manufacturer
           ? `<span class="cat-sub">${esc([p.manufacturer, p.order].filter(Boolean).join(' · '))}</span>` : ''}
       </span>
@@ -894,7 +894,7 @@ function actParams(devId) {
         ${KNX.IP_FIELDS.map(ipField).join('')}
       </section>` : '';
     return `
-      <p class="hint">${esc(item ? item.name : dev.name)}${item && item.appName ? ' · ' + esc(item.appName) : ''} —
+      <p class="hint">${esc(item ? A.L(item.name) : dev.name)}${item && item.appName ? ' · ' + esc(A.L(item.appName)) : ''} —
         <b>${n}</b> Parameter${r.objs.length
           ? `, <b>${r.objs.length}</b> Kommunikationsobjekte`
           : ' — dieses Gerät arbeitet ohne Kommunikationsobjekte'}.

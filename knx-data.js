@@ -775,10 +775,21 @@ const KNX = (() => {
      rund 60 Zeichen; 200 lässt Luft und hält eine fremde Datei davon ab, uns
      megabytegroße Bezeichnungen in das Projekt zu schreiben. */
   const NAME_MAX = 200;
+  /* Namen aus einer .knxprod können zweisprachig sein ({de, en}) — dann bleiben
+     sie es, damit die Oberfläche beim Sprachwechsel mitzieht. Beide Seiten
+     werden einzeln begrenzt; sind sie gleich, wird wieder ein Text daraus. */
   const normName = (v, dflt) => {
+    if (v && typeof v === 'object' && (v.de != null || v.en != null)) {
+      const de = String(v.de || '').trim().slice(0, NAME_MAX);
+      const en = String(v.en || '').trim().slice(0, NAME_MAX);
+      if (de && en && de !== en) return { de, en };
+      return de || en || dflt;
+    }
     const t = String(v == null ? '' : v).trim().slice(0, NAME_MAX);
     return t || dflt;
   };
+  /* Der deutsche Text eines möglichen Paares — für Schlüssel und Sortierung. */
+  const plainName = v => (v && typeof v === 'object') ? (v.de || v.en || '') : String(v || '');
   /* Seriennummer: 6 Byte, in der Anzeige ohne Trenner und in Grossbuchstaben. */
   function normSerial(v) {
     const hex = String(v == null ? '' : v).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
@@ -1572,7 +1583,7 @@ const KNX = (() => {
   /* Produkte aus einer Produktdatei aufnehmen; gleiche Bestellnummer und
      gleicher Name gelten als dasselbe Produkt und werden aufgefrischt.     */
   function addCatalogItems(items) {
-    const key = c => (c.order || '') + '\u0000' + c.name;
+    const key = c => (c.order || '') + '\u0000' + plainName(c.name);
     const known = new Map(project.catalog.map(c => [key(c), c]));
     const added = [];
     items.forEach(it => {

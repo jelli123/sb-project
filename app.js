@@ -6,6 +6,12 @@
 (() => {
 
 const $ = s => document.querySelector(s);
+/* Kurzformen: T18 übersetzt festen Text, L wählt aus einem zweisprachigen
+   Wert aus der Produktdatei die eingestellte Sprache. Beide gehen über
+   KNXApp an die übrigen Dateien; im globalen Bereich stünden sie sich mit
+   gleichnamigen Bindungen anderer Dateien im Weg. */
+const T18 = (...a) => window.KNXI18n.t(...a);
+const L = v => window.KNXI18n.pick(v);
 const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -743,7 +749,7 @@ window.KNXApp = {
   select, selectNode, toggleCollapse,
   actNewNode, actRenameNode, actDeleteNode,
   pickDialog, trailOf, moveNode, actPickChildren, actPickDevices, setDeviceRoom, parentOptions,
-  iconBtn,
+  iconBtn, t: T18, L,
   openMenu, closeMenu, contextMenuFor, nativeMenuWins,
   IC, IC_PENCIL, IC_TRASH, IC_LINK
 };

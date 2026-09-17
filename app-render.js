@@ -965,7 +965,7 @@ function detailNode(node) {
         ? '<ul class="detail-list">' + node.children.map(c => `
             <li class="jump" data-kind="node" data-id="${c.id}">
               <span class="lvl-ic ${c.kind}">${A.IC[c.kind] || A.IC.room}</span>
-              <span class="grow">${esc(c.name)}</span>
+              <span class="grow">${esc(A.L(c.name))}</span>
               <span class="dpt-tag">${esc(KNX.kindDe(c.kind))}</span></li>`).join('') + '</ul>'
         : '<p class="hint">Noch nichts darunter.</p>') : ''}
     ${sectionHead('Funktionen',

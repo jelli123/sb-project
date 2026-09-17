@@ -6,6 +6,7 @@
 
 (() => {
 const A = window.KNXApp, G = window.KNXGA, T = window.KNXTopo, $ = s => document.querySelector(s);
+const T18 = A.t;
 const state = A.state, esc = A.esc;
 
 /* ---------- Start ---------- */
@@ -272,11 +273,29 @@ $('#detail')?.addEventListener('contextmenu', ev => {
   if (row) A.contextMenuFor(ev, row.dataset.kind, row.dataset.id);
 });
 
+/* ---------- Sprache ---------- *
+ * Umgeschaltet wird in KNXI18n; der feste Text im Markup zieht dort selbst
+ * nach. Hier kommt nur das Ausgeben der Auswahl und das Neuzeichnen dazu —
+ * die Bäume, Tabellen und Detailtexte entstehen ja im Skript.              */
+const langSel = $('#ui-lang');
+if (langSel && window.KNXI18n) {
+  langSel.innerHTML = Object.entries(KNXI18n.LANGS)
+    .map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('');
+  langSel.value = KNXI18n.lang();
+  langSel.addEventListener('change', e => KNXI18n.set(e.target.value));
+  KNXI18n.onChange(() => {
+    langSel.value = KNXI18n.lang();
+    syncThemeButton();
+    window.KNXOnRender();
+  });
+}
+
 /* ---------- Darstellung: hell, dunkel, automatisch ---------- *
  * Das Umlegen selbst macht KNXTheme im Kopf der Seite - dort, weil es vor
  * dem Stylesheet passieren muss. Hier haengt nur der Knopf daran.        */
 
 const THEME_LABEL = { system: 'Automatisch', light: 'Hell', dark: 'Dunkel' };
+const themeLabel = mode => T18(THEME_LABEL[mode] || mode);
 const THEME_ICON = {
   // Halb gefuellter Kreis: folgt der Systemvorgabe
   system: '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4">'
@@ -293,9 +312,9 @@ function syncThemeButton() {
   if (!btn || !th) return;
   const mode = th.mode();
   btn.innerHTML = THEME_ICON[mode];
-  btn.title = `Darstellung: ${THEME_LABEL[mode]}`
-    + (mode === 'system' ? ` (gerade ${THEME_LABEL[th.resolved()]})` : '')
-    + ` — klicken für ${THEME_LABEL[th.next()]}`;
+  btn.title = T18('Darstellung: {0}', themeLabel(mode))
+    + (mode === 'system' ? ' ' + T18('(gerade {0})', themeLabel(th.resolved())) : '')
+    + ' ' + T18('— klicken für {0}', themeLabel(th.next()));
   btn.setAttribute('aria-label', btn.title);
 }
 
