@@ -11,8 +11,10 @@ import tuwien.auto.calimero.mgmt.PropertyAccess.PID;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 
 /** Stufe 2 und 3: physikalische Adresse vergeben sowie Neustart und Entladen. */
@@ -27,25 +29,64 @@ public final class Commissioning {
     /* ---------------- Busscan (Stufe 1) ---------------- */
 
     /**
-     * Sucht alle Teilnehmer einer Linie. Calimero fragt dabei die Geraetebeschreibung ab,
-     * das ist der einzige Dienst, den jedes Geraet unabhaengig vom Profil beantwortet.
+     * Sucht alle Teilnehmer einer Linie.
+     * <p>
+     * Calimero meldet zwei getrennte Ereignisse: zuerst, dass sich unter einer
+     * Adresse ueberhaupt etwas gemeldet hat, und spaeter - vielleicht - die
+     * gelesene Geraetebeschreibung. Beides wird uebernommen, und zwar
+     * unabhaengig voneinander: geht die Beschreibung auf dem Bus verloren,
+     * bleibt der Teilnehmer trotzdem im Ergebnis, nur eben ohne Maske.
+     * <p>
+     * Frueher stand der Eintrag nur im zweiten Ereignis. Ein Geraet, das
+     * geantwortet hat, dessen DeviceDescriptorRead aber unterging, blitzte
+     * dann als "gefunden" in der Laufanzeige auf und fehlte anschliessend in
+     * der Liste - genau der Fall, der bei einer ueberlasteten Schnittstelle
+     * eintritt. Ein gefundener Teilnehmer ohne Maske ist immer noch die
+     * Wahrheit; ein verschwundener ist es nicht.
+     * <p>
+     * Die Rueckmeldungen kommen aus Calimeros Zustellstrang, das Sammeln muss
+     * darum nebenlaeufig sicher sein.
      */
     public List<Map<String, Object>> scanLine(int area, int line, BiConsumer<String, String> progress)
             throws KNXException, InterruptedException {
-        List<Map<String, Object>> found = new ArrayList<>();
+        Map<String, Map<String, Object>> found = new ConcurrentHashMap<>();
         bus.procedures().scanNetworkDevices(area, line,
-                address -> progress.accept("gefunden", address.toString()),
+                address -> {
+                    entryFor(found, address);
+                    progress.accept("gefunden", address.toString());
+                },
                 (address, descriptor) -> {
-                    Map<String, Object> m = Json.obj();
-                    m.put("address", address.toString());
+                    Map<String, Object> m = entryFor(found, address);
                     if (descriptor != null) {
-                        m.put("maskVersion", String.format("%04X", descriptor.maskVersion()));
-                        m.put("profile", descriptor.deviceProfile());
-                        m.put("mediumType", descriptor.mediumType());
+                        synchronized (m) {
+                            m.put("maskVersion", String.format("%04X", descriptor.maskVersion()));
+                            m.put("profile", descriptor.deviceProfile());
+                            m.put("mediumType", descriptor.mediumType());
+                        }
                     }
-                    found.add(m);
                 });
-        return found;
+        // Nach Teilnehmernummer, nicht als Text: sonst stuende 1.1.10 vor 1.1.3.
+        List<Map<String, Object>> out = new ArrayList<>(found.values());
+        out.sort(Comparator.comparingInt(m -> deviceOf(String.valueOf(m.get("address")))));
+        return out;
+    }
+
+    private static Map<String, Object> entryFor(Map<String, Map<String, Object>> found, IndividualAddress address) {
+        return found.computeIfAbsent(address.toString(), a -> {
+            Map<String, Object> m = Json.obj();
+            m.put("address", a);
+            return m;
+        });
+    }
+
+    /** Der letzte Teil einer Adresse "1.1.3"; unbrauchbare Angaben wandern ans Ende. */
+    private static int deviceOf(String address) {
+        int dot = address.lastIndexOf('.');
+        try {
+            return Integer.parseInt(address.substring(dot + 1));
+        } catch (RuntimeException e) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     public List<String> scanRouters() throws KNXException, InterruptedException {
