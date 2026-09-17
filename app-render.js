@@ -399,7 +399,7 @@ function gaGroupNode(n, depth) {
   emit({
     depth, key: 'grp:' + n.key, ref: { kind: 'grp', id: n.key },
     icon: A.IC.area, iconClass: 'grp',
-    label: n.name || '(ohne Namen)', title: n.label + ' ' + n.key, addr: n.key,
+    label: n.name || A.t('(ohne Namen)'), title: A.t(n.label) + ' ' + n.key, addr: n.key,
     meta: count ? String(count) : '',
     hasKids: n.children.length > 0 || n.groups.length > 0, collapsed: state.collapsed.has('grp:' + n.key),
     actions: () => [
@@ -407,7 +407,7 @@ function gaGroupNode(n, depth) {
       iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key)),
       folder
         ? iconBtn('+', 'Neue Gruppenadresse', () => G.actNewGa(n.key))
-        : iconBtn('+', 'Neue ' + (KNX.gaStyle().parts[n.level + 1] || {}).label, () => G.actNewGaGroup(n.key))
+        : iconBtn('+', A.t('Neue {0}', A.t((KNX.gaStyle().parts[n.level + 1] || {}).label)), () => G.actNewGaGroup(n.key))
     ],
     dropKey: folder ? n.key : null,
     onSelect: () => { state.filter = { kind: 'grp', id: n.key }; A.select('grp', n.key); },
@@ -457,7 +457,7 @@ function renderTree() {
       `${KNX.rooms().length} Bereiche mit Geräteplatz · ` +
       `${p.devices.filter(d => d.roomId).length} von ${p.devices.length} Geräten verortet`;
     $('#btn-tree-add').textContent = '+ Element';
-    $('#btn-tree-add').title = 'Unter dem gewählten Element anlegen';
+    $('#btn-tree-add').title = A.t('Unter dem gewählten Element anlegen');
   } else if (state.view === 'topology') {
     const bb = KNX.backbone();
     if (bb) backboneNode(bb);
@@ -541,8 +541,8 @@ function renderStats() {
     bar.innerHTML = '<div class="bar-seg linked" style="flex:' + linked + '"></div>'
       + (unlinked ? '<div class="bar-seg unlinked" style="flex:' + unlinked + '"></div>' : '');
     $('#stat-bar-info').textContent = unlinked
-      ? unlinked + ' Adressen ohne Objekt'
-      : 'alle Adressen sind belegt';
+      ? A.t('{0} Adressen ohne Objekt', unlinked)
+      : A.t('alle Adressen sind belegt');
   }
 
   const btn = $('#btn-issues');
@@ -551,10 +551,10 @@ function renderStats() {
   const warns = all.filter(i => i.level === 'warn').length;
   btn.hidden = !all.length;
   btn.className = 'issues' + (errs ? ' error' : warns ? '' : ' info');
-  btn.textContent = errs ? `${errs} Fehler · ${warns} Hinweise`
-    : warns ? `${warns} Hinweise`
-    : `${all.length} Anmerkungen`;
-  btn.title = 'Alle Auffälligkeiten anzeigen';
+  btn.textContent = errs ? A.t('{0} Fehler · {1} Hinweise', errs, warns)
+    : warns ? A.t('{0} Hinweise', warns)
+    : A.t('{0} Anmerkungen', all.length);
+  btn.title = A.t('Alle Auffälligkeiten anzeigen');
 }
 
 function chips(names, max = 3) {
@@ -643,7 +643,7 @@ function gaRow(ga) {
   tdC.className = 'cell-chk';
   const cb = document.createElement('input');
   cb.type = 'checkbox'; cb.className = 'row-chk'; cb.checked = checked;
-  cb.title = 'Für Mehrfachlöschung markieren';
+  cb.title = A.t('Für Mehrfachlöschung markieren');
   cb.onclick = e => {
     e.stopPropagation();
     checked ? state.checked.delete(ga.id) : state.checked.add(ga.id);
@@ -665,7 +665,7 @@ function gaRow(ga) {
 
   const tdD = document.createElement('td');
   tdD.className = 'cell-dpt';
-  tdD.innerHTML = '<span class="dpt-tag" title="' + esc(dpt.name + ' — ' + dpt.desc) + '">' + dpt.id + '</span>';
+  tdD.innerHTML = '<span class="dpt-tag" title="' + esc(A.t(dpt.name) + ' — ' + A.t(dpt.desc)) + '">' + dpt.id + '</span>';
 
   const tdO = document.createElement('td');
   tdO.className = 'cell-objs';
@@ -677,7 +677,7 @@ function gaRow(ga) {
     tdO.innerHTML = send
       ? `<span class="room-chip send" title="${esc(title)}">↑ ${KNX.paStr(send.dev.addr)}` +
         (links.length > 1 ? ` ·${links.length}` : '') + '</span>'
-      : `<span class="room-chip empty" title="${esc('kein sendendes Objekt\n' + title)}">↑ — ·${links.length}</span>`;
+      : `<span class="room-chip empty" title="${esc(A.t('kein sendendes Objekt') + '\n' + title)}">↑ — ·${links.length}</span>`;
   }
 
   const tdR = document.createElement('td');
@@ -702,9 +702,9 @@ function renderGaTable() {
   if (!gs.length) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="7" class="empty-row">' +
-      (state.search ? 'Keine Adresse passt zur Suche.'
-        : state.filter ? 'Keine Adressen in diesem Bereich.'
-        : 'Noch keine Gruppenadressen. Oben rechts auf <b>+ Adresse</b> klicken.') + '</td>';
+      (state.search ? A.t('Keine Adresse passt zur Suche.')
+        : state.filter ? A.t('Keine Adressen in diesem Bereich.')
+        : A.t('Noch keine Gruppenadressen. Oben rechts auf <b>+ Adresse</b> klicken.')) + '</td>';
     tbody.replaceChildren(tr);
   } else paintTable();
   $('#ga-count').textContent = gs.length + ' / ' + KNX.project().groups.length;
@@ -745,7 +745,7 @@ function devRow(d) {
 
   const tdR = document.createElement('td');
   tdR.className = 'cell-rooms';
-  tdR.innerHTML = room ? chips([room.name]) : '<span class="room-chip empty">ohne Raum</span>';
+  tdR.innerHTML = room ? chips([room.name]) : `<span class="room-chip empty">${A.t('ohne Raum')}</span>`;
 
   const tdO = document.createElement('td');
   tdO.className = 'cell-objs';
@@ -777,9 +777,9 @@ function renderDevTable() {
   if (!ds.length) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="6" class="empty-row">' +
-      (state.search ? 'Kein Gerät passt zur Suche.'
-        : state.filter ? 'Keine Geräte in diesem Bereich.'
-        : 'Noch keine Geräte. Oben rechts auf <b>+ Gerät</b> klicken.') + '</td>';
+      (state.search ? A.t('Kein Gerät passt zur Suche.')
+        : state.filter ? A.t('Keine Geräte in diesem Bereich.')
+        : A.t('Noch keine Geräte. Oben rechts auf <b>+ Gerät</b> klicken.')) + '</td>';
     tbody.replaceChildren(tr);
   } else paintTable();
   $('#ga-count').textContent = ds.length + ' / ' + KNX.project().devices.length;
@@ -800,7 +800,7 @@ function syncSelButton(gs) {
   const n = state.checked.size;
   const btn = $('#btn-del-sel');
   btn.hidden = !n;
-  btn.textContent = n ? 'Löschen (' + n + ')' : '';
+  btn.textContent = n ? A.t('Löschen ({0})', n) : '';
   $('#btn-move-sel').hidden = !n || G.folderDepth() < 1;
   $('#btn-move-sel').textContent = n ? 'Verschieben (' + n + ')' : '';
   const head = $('#chk-all');
@@ -835,15 +835,15 @@ function renderFilter() {
 function filterLabel(f) {
   switch (f.kind) {
     case 'node': return KNX.nodePath(f.id)?.sub || '';
-    case 'line': return 'Linie ' + KNX.lineLabel(f.id);
+    case 'line': return A.t('Linie {0}', KNX.lineLabel(f.id));
     case 'seg': {
       const s = KNX.segmentInfo(f.id);
-      return s ? 'Linie ' + KNX.lineLabel(s.line.id) + ' · ' + s.name : '';
+      return s ? A.t('Linie {0}', KNX.lineLabel(s.line.id)) + ' · ' + s.name : '';
     }
-    case 'area': return 'Bereich ' + (KNX.project().areas.find(a => a.id === f.id)?.name || '');
-    case 'dev':  return 'Gerät ' + (KNX.deviceById(f.id)?.name || '');
-    case 'grp':  return (KNX.project().gaNames[f.id] || 'Gruppe') + ' ' + f.id;
-    case 'fn':   return 'Funktion ' + (KNX.functionById(f.id)?.name || '');
+    case 'area': return A.t('Bereich {0}', KNX.project().areas.find(a => a.id === f.id)?.name || '');
+    case 'dev':  return A.t('Gerät {0}', KNX.deviceById(f.id)?.name || '');
+    case 'grp':  return (KNX.project().gaNames[f.id] || A.t('Gruppe')) + ' ' + f.id;
+    case 'fn':   return A.t('Funktion {0}', KNX.functionById(f.id)?.name || '');
     default:     return '';
   }
 }
@@ -853,28 +853,23 @@ function filterLabel(f) {
    ============================================================ */
 function detailEmpty() {
   return `
-    <h2 data-pt-id="detail-empty-title">Willkommen</h2>
-    <p class="detail-lead">Der Editor arbeitet mit den drei Sichten der ETS:</p>
+    <h2 data-pt-id="detail-empty-title">${A.t('Willkommen')}</h2>
+    <p class="detail-lead">${A.t('Der Editor arbeitet mit den drei Sichten der ETS:')}</p>
     <ol class="detail-steps">
-      <li><b>Gebäude</b> — wo etwas verbaut ist: Gebäude, Geschosse, Räume, Verteiler.</li>
-      <li><b>Topologie</b> — wie es am Bus hängt: Bereich, Linie, Teilnehmer mit
-          physikalischer Adresse und Kommunikationsobjekten.</li>
-      <li><b>Gruppen</b> — was es tut: Haupt- und Mittelgruppen mit den Gruppenadressen.</li>
+      <li>${A.t('<b>Gebäude</b> — wo etwas verbaut ist: Gebäude, Geschosse, Räume, Verteiler.')}</li>
+      <li>${A.t('<b>Topologie</b> — wie es am Bus hängt: Bereich, Linie, Teilnehmer mit physikalischer Adresse und Kommunikationsobjekten.')}</li>
+      <li>${A.t('<b>Gruppen</b> — was es tut: Haupt- und Mittelgruppen mit den Gruppenadressen.')}</li>
     </ol>
-    <p class="detail-lead">Eine Gruppenadresse wirkt nicht auf einen Raum, sondern auf
-    <b>Kommunikationsobjekte</b> von Geräten. Der Raumbezug ergibt sich daraus, wo das
-    Gerät verbaut ist. Deshalb prüft die Statusleiste laufend, ob jede Adresse genau
-    ein sendendes Objekt und einen einheitlichen Datenpunkttyp hat.</p>
+    <p class="detail-lead">${A.t('Eine Gruppenadresse wirkt nicht auf einen Raum, sondern auf <b>Kommunikationsobjekte</b> von Geräten. Der Raumbezug ergibt sich daraus, wo das Gerät verbaut ist. Deshalb prüft die Statusleiste laufend, ob jede Adresse genau ein sendendes Objekt und einen einheitlichen Datenpunkttyp hat.')}</p>
     <p class="hint">${window.KNXBackend
-      ? 'Das Projekt liegt als Datei auf diesem Rechner — der lokale Dienst speichert jede Änderung.'
-      : 'Alles wird lokal im Browser gespeichert.'} Doppelklick auf einen
-    Baumeintrag öffnet den Bearbeiten-Dialog, Strg+Z macht Änderungen rückgängig.</p>`;
+      ? A.t('Das Projekt liegt als Datei auf diesem Rechner — der lokale Dienst speichert jede Änderung.')
+      : A.t('Alles wird lokal im Browser gespeichert.')} ${A.t('Doppelklick auf einen Baumeintrag öffnet den Bearbeiten-Dialog, Strg+Z macht Änderungen rückgängig.')}</p>`;
 }
 
 /* Freitext der Entität — Zeilenumbrüche bleiben erhalten. */
 function noteSection(note) {
   return note
-    ? '<h3 class="detail-h">Notiz</h3><p class="detail-note">' + esc(note) + '</p>'
+    ? `<h3 class="detail-h">${A.t('Notiz')}</h3><p class="detail-note">` + esc(note) + '</p>'
     : '';
 }
 
@@ -885,50 +880,49 @@ function progSection(item) {
   const rows = [];
   const add = (k, v) => { if (v) rows.push(`<li><span class="grow">${k}</span>
     <span class="addr">${esc(String(v))}</span></li>`); };
-  const tab = t => t ? `Offset ${t.off}${t.max ? ', max. ' + t.max + ' Einträge' : ''}` : 'nicht beschrieben';
+  const tab = t => t ? A.t('Offset {0}', t.off) + (t.max ? ', ' + A.t('max. {0} Einträge', t.max) : '')
+                     : A.t('nicht beschrieben');
 
-  add('Maskenversion', p.mask || '—');
-  add('Applikation', p.appNumber ? `Nr. ${p.appNumber}, Version ${p.appVersion}` : '');
-  add('Ladeverfahren', p.style || '—');
-  add('Adresstabelle', tab(p.addrTab));
-  add('Assoziationstabelle', tab(p.assocTab));
-  add('Objekttabelle', tab(p.comTab));
+  add(A.t('Maskenversion'), p.mask || '—');
+  add(A.t('Applikation'), p.appNumber ? A.t('Nr. {0}, Version {1}', p.appNumber, p.appVersion) : '');
+  add(A.t('Ladeverfahren'), p.style || '—');
+  add(A.t('Adresstabelle'), tab(p.addrTab));
+  add(A.t('Assoziationstabelle'), tab(p.assocTab));
+  add(A.t('Objekttabelle'), tab(p.comTab));
   if (p.segments.length) {
     const bytes = p.segments.reduce((s, x) => s + (x.size || 0), 0);
-    add('Speichersegmente', `${p.segments.length} · zusammen ${bytes} Byte`);
+    add(A.t('Speichersegmente'), A.t('{0} · zusammen {1} Byte', p.segments.length, bytes));
   }
-  if (p.properties.length) add('Eigenschaften', p.properties.length + ' Einträge');
+  if (p.properties.length) add(A.t('Eigenschaften'), A.t('{0} Einträge', p.properties.length));
   if (p.procedures.length) {
     const steps = p.procedures.reduce((s, x) => s + x.count, 0);
-    add('Ladeprozeduren', `${p.procedures.length} · ${steps} Schritte`);
+    add(A.t('Ladeprozeduren'), A.t('{0} · {1} Schritte', p.procedures.length, steps));
   }
 
   const blocked = [];
-  if (p.plugin) blocked.push('Die Produktdatei verweist auf ein herstellereigenes Programm. '
-    + 'Solche Programme laufen nur unter Windows in der ETS und werden hier übergangen.');
-  if (p.unsupported.length) blocked.push('Unbekannte Ladeschritte: ' + p.unsupported.join(', ') + '.');
-  if (!p.dl) blocked.push('Das Produkt wurde mit einer älteren Version eingelesen. '
-    + 'Für den Download die .knxprod bitte erneut in den Katalog laden.');
+  if (p.plugin) blocked.push(A.t('Die Produktdatei verweist auf ein herstellereigenes Programm. Solche Programme laufen nur unter Windows in der ETS und werden hier übergangen.'));
+  if (p.unsupported.length) blocked.push(A.t('Unbekannte Ladeschritte: {0}.', p.unsupported.join(', ')));
+  if (!p.dl) blocked.push(A.t('Das Produkt wurde mit einer älteren Version eingelesen. Für den Download die .knxprod bitte erneut in den Katalog laden.'));
   else if (!p.procedures.length && !(p.dl.mk && p.dl.mk.procs.length))
-    blocked.push('Weder Produktdatei noch Maskendefinition enthalten eine Ladeprozedur.');
+    blocked.push(A.t('Weder Produktdatei noch Maskendefinition enthalten eine Ladeprozedur.'));
 
-  return `<h3 class="detail-h">Programmierdaten</h3>
+  return `<h3 class="detail-h">${A.t('Programmierdaten')}</h3>
     <ul class="detail-list">${rows.join('')}</ul>
     ${blocked.length
       ? '<p class="hint warn">' + blocked.map(esc).join(' ') + '</p>'
-      : '<p class="hint">Die Applikation lässt sich über die Inbetriebnahme laden.</p>'}`;
+      : `<p class="hint">${A.t('Die Applikation lässt sich über die Inbetriebnahme laden.')}</p>`}`;
 }
 
 function issueList(id) {
   const is = issuesOf(id);
   if (!is.length) return '';
-  return '<h3 class="detail-h">Prüfung</h3><ul class="issue-list">' +
+  return `<h3 class="detail-h">${A.t('Prüfung')}</h3><ul class="issue-list">` +
     is.map(i => `<li class="${i.level}">${esc(i.msg)}</li>`).join('') + '</ul>';
 }
 
 /* Überschrift eines Detailabschnitts mit Knöpfen daneben. */
 const sectionHead = (title, buttons) =>
-  `<div class="detail-h-row"><h3 class="detail-h">${esc(title)}</h3><span class="detail-h-btns">${buttons}</span></div>`;
+  `<div class="detail-h-row"><h3 class="detail-h">${esc(A.t(title))}</h3><span class="detail-h-btns">${buttons}</span></div>`;
 
 function detailNode(node) {
   const p = KNX.project();
@@ -949,38 +943,38 @@ function detailNode(node) {
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Geräte darunter</span></div>
-      <div class="meta-item"><span class="meta-num">${gaSet.size}</span><span class="meta-lbl">Adressen wirksam</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Geräte darunter')}</span></div>
+      <div class="meta-item"><span class="meta-num">${gaSet.size}</span><span class="meta-lbl">${A.t('Adressen wirksam')}</span></div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      ${isRoot ? '' : '<button class="btn btn-sm btn-danger" id="d-delete">' + A.IC_TRASH + ' Löschen</button>'}
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
+      ${isRoot ? '' : `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>`}
     </div>
-    ${isRoot ? '' : `<label class="field detail-field"><span>Liegt in</span>
-      <select class="select" id="d-parent" title="Übergeordnetes Element wählen — oder im Baum ziehen">${A.parentOptions(node.id)}</select></label>`}
+    ${isRoot ? '' : `<label class="field detail-field"><span>${A.t('Liegt in')}</span>
+      <select class="select" id="d-parent" title="${A.t('Übergeordnetes Element wählen — oder im Baum ziehen')}">${A.parentOptions(node.id)}</select></label>`}
     ${noteSection(node.note)}
     ${holds.length ? sectionHead('Untergeordnet',
-        '<button class="btn btn-sm" id="d-add">+ Neu</button><button class="btn btn-sm" id="d-pickchild">Vorhandene …</button>') +
+        `<button class="btn btn-sm" id="d-add">${A.t('+ Neu')}</button><button class="btn btn-sm" id="d-pickchild">${A.t('Vorhandene …')}</button>`) +
       (node.children.length
         ? '<ul class="detail-list">' + node.children.map(c => `
             <li class="jump" data-kind="node" data-id="${c.id}">
               <span class="lvl-ic ${c.kind}">${A.IC[c.kind] || A.IC.room}</span>
               <span class="grow">${esc(A.L(c.name))}</span>
-              <span class="dpt-tag">${esc(KNX.kindDe(c.kind))}</span></li>`).join('') + '</ul>'
-        : '<p class="hint">Noch nichts darunter.</p>') : ''}
+              <span class="dpt-tag">${esc(A.t(KNX.kindDe(c.kind)))}</span></li>`).join('') + '</ul>'
+        : `<p class="hint">${A.t('Noch nichts darunter.')}</p>`) : ''}
     ${sectionHead('Funktionen',
-        '<button class="btn btn-sm" id="d-addfn">+ Neu</button><button class="btn btn-sm" id="d-pickfn">Vorhandene …</button>')}
-    ${fns.length ? fnItems(fns) : '<p class="hint">Keine Funktion hier.</p>'}
+        `<button class="btn btn-sm" id="d-addfn">${A.t('+ Neu')}</button><button class="btn btn-sm" id="d-pickfn">${A.t('Vorhandene …')}</button>`)}
+    ${fns.length ? fnItems(fns) : `<p class="hint">${A.t('Keine Funktion hier.')}</p>`}
     ${host
-      ? sectionHead('Geräte', '<button class="btn btn-sm" id="d-adddev">+ Neu</button><button class="btn btn-sm" id="d-pickdev">Vorhandene …</button>')
-      : devs.length ? '<h3 class="detail-h">Geräte darunter</h3>' : ''}
+      ? sectionHead('Geräte', `<button class="btn btn-sm" id="d-adddev">${A.t('+ Neu')}</button><button class="btn btn-sm" id="d-pickdev">${A.t('Vorhandene …')}</button>`)
+      : devs.length ? `<h3 class="detail-h">${A.t('Geräte darunter')}</h3>` : ''}
     ${devs.length
       ? '<ul class="detail-list">' +
         devs.map(d => `<li class="jump" data-kind="dev" data-id="${d.id}">
           <span class="addr">${KNX.paStr(d.addr)}</span>
           <span class="grow">${esc(d.name)}</span>
           <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>'
-      : host ? '<p class="hint">Hier ist noch kein Gerät verbaut.</p>' : ''}`;
+      : host ? `<p class="hint">${A.t('Hier ist noch kein Gerät verbaut.')}</p>` : ''}`;
 }
 
 function fnItems(fns) {
@@ -991,14 +985,14 @@ function fnItems(fns) {
       <span class="dpt-tag">${f.gas.length} GA</span></li>`).join('') + '</ul>';
 }
 function fnListSection(fns, title) {
-  return fns.length ? `<h3 class="detail-h">${esc(title)}</h3>` + fnItems(fns) : '';
+  return fns.length ? `<h3 class="detail-h">${esc(A.t(title))}</h3>` + fnItems(fns) : '';
 }
 
 function nodeOptions(sel, filter = () => true) {
   const out = [];
   KNX.walk(KNX.project().tree, n => {
     if (n.id === sel || filter(n))
-      out.push(`<option value="${n.id}"${n.id === sel ? ' selected' : ''}>${esc(A.trailOf(n.id))} (${esc(KNX.kindDe(n.kind))})</option>`);
+      out.push(`<option value="${n.id}"${n.id === sel ? ' selected' : ''}>${esc(A.trailOf(n.id))} (${esc(A.t(KNX.kindDe(n.kind)))})</option>`);
   });
   return out.join('');
 }
@@ -1014,7 +1008,7 @@ function detailFn(fn) {
     <span class="addr">${KNX.addrStr(g)}</span>
     <span class="grow">${esc(g.name)}</span>
     <span class="dpt-tag${dptWant && dptWant.split('.')[0] !== g.dpt.split('.')[0] ? ' bad' : ''}">${g.dpt}</span>`;
-  const unlink = gaId => `<button class="icon-btn fn-detach" data-ga="${gaId}" title="Aus der Funktion lösen">×</button>`;
+  const unlink = gaId => `<button class="icon-btn fn-detach" data-ga="${gaId}" title="${A.t('Aus der Funktion lösen')}">×</button>`;
 
   const roleRows = t.roles.map(r => {
     const g = byRole.has(r.key) ? KNX.gaById(byRole.get(r.key)) : null;
@@ -1028,8 +1022,8 @@ function detailFn(fn) {
   const extra = fn.gas.filter(x => !x.role).map(x => KNX.gaById(x.ga)).filter(Boolean);
   const extraRows = extra.map(g => `
     <li class="jump" data-kind="ga" data-id="${g.id}">${gaCells(g)}
-      ${free.length ? `<select class="select fn-role-pick" data-ga="${g.id}" title="Einer Rolle zuweisen">
-        <option value="">Rolle …</option>${free.map(r =>
+      ${free.length ? `<select class="select fn-role-pick" data-ga="${g.id}" title="${A.t('Einer Rolle zuweisen')}">
+        <option value="">${A.t('Rolle …')}</option>${free.map(r =>
           `<option value="${r.key}">${esc(A.t(r.de))}</option>`).join('')}</select>` : ''}
       ${unlink(g.id)}</li>`).join('');
 
@@ -1047,20 +1041,20 @@ function detailFn(fn) {
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Adressen zuordnen</button>
-      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     <label class="field detail-field"><span>Liegt in</span>
-      <select class="select" id="d-fnnode" title="Gebäudeteil wählen — oder im Baum ziehen">${nodeOptions(fn.nodeId)}</select></label>
+      <select class="select" id="d-fnnode" title="${A.t('Gebäudeteil wählen — oder im Baum ziehen')}">${nodeOptions(fn.nodeId)}</select></label>
     ${issueList(fn.id)}
     ${t.roles.length ? `<h3 class="detail-h">Rollen</h3><ul class="detail-list">${roleRows}</ul>` : ''}
     ${extra.length || !t.roles.length
-      ? `<h3 class="detail-h">${t.roles.length ? 'Weitere Adressen' : 'Adressen'}</h3>` +
+      ? `<h3 class="detail-h">${t.roles.length ? A.t('Weitere Adressen') : A.t('Adressen')}</h3>` +
         (extra.length ? `<ul class="detail-list">${extraRows}</ul>`
-          : '<p class="hint">Noch keine Adressen — zuordnen oder aus der Tabelle auf die Funktion im Baum ziehen.</p>')
+          : `<p class="hint">${A.t('Noch keine Adressen — zuordnen oder aus der Tabelle auf die Funktion im Baum ziehen.')}</p>`)
       : ''}
     ${devs.length
-      ? '<h3 class="detail-h">Geräte</h3><ul class="detail-list">' + devs.map(d => `
+      ? `<h3 class="detail-h">${A.t('Geräte')}</h3><ul class="detail-list">` + devs.map(d => `
           <li class="jump" data-kind="dev" data-id="${d.id}">
             <span class="addr">${KNX.paStr(d.addr)}</span>
             <span class="grow">${esc(d.name)}</span></li>`).join('') + '</ul>'
@@ -1088,23 +1082,23 @@ function detailGa(ga) {
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Objekte zuordnen</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       ${G.folderDepth() >= 1 ? '<button class="btn btn-sm" id="d-move">Verschieben …</button>' : ''}
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     ${issueList(ga.id)}
-    <h3 class="detail-h">Zugeordnete Objekte</h3>
+    <h3 class="detail-h">${A.t('Zugeordnete Objekte')}</h3>
     ${links.length
       ? '<ul class="detail-list">' + links.map(l => `
           <li class="jump" data-kind="obj" data-id="${l.obj.id}">
-            <span class="dir ${l.sending ? 'send' : 'recv'}" title="${l.sending ? 'sendendes Objekt' : 'hörendes Objekt'}">${l.sending ? '↑' : '↓'}</span>
+            <span class="dir ${l.sending ? 'send' : 'recv'}" title="${l.sending ? A.t('sendendes Objekt') : A.t('hörendes Objekt')}">${l.sending ? '↑' : '↓'}</span>
             <span class="addr">${KNX.paStr(l.dev.addr)}</span>
             <span class="grow">${esc(l.dev.name)} · ${esc(l.obj.name)}</span>
             <span class="dpt-tag${l.obj.dpt === ga.dpt ? '' : ' bad'}">${l.obj.dpt}</span>
             <span class="flags">${KNX.flagStr(l.obj.flags)}</span>
           </li>`).join('') + '</ul>'
-      : '<p class="hint">Kein Objekt zugeordnet — die Adresse ist wirkungslos.</p>'}
+      : `<p class="hint">${A.t('Kein Objekt zugeordnet — die Adresse ist wirkungslos.')}</p>`}
     ${fnListSection(KNX.functionsOfGa(ga.id), 'Funktionen')}
     ${rooms.length
-      ? '<h3 class="detail-h">Wirksam in</h3><ul class="detail-list">' + rooms.map(r =>
+      ? `<h3 class="detail-h">${A.t('Wirksam in')}</h3><ul class="detail-list">` + rooms.map(r =>
           `<li class="jump" data-kind="node" data-id="${r.id}">${esc(KNX.nodePath(r.id).sub)}</li>`).join('') + '</ul>'
       : ''}
     ${noteSection(ga.note)}`;
@@ -1128,8 +1122,8 @@ function filterSection(d) {
   return `
     <h3 class="detail-h">${A.t('Filtertabelle')} · ${esc(A.t(f.scope.de))} ${esc(f.scope.label)}</h3>
     <div class="detail-meta">
-      ${tile('pass', f.pass.length, 'durchgelassen')}
-      ${tile('local', f.local.length, 'gesperrt')}
+      ${tile('pass', f.pass.length, A.t('durchgelassen'))}
+      ${tile('local', f.local.length, A.t('gesperrt'))}
     </div>
     <p class="hint">Wird aus den Geräteadressen berechnet: durchgelassen wird, was
     Teilnehmer auf beiden Seiten hat. Die Weiterleitungsparameter des Kopplers
@@ -1140,8 +1134,8 @@ function filterSection(d) {
       ? `<ul class="detail-list">${rows}</ul>` +
         (show.length > max ? `<p class="hint">… und ${show.length - max} weitere.</p>` : '')
       : state.filterView === 'local'
-        ? '<p class="hint">Jede Adresse dieses Segments überschreitet die Grenze.</p>'
-        : '<p class="hint">Keine Adresse überschreitet diese Grenze — es gibt nichts weiterzuleiten.</p>'}`;
+        ? `<p class="hint">${A.t('Jede Adresse dieses Segments überschreitet die Grenze.')}</p>`
+        : `<p class="hint">${A.t('Keine Adresse überschreitet diese Grenze — es gibt nichts weiterzuleiten.')}</p>`}`;
 }
 
 /* Busstrom einer Linie, sobald Verbraucher darauf sitzen. */
@@ -1151,13 +1145,12 @@ function powerSection(lineId) {
   const pct = p.have ? Math.min(100, Math.round(p.need / p.have * 100)) : 100;
   const cls = !p.have || p.need > p.have ? 'over' : (p.reserve < p.have * 0.1 ? 'tight' : 'ok');
   return `
-    <h3 class="detail-h">Busstrom</h3>
+    <h3 class="detail-h">${A.t('Busstrom')}</h3>
     <div class="power-bar ${cls}"><span style="width:${pct}%"></span></div>
-    <p class="hint"><b>${p.need} mA</b> Bedarf von ${p.loads.length} Teilnehmern ·
-      <b>${p.have} mA</b> eingespeist${p.supplies.length
+    <p class="hint">${A.t('<b>{0} mA</b> Bedarf von {1} Teilnehmern · <b>{2} mA</b> eingespeist', p.need, p.loads.length, p.have)}${p.supplies.length
         ? ' (' + p.supplies.map(s => esc(s.name)).join(', ') + ')'
-        : ' — keine Spannungsversorgung eingeplant'}${p.have
-        ? ` · Reserve ${p.reserve} mA` : ''}</p>`;
+        : ' — ' + A.t('keine Spannungsversorgung eingeplant')}${p.have
+        ? ' · ' + A.t('Reserve {0} mA', p.reserve) : ''}</p>`;
 }
 
 function detailDev(d) {
@@ -1172,14 +1165,14 @@ function detailDev(d) {
       <span class="addr big">${KNX.paStr(d.addr)}</span>
       <div>
         <h2 data-pt-id="detail-dev-title">${esc(d.name)}</h2>
-        <p class="detail-sub">${esc(d.product || 'ohne Produktangabe')} · Linie ${esc(KNX.lineLabel(d.lineId))}${
+        <p class="detail-sub">${esc(d.product || A.t('ohne Produktangabe'))} · ${A.t('Linie {0}', esc(KNX.lineLabel(d.lineId)))}${
           d.segmentId && KNX.segmentInfo(d.segmentId) ? ' · ' + esc(KNX.segmentInfo(d.segmentId).name) : ''}
-          · ${room ? esc(KNX.nodePath(room.id).sub) : '<b>kein Raum</b>'}</p>
+          · ${room ? esc(KNX.nodePath(room.id).sub) : `<b>${A.t('kein Raum')}</b>`}</p>
         <p class="detail-sub"><span class="src-tag${item ? ' prog' : ''}"
           title="${item
-            ? 'Produktdatei vorhanden — Objekte und Parameter stammen daraus'
-            : 'Frei angelegt — dient der Dokumentation und den Filtertabellen'}">${
-          item ? 'aus .knxprod' : 'frei definiert'}</span></p>
+            ? A.t('Produktdatei vorhanden — Objekte und Parameter stammen daraus')
+            : A.t('Frei angelegt — dient der Dokumentation und den Filtertabellen')}">${
+          item ? A.t('aus .knxprod') : A.t('frei definiert')}</span></p>
       </div>
     </div>
     ${coupler && !d.objs.length ? '' : `
@@ -1190,42 +1183,42 @@ function detailDev(d) {
         : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>`}
     </div>`}
     <div class="detail-actions">
-      ${item || isIp ? '<button class="btn btn-sm btn-primary" id="d-params">Parameter …</button>' : ''}
+      ${item || isIp ? `<button class="btn btn-sm btn-primary" id="d-params">${A.t('Parameter …')}</button>` : ''}
       ${item && window.KNXBus && window.KNXBus.available
-        ? '<button class="btn btn-sm" id="d-program" title="Applikation, Parameter und Gruppenadressen ins Gerät laden">Programmieren …</button>' : ''}
-      ${item ? '' : '<button class="btn btn-sm" id="d-addobj">+ Objekt</button>'}
-      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+        ? `<button class="btn btn-sm" id="d-program" title="${A.t('Applikation, Parameter und Gruppenadressen ins Gerät laden')}">${A.t('Programmieren …')}</button>` : ''}
+      ${item ? '' : `<button class="btn btn-sm" id="d-addobj">${A.t('+ Objekt')}</button>`}
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
-    <label class="field detail-field"><span>Verbaut in</span>
-      <select class="select" id="d-room" title="Einbauort wählen — oder in der Gebäudeansicht auf einen Raum ziehen">
-        <option value="">— kein Raum —</option>${nodeOptions(d.roomId, n => KNX.DEVICE_HOSTS.has(n.kind))}</select></label>
+    <label class="field detail-field"><span>${A.t('Verbaut in')}</span>
+      <select class="select" id="d-room" title="${A.t('Einbauort wählen — oder in der Gebäudeansicht auf einen Raum ziehen')}">
+        <option value="">${A.t('— kein Raum —')}</option>${nodeOptions(d.roomId, n => KNX.DEVICE_HOSTS.has(n.kind))}</select></label>
     ${issueList(d.id)}
-    ${isIp ? `<h3 class="detail-h">IP-Konfiguration</h3><ul class="detail-list">
-      <li><span class="grow">Adressvergabe</span><span class="addr">${
-        ip.mode === 'manual' ? 'manuell' : 'DHCP / AutoIP'}</span></li>
+    ${isIp ? `<h3 class="detail-h">${A.t('IP-Konfiguration')}</h3><ul class="detail-list">
+      <li><span class="grow">${A.t('Adressvergabe')}</span><span class="addr">${
+        ip.mode === 'manual' ? A.t('manuell') : 'DHCP / AutoIP'}</span></li>
       ${ip.mode === 'manual' ? `
-      <li><span class="grow">IP-Adresse</span><span class="addr">${esc(ip.addr || '—')}</span></li>
-      <li><span class="grow">Subnetzmaske</span><span class="addr">${esc(ip.mask || '—')}</span></li>
-      <li><span class="grow">Standardgateway</span><span class="addr">${esc(ip.gw || '—')}</span></li>` : ''}
-      <li><span class="grow">Routing-Multicast (Backbone)</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
-      <li><span class="grow">Tunnelverbindungen${KNX.tunnelCountFixed(d) ? ' (laut Produktdatei)' : ''}</span>
+      <li><span class="grow">${A.t('IP-Adresse')}</span><span class="addr">${esc(ip.addr || '—')}</span></li>
+      <li><span class="grow">${A.t('Subnetzmaske')}</span><span class="addr">${esc(ip.mask || '—')}</span></li>
+      <li><span class="grow">${A.t('Standardgateway')}</span><span class="addr">${esc(ip.gw || '—')}</span></li>` : ''}
+      <li><span class="grow">${A.t('Routing-Multicast (Backbone)')}</span><span class="addr">${esc(ip.mcast || '—')}</span></li>
+      <li><span class="grow">${A.t('Tunnelverbindungen')}${KNX.tunnelCountFixed(d) ? ' ' + A.t('(laut Produktdatei)') : ''}</span>
         <span class="addr">${KNX.tunnelCount(d)}</span></li>
-      ${KNX.tunnelAddrs(d).length ? `<li><span class="grow">Tunneladressen</span>
+      ${KNX.tunnelAddrs(d).length ? `<li><span class="grow">${A.t('Tunneladressen')}</span>
         <span class="addr">${KNX.tunnelAddrs(d).map(KNX.paStr).join(', ')}</span></li>` : ''}
     </ul>` : ''}
-    ${d.serial ? `<h3 class="detail-h">Seriennummer</h3><ul class="detail-list">
-      <li><span class="grow">6 Byte, für die Adressvergabe ohne Programmiertaste</span>
+    ${d.serial ? `<h3 class="detail-h">${A.t('Seriennummer')}</h3><ul class="detail-list">
+      <li><span class="grow">${A.t('6 Byte, für die Adressvergabe ohne Programmiertaste')}</span>
         <span class="addr">${esc(d.serial)}</span></li></ul>` : ''}
     ${noteSection(d.note)}
     ${progSection(item)}
     ${filterSection(d)}
-    <h3 class="detail-h">Kommunikationsobjekte</h3>
+    <h3 class="detail-h">${A.t('Kommunikationsobjekte')}</h3>
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {
           const send = o.gas[0] ? KNX.gaById(o.gas[0]) : null;
           return `<li class="jump${o.stale ? ' stale' : ''}" data-kind="obj" data-id="${o.id}"
-            ${o.stale ? 'title="Durch die aktuelle Parametrierung nicht mehr vorgesehen"' : ''}>
+            ${o.stale ? `title="${A.t('Durch die aktuelle Parametrierung nicht mehr vorgesehen')}"` : ''}>
             <span class="onum">${o.num}</span>
             <span class="grow">${esc(o.name)}</span>
             ${send ? '<span class="addr">' + KNX.addrStr(send) + '</span>'
@@ -1234,12 +1227,10 @@ function detailDev(d) {
             <span class="flags">${KNX.flagStr(o.flags)}</span></li>`;
         }).join('') + '</ul>'
       : item
-        ? '<p class="hint">Dieses Gerät arbeitet ohne Kommunikationsobjekte — es wird ' +
-          'allein über seine Eigenschaften eingestellt.</p>'
+        ? `<p class="hint">${A.t('Dieses Gerät arbeitet ohne Kommunikationsobjekte — es wird allein über seine Eigenschaften eingestellt.')}</p>`
         : coupler
-          ? '<p class="hint">Koppler arbeiten ohne Kommunikationsobjekte — sie leiten ' +
-            'nach ihrer Filtertabelle weiter.</p>'
-          : '<p class="hint">Noch keine Objekte angelegt.</p>'}`;
+          ? `<p class="hint">${A.t('Koppler arbeiten ohne Kommunikationsobjekte — sie leiten nach ihrer Filtertabelle weiter.')}</p>`
+          : `<p class="hint">${A.t('Noch keine Objekte angelegt.')}</p>`}`;
 }
 
 function detailObj(dev, o) {
@@ -1249,7 +1240,7 @@ function detailObj(dev, o) {
       <span class="lvl-ic obj big">${A.IC.obj}</span>
       <div>
         <h2 data-pt-id="detail-obj-title">${esc(o.name)}</h2>
-        <p class="detail-sub">Objekt ${o.num} von ${esc(dev.name)} · ${KNX.paStr(dev.addr)}</p>
+        <p class="detail-sub">${A.t('Objekt {0} von {1}', o.num, esc(dev.name))} · ${KNX.paStr(dev.addr)}</p>
       </div>
     </div>
     <div class="flag-row">${KNX.KO_FLAGS.map(f =>
@@ -1259,7 +1250,7 @@ function detailObj(dev, o) {
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Adressen zuordnen</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     <h3 class="detail-h">Adressen</h3>
     ${gas.length
@@ -1269,11 +1260,11 @@ function detailObj(dev, o) {
             <span class="addr jump" data-kind="ga" data-id="${g.id}">${KNX.addrStr(g)}</span>
             <span class="grow">${esc(g.name)}</span>
             <span class="dpt-tag${g.dpt === o.dpt ? '' : ' bad'}">${g.dpt}</span>
-            ${i === 0 ? '' : `<button class="btn btn-sm setsend" data-ga="${g.id}" title="Diese Adresse zur sendenden machen">↑</button>`}
+            ${i === 0 ? '' : `<button class="btn btn-sm setsend" data-ga="${g.id}" title="${A.t('Diese Adresse zur sendenden machen')}">↑</button>`}
           </li>`).join('') + '</ul>' +
-        (o.flags.t ? '<p class="hint">Die oberste Adresse ist die sendende.</p>'
-                   : '<p class="hint warn">Ohne Ü-Flag sendet dieses Objekt nicht.</p>')
-      : '<p class="hint">Keine Adresse zugeordnet.</p>'}`;
+        (o.flags.t ? `<p class="hint">${A.t('Die oberste Adresse ist die sendende.')}</p>`
+                   : `<p class="hint warn">${A.t('Ohne Ü-Flag sendet dieses Objekt nicht.')}</p>`)
+      : `<p class="hint">${A.t('Keine Adresse zugeordnet.')}</p>`}`;
 }
 
 function detailBackbone(l) {
@@ -1284,26 +1275,26 @@ function detailBackbone(l) {
       <span class="addr big">0.0</span>
       <div>
         <h2>${esc(l.name)}</h2>
-        <p class="detail-sub">Backbone · ${esc(KNX.MEDIA[l.medium])}${l.medium === 'ip'
-          ? ' · Multicast ' + esc(l.mcast || '—') : ''}</p>
+        <p class="detail-sub">${A.t('Backbone')} · ${esc(A.t(KNX.MEDIA[l.medium]))}${l.medium === 'ip'
+          ? ' · ' + A.t('Multicast {0}', esc(l.mcast || '—')) : ''}</p>
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${areas.length}</span><span class="meta-lbl">Bereiche</span></div>
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+      <div class="meta-item"><span class="meta-num">${areas.length}</span><span class="meta-lbl">${A.t('Bereiche')}</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
-      <button class="btn btn-sm" id="d-addarea">+ Bereich</button>
-      <button class="btn btn-sm" id="d-addseg">+ Segment</button>
+      <button class="btn btn-sm" id="d-adddev">${A.t('+ Gerät')}</button>
+      <button class="btn btn-sm" id="d-addarea">${A.t('+ Bereich')}</button>
+      <button class="btn btn-sm" id="d-addseg">${A.t('+ Segment')}</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
     </div>
     ${issueList(l.id)}
     ${segmentList(l)}
-    <p class="hint">Der Backbone verbindet die Bereiche über ihre Bereichskoppler (x.0.0).
-      ${l.medium === 'ip' ? 'Die Multicast-Adresse gilt für alle KNXnet/IP-Router des Projekts.' : ''}</p>
+    <p class="hint">${A.t('Der Backbone verbindet die Bereiche über ihre Bereichskoppler (x.0.0).')}
+      ${l.medium === 'ip' ? A.t('Die Multicast-Adresse gilt für alle KNXnet/IP-Router des Projekts.') : ''}</p>
     ${noteSection(l.note)}
-    <h3 class="detail-h">Bereiche</h3>
+    <h3 class="detail-h">${A.t('Bereiche')}</h3>
     <ul class="detail-list">${areas.map(a =>
       `<li class="jump" data-kind="area" data-id="${a.id}">
         <span class="addr">${a.addr}</span>
@@ -1344,16 +1335,16 @@ function detailSeg(s) {
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
+      <button class="btn btn-sm" id="d-adddev">${A.t('+ Gerät')}</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       ${s.seg ? `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>` : ''}
     </div>
     ${issueList(s.key)}
-    <p class="hint">${s.seg ? 'Ein Segment teilt sich den Adressraum der Linie, hat aber eigene Teilnehmer, '
-      + 'eigenen Busstrom und ein eigenes Medium.' : 'Segment 0 ist die Linie selbst; sein Medium ist das der Linie.'}</p>
+    <p class="hint">${s.seg ? A.t('Ein Segment teilt sich den Adressraum der Linie, hat aber eigene Teilnehmer, eigenen Busstrom und ein eigenes Medium.')
+      : A.t('Segment 0 ist die Linie selbst; sein Medium ist das der Linie.')}</p>
     ${s.seg ? noteSection(s.seg.note) : ''}
     ${powerSection(s.key)}
     ${devs.length
@@ -1376,18 +1367,18 @@ function detailLine(l) {
       <span class="addr big">${a.addr}.${l.addr}</span>
       <div>
         <h2>${esc(l.name)}</h2>
-        <p class="detail-sub">${main ? 'Hauptlinie des Bereichs' : 'Linie in Bereich'} ${esc(a.name)} · ${esc(KNX.MEDIA[l.medium])}</p>
+        <p class="detail-sub">${main ? A.t('Hauptlinie des Bereichs') : A.t('Linie in Bereich')} ${esc(a.name)} · ${esc(A.t(KNX.MEDIA[l.medium]))}</p>
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
       <div class="meta-item"><span class="meta-num">${255 - devs.length}</span><span class="meta-lbl">freie Nummern</span></div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-adddev">+ Gerät</button>
-      <button class="btn btn-sm" id="d-addseg">+ Segment</button>
-      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      ${main ? '' : `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>`}
+      <button class="btn btn-sm" id="d-adddev">${A.t('+ Gerät')}</button>
+      <button class="btn btn-sm" id="d-addseg">${A.t('+ Segment')}</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
+      ${main ? '' : `<button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>`}
     </div>
     ${issueList(l.id)}
     ${main ? `<p class="hint">Auf der Hauptlinie sitzt der Bereichskoppler ${a.addr}.0.0; weitere Geräte
@@ -1401,7 +1392,7 @@ function detailLine(l) {
             <span class="addr">${KNX.paStr(d.addr)}</span>
             <span class="grow">${esc(d.name)}</span>
             <span class="dpt-tag">${d.objs.length} KO</span></li>`).join('') + '</ul>'
-      : '<p class="hint">Noch keine Geräte auf dieser Linie.</p>'}`;
+      : `<p class="hint">${A.t('Noch keine Geräte auf dieser Linie.')}</p>`}`;
 }
 
 function detailArea(a) {
@@ -1416,12 +1407,12 @@ function detailArea(a) {
     </div>
     <div class="detail-meta">
       <div class="meta-item"><span class="meta-num">${a.lines.length}</span><span class="meta-lbl">Linien</span></div>
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Teilnehmer</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-addline">+ Linie</button>
+      <button class="btn btn-sm" id="d-addline">${A.t('+ Linie')}</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     ${noteSection(a.note)}
     <h3 class="detail-h">Linien</h3>
@@ -1445,17 +1436,17 @@ function detailGrp(key) {
     <div class="detail-head">
       <span class="addr big">${esc(key)}</span>
       <div>
-        <h2>${esc(p.gaNames[key] || '(ohne Namen)')}</h2>
-        <p class="detail-sub">${esc(style.parts[level]?.label || 'Gruppe')} · ${gs.length} Adressen</p>
+        <h2>${esc(p.gaNames[key] || A.t('(ohne Namen)'))}</h2>
+        <p class="detail-sub">${esc(A.t(style.parts[level]?.label || 'Gruppe'))} · ${A.t('{0} Adressen', gs.length)}</p>
       </div>
     </div>
     <div class="detail-actions">
-      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Benennen</button>
+      <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Benennen')}</button>
       ${level < G.folderDepth() - 1
         ? `<button class="btn btn-sm" id="d-addgrp">+ ${esc(style.parts[level + 1].label)}</button>`
         : '<button class="btn btn-sm" id="d-addga">+ Adresse</button>'}
       ${gs.length && G.folderDepth() >= 1 ? '<button class="btn btn-sm" id="d-move">Adressen verschieben …</button>' : ''}
-      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} Löschen</button>
+      <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     ${gs.length
       ? '<h3 class="detail-h">Adressen</h3><ul class="detail-list">' + gs.map(g =>
@@ -1463,7 +1454,7 @@ function detailGrp(key) {
             <span class="addr">${KNX.addrStr(g)}</span>
             <span class="grow">${esc(g.name)}</span>
             <span class="dpt-tag">${g.dpt}</span></li>`).join('') + '</ul>'
-      : '<p class="hint">Diese Gruppe ist noch leer.</p>'}`;
+      : `<p class="hint">${A.t('Diese Gruppe ist noch leer.')}</p>`}`;
 }
 
 function renderDetail() {
@@ -1612,8 +1603,8 @@ function expandTo(kind, id) {
 function menuFor(kind, id) {
   const p = KNX.project();
   const bus = window.KNXBus;
-  const edit = { label: 'Bearbeiten …', icon: A.IC_PENCIL };
-  const del  = { label: 'Löschen …', icon: A.IC_TRASH, danger: true };
+  const edit = { label: A.t('Bearbeiten …'), icon: A.IC_PENCIL };
+  const del  = { label: A.t('Löschen …'), icon: A.IC_TRASH, danger: true };
 
   switch (kind) {
     case 'node': {
@@ -1622,12 +1613,12 @@ function menuFor(kind, id) {
       const holds = KNX.kindHolds(n.kind).length > 0;
       const host = KNX.DEVICE_HOSTS.has(n.kind);
       return [
-        holds && { label: 'Untergeordnetes anlegen …', run: () => A.actNewNode(id) },
-        holds && { label: 'Vorhandene übernehmen …', run: () => A.actPickChildren(id) },
-        { label: 'Funktion anlegen …', run: () => F.actNewFunction(id) },
-        { label: 'Funktionen übernehmen …', run: () => F.actPickFunctions(id) },
-        host && { label: 'Gerät anlegen …', run: () => T.actNewDevice({ roomId: id }) },
-        host && { label: 'Geräte übernehmen …', run: () => A.actPickDevices(id) },
+        holds && { label: A.t('Untergeordnetes anlegen …'), run: () => A.actNewNode(id) },
+        holds && { label: A.t('Vorhandene übernehmen …'), run: () => A.actPickChildren(id) },
+        { label: A.t('Funktion anlegen …'), run: () => F.actNewFunction(id) },
+        { label: A.t('Funktionen übernehmen …'), run: () => F.actPickFunctions(id) },
+        host && { label: A.t('Gerät anlegen …'), run: () => T.actNewDevice({ roomId: id }) },
+        host && { label: A.t('Geräte übernehmen …'), run: () => A.actPickDevices(id) },
         '-',
         { ...edit, run: () => A.actRenameNode(id) },
         n.id !== p.tree.id && { ...del, run: () => A.actDeleteNode(id) }
@@ -1636,7 +1627,7 @@ function menuFor(kind, id) {
     case 'fn': {
       if (!KNX.functionById(id)) return [];
       return [
-        { label: 'Adressen zuordnen …', run: () => F.actAssignFunctionGas(id) },
+        { label: A.t('Adressen zuordnen …'), run: () => F.actAssignFunctionGas(id) },
         '-',
         { ...edit, run: () => F.actEditFunction(id) },
         { ...del, run: () => F.actDeleteFunction(id) }
@@ -1648,24 +1639,24 @@ function menuFor(kind, id) {
       const marked = state.checked.has(id) ? [...state.checked] : null;
       const n = marked ? marked.length : 0;
       return [
-        { label: 'Zuordnen …', run: () => G.actAssignGa(id) },
-        { label: 'Verschieben …', run: () => G.actMoveGas([id]) },
+        { label: A.t('Zuordnen …'), run: () => G.actAssignGa(id) },
+        { label: A.t('Verschieben …'), run: () => G.actMoveGas([id]) },
         '-',
         { ...edit, run: () => G.actEditGa(id) },
         { ...del, run: () => G.actDeleteGa(id) },
         n > 1 && '-',
-        n > 1 && { label: `${n} markierte verschieben …`, run: () => G.actMoveGas(marked) },
-        n > 1 && { label: `${n} markierte löschen …`, danger: true, run: () => G.actDeleteSelected() }
+        n > 1 && { label: A.t('{0} markierte verschieben …', n), run: () => G.actMoveGas(marked) },
+        n > 1 && { label: A.t('{0} markierte löschen …', n), danger: true, run: () => G.actDeleteSelected() }
       ];
     }
     case 'grp': {
       return [
-        { label: 'Adresse anlegen …', run: () => G.actNewGa(id) },
-        { label: 'Untergruppe anlegen …', run: () => G.actNewGaGroup(id) },
-        { label: 'Adressen verschieben …', run: () => G.actMoveGas(KNX.gasInGroup(id).map(g => g.id)) },
+        { label: A.t('Adresse anlegen …'), run: () => G.actNewGa(id) },
+        { label: A.t('Untergruppe anlegen …'), run: () => G.actNewGaGroup(id) },
+        { label: A.t('Adressen verschieben …'), run: () => G.actMoveGas(KNX.gasInGroup(id).map(g => g.id)) },
         '-',
-        { label: 'Umbenennen …', icon: A.IC_PENCIL, run: () => T.actRenameGaGroup(id) },
-        { ...del, label: 'Gruppe löschen …', run: () => G.actDeleteGaGroup(id) }
+        { label: A.t('Umbenennen …'), icon: A.IC_PENCIL, run: () => T.actRenameGaGroup(id) },
+        { ...del, label: A.t('Gruppe löschen …'), run: () => G.actDeleteGaGroup(id) }
       ];
     }
     case 'dev': {
@@ -1673,9 +1664,9 @@ function menuFor(kind, id) {
       if (!d) return [];
       const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
       return [
-        (item || KNX.deviceIsIp(d)) && { label: 'Parameter …', run: () => T.actParams(id) },
-        item && bus && bus.available && { label: 'Programmieren …', run: () => bus.program(id) },
-        !item && { label: 'Objekt anlegen …', run: () => T.actNewObj(id) },
+        (item || KNX.deviceIsIp(d)) && { label: A.t('Parameter …'), run: () => T.actParams(id) },
+        item && bus && bus.available && { label: A.t('Programmieren …'), run: () => bus.program(id) },
+        !item && { label: A.t('Objekt anlegen …'), run: () => T.actNewObj(id) },
         '-',
         { ...edit, run: () => T.actEditDevice(id) },
         { ...del, run: () => T.actDeleteDevice(id) }
@@ -1684,7 +1675,7 @@ function menuFor(kind, id) {
     case 'obj': {
       if (!KNX.objById(id)) return [];
       return [
-        { label: 'Adresse zuordnen …', run: () => T.actAssignObj(id) },
+        { label: A.t('Adresse zuordnen …'), run: () => T.actAssignObj(id) },
         '-',
         { ...edit, run: () => T.actEditObj(id) },
         { ...del, run: () => T.actDeleteObj(id) }
@@ -1695,9 +1686,9 @@ function menuFor(kind, id) {
       const a = l && KNX.areaOfLine(id);
       if (!l || !a) return [];
       return [
-        { label: 'Gerät anlegen …', run: () => T.actNewDevice({ lineId: id }) },
-        { label: 'Segment anlegen …', run: () => T.actNewSegment(id) },
-        a.backbone && { label: 'Bereich anlegen …', run: () => T.actNewArea() },
+        { label: A.t('Gerät anlegen …'), run: () => T.actNewDevice({ lineId: id }) },
+        { label: A.t('Segment anlegen …'), run: () => T.actNewSegment(id) },
+        a.backbone && { label: A.t('Bereich anlegen …'), run: () => T.actNewArea() },
         '-',
         { ...edit, run: () => T.actEditLine(id) },
         !a.backbone && l.addr !== 0 && { ...del, run: () => T.actDeleteLine(id) }
@@ -1707,7 +1698,7 @@ function menuFor(kind, id) {
       const s = KNX.segmentInfo(id);
       if (!s) return [];
       return [
-        { label: 'Gerät anlegen …',
+        { label: A.t('Gerät anlegen …'),
           run: () => T.actNewDevice({ lineId: s.line.id, segmentId: s.seg ? id : null }) },
         '-',
         { ...edit, run: () => T.actEditSegment(id) },
@@ -1718,7 +1709,7 @@ function menuFor(kind, id) {
       const a = p.areas.find(x => x.id === id);
       if (!a) return [];
       return [
-        { label: 'Linie anlegen …', run: () => T.actNewLine(id) },
+        { label: A.t('Linie anlegen …'), run: () => T.actNewLine(id) },
         '-',
         { ...edit, run: () => T.actEditArea(id) },
         !a.backbone && KNX.regularAreas().length > 1 && { ...del, run: () => T.actDeleteArea(id) }

@@ -517,11 +517,13 @@ function toggleCollapse(id) {
   persistUI();
   reRender();
 }
+/* Der Titel wird hier übersetzt, nicht an den rund zwei Dutzend Aufrufstellen —
+   der deutsche Text bleibt dort stehen und ist zugleich der Schlüssel. */
 function iconBtn(html, title, fn, disabled) {
   const b = document.createElement('button');
   b.className = 'icon-btn';
   b.innerHTML = html;
-  b.title = title;
+  b.title = T18(title);
   if (disabled) { b.disabled = true; }
   else b.onclick = fn;
   return b;
