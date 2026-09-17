@@ -51,6 +51,25 @@ async function request(method, path, body, opts = {}) {
   return data;
 }
 
+/* Holt eine Binaerantwort (Produktdatei). request() liest immer Text und
+   wuerde eine .knxprod verstuemmeln. */
+async function getBytes(path, opts = {}) {
+  const init = {};
+  if (opts.timeout) init.signal = AbortSignal.timeout(opts.timeout);
+  const res = await fetch(path, init);
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try {
+      const data = JSON.parse(await res.text());
+      if (data && data.error) msg = data.error;
+    } catch (e) { /* dann bleibt es beim Statuscode */ }
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
 const get  = (p, o)    => request('GET', p, null, o);
 const post = (p, b, o) => request('POST', p, b ?? {}, o);
 const put  = (p, b, o) => request('PUT', p, b, o);
@@ -150,6 +169,26 @@ const backend = {
   catalogWrite: (id, doc) => put('/api/catalog/' + encodeURIComponent(id), doc),
   catalogWriteFile: (id, bytes) => put('/api/catalog/' + encodeURIComponent(id) + '/file', bytes),
   catalogDelete: id => del('/api/catalog/' + encodeURIComponent(id)),
+
+  /* Onlinekatalog. Der Dienst haelt einen Cache vor; erreicht wird das Netz nur,
+     wenn etwas fehlt oder ausdruecklich erneuert wird. */
+  online: {
+    status:        ()  => get('/api/online/status'),
+    manufacturers: (refresh = false) =>
+      get('/api/online/manufacturers' + (refresh ? '?refresh=1' : ''), { timeout: 120000 })
+        .then(r => r.entries || []),
+    index: (manufacturer, lang = 'de-DE', refresh = false) =>
+      get('/api/online/index?manufacturer=' + encodeURIComponent(manufacturer)
+        + '&lang=' + encodeURIComponent(lang) + (refresh ? '&refresh=1' : ''), { timeout: 300000 }),
+    search: q => get('/api/online/search?q=' + encodeURIComponent(q), { timeout: 60000 }),
+    product: (id, lang = 'de-DE') =>
+      getBytes('/api/online/product?id=' + encodeURIComponent(id)
+        + '&lang=' + encodeURIComponent(lang), { timeout: 300000 }),
+    sync:      body => post('/api/online/sync', body || {}),
+    job:       id   => get('/api/online/jobs/' + encodeURIComponent(id)),
+    cancelJob: id   => post('/api/online/jobs/' + encodeURIComponent(id) + '/cancel'),
+    clearCache: what => del('/api/online/cache?what=' + encodeURIComponent(what || 'all'))
+  },
 
   bus: {
     status:      ()      => get('/api/bus/status'),

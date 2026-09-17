@@ -338,6 +338,8 @@ function actCatalog(onPick) {
       Produkt legt beim Anlegen eines Geräts alle Kommunikationsobjekte mit an.</p>
       <div class="pick-row">
         <button type="button" class="btn btn-sm btn-primary" id="m-load">Produktdatei laden …</button>
+        <button type="button" class="btn btn-sm" id="m-online"
+                title="Produktdaten aus dem offenen KNX-Onlinekatalog holen">Onlinekatalog …</button>
         <input class="input" id="m-search" placeholder="Katalog durchsuchen …">
       </div>
       <div class="chk-list tall" id="m-cat-list">
@@ -394,6 +396,17 @@ function actCatalog(onPick) {
         actImportPick(products, fileName, () => actCatalog(onPick), info);
       });
     });
+    const online = $('#m-online');
+    // Ohne lokalen Dienst gibt es kein Netz - dann bleibt der Knopf gesperrt.
+    if (!window.KNXBackend) {
+      online.disabled = true;
+      online.title = 'Dafür muss der lokale Dienst laufen.';
+    } else {
+      online.addEventListener('click', () => {
+        A.closeModal();
+        A.nextModal(() => actOnlineCatalog(() => actCatalog(onPick)));
+      });
+    }
   };
   wire();
 }
@@ -401,6 +414,7 @@ function actCatalog(onPick) {
 /* Auswahl aus einer frisch geladenen Produktdatei. */
 function actImportPick(products, fileName, onDone, info) {
   const skipped = (info && info.binaries) || [];
+  const failed = (info && info.failed) || [];
   const rows = products.map((p, i) => {
     const g = p.prog;
     // BCU1 und Koppler bringen die Ladeprozedur über die Maskendefinition mit
@@ -425,8 +439,11 @@ function actImportPick(products, fileName, onDone, info) {
     </label>`;
   }).join('');
 
-  A.openModal(`${products.length} Produkte in ${fileName}`, `
+  A.openModal(`${products.length} ${products.length === 1 ? 'Produkt' : 'Produkte'} in ${fileName}`, `
     <p class="hint">Produkte auswählen, die in den Katalog übernommen werden sollen.</p>
+    ${failed.length ? `<p class="hint warn">${failed.length}
+      ${failed.length === 1 ? 'Produkt liess' : 'Produkte liessen'} sich nicht laden:
+      ${failed.map(f => esc(f)).join('<br>')}</p>` : ''}
     ${skipped.length ? `<p class="hint warn">${skipped.length} herstellereigene
       ${skipped.length === 1 ? 'Datei wird' : 'Dateien werden'} übergangen
       (${esc(skipped.slice(0, 3).map(b => b.name.split('/').pop()).join(', '))}${
@@ -459,6 +476,312 @@ function actImportPick(products, fileName, onDone, info) {
       r.hidden = !!q && !r.dataset.name.includes(q);
     });
   });
+}
+
+/* ---------- Produktkatalog aus dem KNX-Onlinekatalog ---------- *
+ * Der Katalog unter onlinecatalog.knx.org antwortet ohne Anmeldung. Gefragt
+ * wird er vom lokalen Dienst, nicht vom Browser — nur der kennt das Netz und
+ * hält den Cache. Hier steht allein die Auswahl.
+ *
+ * Sparsam bleiben: ein Herstellerindex sind ein bis fünf Megabyte, und der
+ * Katalog kennt kein bedingtes Nachladen. Darum wird je Hersteller einmal
+ * geholt und danach aus dem Cache gelesen; „Aktualisieren“ ist der einzige
+ * Weg zurück ins Netz.                                                     */
+
+const ONLINE_LANG  = 'de-DE';
+const ONLINE_MEDIA = { 'MT-0': 'TP', 'MT-1': 'PL', 'MT-2': 'RF', 'MT-5': 'IP' };
+const ONLINE_ROWS  = 300;   // mehr Zeilen bremsen den Dialog, ohne zu helfen
+
+/* Suchtext eines Eintrags, einmal berechnet und am Eintrag gemerkt. */
+function onlineHay(e) {
+  if (!e._hay) {
+    e._hay = [e.ProductName, e.CatalogItemName, e.OrderNumber,
+              e.ApplicationProgramName, e.manufacturerName]
+      .filter(Boolean).join(' ').toLowerCase();
+  }
+  return e._hay;
+}
+
+function onlineRow(e, i) {
+  const medium = (e.MediumTypeIds || []).map(m => ONLINE_MEDIA[m] || m).join('/');
+  const plugin = e.NoDownloadWithoutPlugin || e.RequiresExternalSoftware;
+  const sub = [e.manufacturerName, e.OrderNumber, e.ApplicationProgramName].filter(Boolean).join(' · ');
+  return `
+    <label class="chk-row" data-name="${esc(onlineHay(e))}">
+      <input type="checkbox" class="chk" data-i="${i}">
+      <span class="chk-label">
+        <b>${esc(e.ProductName || e.CatalogItemName || 'Produkt')}</b>
+        ${sub ? `<span class="cat-sub">${esc(sub)}</span>` : ''}
+      </span>
+      ${plugin ? `<span class="src-tag" title="Das Gerät wird in der ETS über ein herstellereigenes
+        Programm parametriert. Die Produktdaten lassen sich trotzdem laden.">Zusatzprogramm</span>` : ''}
+      ${medium ? `<span class="dpt-tag" title="Übertragungsmedium">${esc(medium)}</span>` : ''}
+    </label>`;
+}
+
+const onlineSize = n => !n ? '0 B'
+  : n < 1024 ? n + ' B'
+  : n < 1048576 ? (n / 1024).toFixed(0) + ' KB'
+  : (n / 1048576).toFixed(1) + ' MB';
+
+/* Auswahl im Onlinekatalog; die gewählten Produkte laufen danach durch
+   denselben Übernahmedialog wie eine selbst geladene Produktdatei. */
+function actOnlineCatalog(onDone) {
+  const be = window.KNXBackend;
+  if (!be) {
+    A.warn('Der Onlinekatalog braucht den lokalen Dienst — im reinen Browserbetrieb steht er nicht bereit.');
+    return;
+  }
+
+  let all = [];        // voller Bestand des gewählten Herstellers bzw. Suchtreffer
+  let shown = [];      // was gerade in der Liste steht
+  let chosen = '';     // Hersteller-Nummer als Text, '' = im geladenen Bestand suchen
+  let searchTimer = 0;
+
+  A.openModal('Onlinekatalog', `
+    <p class="hint">Produktdaten aus dem offenen KNX-Onlinekatalog. Einmal Geholtes bleibt
+    auf diesem Rechner — der zweite Zugriff kommt ohne Übertragung aus. Ohne gewählten
+    Hersteller durchsucht das Suchfeld alles, was schon geholt wurde.</p>
+    <div class="pick-row">
+      <select class="input" id="m-maker"><option value="">— Hersteller werden geladen … —</option></select>
+      <button type="button" class="btn btn-sm" id="m-fresh"
+              title="Diesen Hersteller neu vom Katalog holen">Aktualisieren</button>
+      <button type="button" class="btn btn-sm" id="m-cache" title="Zwischenspeicher ansehen">Speicher …</button>
+    </div>
+    <div class="pick-row">
+      <input class="input" id="m-search" placeholder="Name oder Bestellnummer …">
+      <button type="button" class="btn btn-sm" id="m-all">Alle</button>
+      <button type="button" class="btn btn-sm" id="m-none">Keine</button>
+    </div>
+    <div class="chk-list tall" id="m-prods"><p class="hint">Einen Hersteller wählen.</p></div>
+    <div id="m-note"></div>
+    <div id="m-err"></div>
+  `, () => {
+    const sel = [...$('#m-prods').querySelectorAll('.chk:checked')].map(c => shown[+c.dataset.i]);
+    if (!sel.length) { showErr('Mindestens ein Produkt auswählen.'); return false; }
+    A.nextModal(() => onlineLoad(sel, onDone));
+  });
+
+  const note = html => { $('#m-note').innerHTML = html ? `<p class="hint">${html}</p>` : ''; };
+  const live = () => !!$('#m-prods');   // der Dialog kann zwischendurch geschlossen worden sein
+
+  function render(list, empty) {
+    if (!live()) return;
+    shown = list.slice(0, ONLINE_ROWS);
+    $('#m-prods').innerHTML = shown.length ? shown.map(onlineRow).join('')
+      : `<p class="hint">${esc(empty)}</p>`;
+    if (list.length > shown.length) {
+      note(`${list.length} Treffer — angezeigt werden die ersten ${shown.length}. Bitte enger suchen.`);
+    }
+  }
+
+  const query = () => $('#m-search').value.trim().toLowerCase();
+
+  /* Ein gewählter Hersteller wird örtlich gefiltert, sonst sucht der Dienst
+     in allem, was schon im Cache liegt. */
+  function refilter() {
+    if (!live()) return;
+    const q = query();
+    if (chosen) {
+      note('');
+      render(q ? all.filter(e => onlineHay(e).includes(q)) : all,
+        'Zu diesem Hersteller steht nichts im Katalog.');
+      return;
+    }
+    if (!q) {
+      render([], 'Einen Hersteller wählen — oder hier suchen, dann werden die bereits geholten Hersteller durchsucht.');
+      return;
+    }
+    be.online.search(q).then(r => {
+      if (!live() || query() !== q) return;
+      all = r.entries || [];
+      render(all, r.manufacturersSearched
+        ? `Kein Treffer in den ${r.manufacturersSearched} bereits geholten Herstellern.`
+        : 'Noch kein Hersteller geholt. Oben einen auswählen — oder unter „Speicher …“ '
+          + 'einmal alle holen, dann sucht dieses Feld über den ganzen Katalog.');
+      if (all.length && r.manufacturersSearched) {
+        // Sind ohnehin alle Hersteller geholt, waere der Rat, weitere zu holen, unsinnig.
+        const known = Math.max(0, $('#m-maker').options.length - 1);
+        const rest = known && r.manufacturersSearched < known && !r.truncated
+          ? ` Nicht durchsucht: ${known - r.manufacturersSearched} noch nicht geholte Hersteller.` : '';
+        note(`${all.length}${r.truncated ? ' und mehr' : ''} Treffer aus
+              ${r.manufacturersSearched} Herstellern.${rest}`);
+      }
+    }).catch(e => showErr('Suche fehlgeschlagen: ' + (e && e.message ? e.message : e)));
+  }
+
+  async function loadMaker(id, refresh) {
+    chosen = String(id || '');
+    if (!chosen) { all = []; refilter(); return; }
+    $('#m-prods').innerHTML = '<p class="hint">Produktliste wird geholt …</p>';
+    note('');
+    showErr('');
+    try {
+      const doc = await be.online.index(chosen, ONLINE_LANG, !!refresh);
+      if (!live()) return;
+      all = doc.entries || [];
+      refilter();
+      if (doc.stale) {
+        note(`Der Stand ist älter als eine Woche. „Aktualisieren“ holt ihn neu${
+          doc.sourceBytes ? ` (beim letzten Mal ${onlineSize(doc.sourceBytes)} Übertragung)` : ''}.`);
+      }
+    } catch (e) {
+      if (!live()) return;
+      $('#m-prods').innerHTML = '<p class="hint">Nichts geladen.</p>';
+      showErr('Hersteller nicht ladbar: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function fillMakers(refresh) {
+    try {
+      const makers = await be.online.manufacturers(refresh);
+      if (!live()) return;
+      $('#m-maker').innerHTML =
+        '<option value="">— im geholten Bestand suchen —</option>'
+        + makers.map(m => `<option value="${m.id}">${esc(m.name)}${m.cached ? ' ·' : ''}</option>`).join('');
+      $('#m-maker').value = chosen;
+    } catch (e) {
+      if (!live()) return;
+      showErr('Herstellerliste nicht erreichbar: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  $('#m-maker').addEventListener('change', e => loadMaker(e.target.value, false));
+  $('#m-fresh').addEventListener('click', () => chosen ? loadMaker(chosen, true) : fillMakers(true));
+  $('#m-cache').addEventListener('click', () => { A.closeModal(); A.nextModal(() => actOnlineCache(onDone)); });
+  $('#m-search').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(refilter, chosen ? 0 : 300);
+  });
+  const visible = () => [...$('#m-prods').querySelectorAll('.chk-row')].filter(r => !r.hidden);
+  $('#m-all').addEventListener('click', () =>
+    visible().forEach(r => { r.querySelector('.chk').checked = true; }));
+  $('#m-none').addEventListener('click', () =>
+    visible().forEach(r => { r.querySelector('.chk').checked = false; }));
+
+  fillMakers(false);
+}
+
+/* Holt die gewählten Produktdateien und übergibt sie dem Übernahmedialog. */
+async function onlineLoad(sel, onDone) {
+  const be = window.KNXBackend;
+  const files = [], failed = [];
+
+  for (let i = 0; i < sel.length; i++) {
+    const e = sel[i];
+    const label = e.OrderNumber || e.ProductName || 'Produkt';
+    A.status(`Produktdatei ${i + 1} von ${sel.length}: ${label} …`);
+    try {
+      files.push({ label, blob: new Blob([await be.online.product(e.Id, ONLINE_LANG)]) });
+    } catch (err) {
+      failed.push(`${label}: ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  const products = [], binaries = [], extras = [];
+  for (const f of files) {
+    try {
+      const r = await KNXProd.read(f.blob);
+      products.push(...r.products);
+      binaries.push(...r.binaries);
+      extras.push(...r.extras);
+    } catch (err) {
+      failed.push(`${f.label}: ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  A.status('');
+
+  /* „NotInAnyMarket“ trifft auch Produkte, die im Index ganz normal aussehen —
+     ob eine Produktdatei noch abrufbar ist, zeigt erst der Versuch. */
+  if (!products.length) {
+    A.openModal('Nichts geladen', `
+      <p class="hint warn">Keine der gewählten Produktdateien liess sich holen.</p>
+      <ul class="detail-list">${failed.map(f => `<li><span>${esc(f)}</span></li>`).join('')}</ul>
+    `, () => { if (onDone) A.nextModal(onDone); });
+    return;
+  }
+  actImportPick(products, files.length === 1 ? files[0].label
+    : `${files.length} Produktdateien aus dem Onlinekatalog`, onDone,
+    { binaries, extras, failed });
+}
+
+/* Zwischenspeicher des Onlinekatalogs: ansehen, vorsorglich füllen, leeren. */
+function actOnlineCache(onBack) {
+  const be = window.KNXBackend;
+  let off = null;   // Abmeldung von der Ereignisleitung
+  let job = '';
+
+  A.openModal('Speicher des Onlinekatalogs', `
+    <div id="m-stat"><p class="hint">Wird gelesen …</p></div>
+    <p class="hint">Der Katalog kennt weder Kurzabfrage noch Komprimierung — jeder Hersteller
+    kostet stets die volle Übertragung. Darum wird einzeln nur geholt, was gebraucht wird.
+    Einmal alle 252 Hersteller zu holen sind rund 60 MB und etwa eine Viertelminute; daraus
+    werden gut 5 MB Zwischenspeicher. Danach durchsucht die Suche den ganzen Katalog, ohne
+    das Netz noch einmal zu berühren.</p>
+    <div class="pick-row">
+      <button type="button" class="btn btn-sm" id="m-sync">Alle Hersteller holen …</button>
+      <button type="button" class="btn btn-sm" id="m-stop" hidden>Abbrechen</button>
+      <button type="button" class="btn btn-sm" id="m-clear-i">Produktlisten verwerfen</button>
+      <button type="button" class="btn btn-sm" id="m-clear-p">Produktdateien verwerfen</button>
+    </div>
+    <div id="m-prog"></div>
+    <div id="m-err"></div>
+  `, () => { if (onBack) A.nextModal(() => actOnlineCatalog(onBack)); });
+
+  const live = () => !!$('#m-stat');
+  const prog = html => { if (live()) $('#m-prog').innerHTML = html ? `<p class="hint">${html}</p>` : ''; };
+
+  async function stats() {
+    try {
+      const s = await be.online.status();
+      if (!live()) return;
+      $('#m-stat').innerHTML = `<ul class="detail-list">
+        <li><span>Hersteller bekannt</span><span>${s.manufacturers || 0}</span></li>
+        <li><span>Produktlisten geholt</span><span>${s.indexes || 0} · ${onlineSize(s.indexBytes)}</span></li>
+        <li><span>Produktdateien im Speicher</span><span>${s.products || 0} · ${onlineSize(s.productBytes)}</span></li>
+        <li><span>Ablage</span><span>${esc(s.dir || '')}</span></li>
+      </ul>`;
+    } catch (e) {
+      if (live()) $('#m-stat').innerHTML = `<p class="hint warn">${esc(e && e.message ? e.message : String(e))}</p>`;
+    }
+  }
+
+  function watch(id) {
+    job = id;
+    $('#m-sync').hidden = true;
+    $('#m-stop').hidden = false;
+    off = be.events.on('job', ev => {
+      if (ev.id !== job) return;
+      const d = ev.detail;
+      if (d && d.total) {
+        prog(`${d.done} von ${d.total} Herstellern — ${d.fetched} geholt${d.failed ? `, ${d.failed} fehlgeschlagen` : ''}
+              ${ev.message ? '· ' + esc(ev.message) : ''}`);
+      }
+      if (ev.state === 'fertig' || ev.state === 'fehler' || ev.state === 'abgebrochen') {
+        if (off) { off(); off = null; }
+        job = '';
+        if (live()) { $('#m-sync').hidden = false; $('#m-stop').hidden = true; }
+        prog('Durchlauf ' + esc(ev.state) + (ev.error ? ': ' + esc(ev.error) : '') + '.');
+        stats();
+      }
+    });
+  }
+
+  $('#m-sync').addEventListener('click', async () => {
+    try {
+      const r = await be.online.sync({ language: ONLINE_LANG });
+      watch(r.job);
+      prog('Wird geholt … Der Dialog darf offen bleiben; ein Abbruch behält das bereits Geholte.');
+    } catch (e) {
+      showErr('Nicht gestartet: ' + (e && e.message ? e.message : e));
+    }
+  });
+  $('#m-stop').addEventListener('click', () => { if (job) be.online.cancelJob(job).catch(() => {}); });
+  $('#m-clear-i').addEventListener('click', () => be.online.clearCache('index').then(stats));
+  $('#m-clear-p').addEventListener('click', () => be.online.clearCache('products').then(stats));
+
+  stats();
 }
 
 /* ---------- Geräteparameter ---------- *

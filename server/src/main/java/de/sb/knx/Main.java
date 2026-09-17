@@ -3,6 +3,7 @@ package de.sb.knx;
 import com.sun.net.httpserver.HttpServer;
 import de.sb.knx.api.BusApi;
 import de.sb.knx.api.CatalogApi;
+import de.sb.knx.api.OnlineApi;
 import de.sb.knx.api.ProjectApi;
 import de.sb.knx.bus.BusService;
 import de.sb.knx.http.Events;
@@ -10,6 +11,7 @@ import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
 import de.sb.knx.http.StaticFiles;
 import de.sb.knx.json.Json;
+import de.sb.knx.online.OnlineCatalog;
 import de.sb.knx.store.CatalogStore;
 import de.sb.knx.store.ProjectStore;
 
@@ -62,6 +64,7 @@ public final class Main {
 
         ProjectStore projects = new ProjectStore(dataDir);
         CatalogStore catalog = new CatalogStore(dataDir);
+        OnlineCatalog online = new OnlineCatalog(dataDir);
         Events events = new Events();
         Jobs jobs = new Jobs(events);
         BusService bus = new BusService(events);
@@ -77,6 +80,7 @@ public final class Main {
         http.createContext("/api/projects", new ProjectApi(projects, boundPort));
         http.createContext("/api/settings", new ProjectApi(projects, boundPort));
         http.createContext("/api/catalog", new CatalogApi(catalog, boundPort));
+        http.createContext("/api/online", new OnlineApi(online, jobs, events, boundPort));
         http.createContext("/api/bus", new BusApi(bus, jobs, events, boundPort));
         http.createContext("/api/events", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
