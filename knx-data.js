@@ -347,7 +347,7 @@ const KNX = (() => {
       let num = Math.max(1, Math.min(15, parseInt(s && s.num, 10) || 1));
       while (nums.has(num) && num < 15) num++;
       nums.add(num);
-      return { id: takeSegId(s && s.id), num, name: String((s && s.name) || 'Segment ' + num),
+      return { id: takeSegId(s && s.id), num, name: normName(s && s.name, 'Segment ' + num),
                medium: MEDIA[s && s.medium] ? s.medium : 'tp', note: normNote(s && s.note) };
     });
   }
@@ -428,7 +428,7 @@ const KNX = (() => {
     notes = [];
     const fromOldSchema = !(+p.schema >= 3);
 
-    p.name     = String(p.name || 'Unbenanntes Projekt');
+    p.name     = normName(p.name, 'Unbenanntes Projekt');
     p.gaStyle  = GA_STYLES[p.gaStyle] ? p.gaStyle : 'three';
     p.isSample = !!p.isSample;
     p.gaNames  = (p.gaNames && typeof p.gaNames === 'object') ? p.gaNames : {};
@@ -484,7 +484,7 @@ const KNX = (() => {
         }
         n.kind = k;
         delete n.level;
-        n.name = String(n.name || kindDe(k));
+        n.name = normName(n.name, kindDe(k));
         n.note = normNote(n.note);
         n.id = takeId(n.id, 'n', seenNodes);
         if (DEVICE_HOSTS.has(k)) roomIds.add(n.id);
@@ -503,7 +503,7 @@ const KNX = (() => {
     })(p.tree);
     p.tree.kind = 'site';
     delete p.tree.level;
-    p.tree.name = String(p.tree.name || kindDe('site'));
+    p.tree.name = normName(p.tree.name, kindDe('site'));
     p.tree.note = normNote(p.tree.note);
     p.tree.id = takeId(p.tree.id, 'n', seenNodes);
     p.tree.children = fixList(p.tree.children, kindHolds('site'), p.tree.name);
@@ -513,13 +513,13 @@ const KNX = (() => {
     p.areas = (Array.isArray(p.areas) ? p.areas : []).map(a => ({
       id: takeId(a.id, 'a', seenTopo),
       addr: clamp(a.addr, 0, PA_MAX.area, 1),
-      name: String(a.name || 'Bereich'),
+      name: normName(a.name, 'Bereich'),
       note: normNote(a.note),
       ...(a.backbone ? { backbone: true } : {}),
       lines: (Array.isArray(a.lines) ? a.lines : []).map(l => ({
         id: takeId(l.id, 'l', seenTopo),
         addr: clamp(l.addr, 0, PA_MAX.line, 1),
-        name: String(l.name || 'Linie'),
+        name: normName(l.name, 'Linie'),
         medium: MEDIA[l.medium] ? l.medium : 'tp',
         note: normNote(l.note),
         segments: normSegments(l.segments, id => takeId(id, 's', seenTopo)),
@@ -606,9 +606,9 @@ const KNX = (() => {
       }
       return {
         id, raw,
-        name: String(g.name || 'Unbenannt'),
+        name: normName(g.name, 'Unbenannt'),
         dpt,
-        note: String(g.note || '')
+        note: normNote(g.note)
       };
     });
     dptMoves.forEach((v, k) => note(
@@ -632,7 +632,7 @@ const KNX = (() => {
         const nodeId = seenNodes.has(f.nodeId) ? f.nodeId : (orphans++, p.tree.id);
         const seen = new Set();
         const fn = { id: takeId(f.id, 'f', seenFn), nodeId, type,
-                     name: String(f.name || fnType(type).de),
+                     name: normName(f.name, fnType(type).de),
                      icon: /^[a-z0-9-]{1,40}$/.test(f.icon) ? f.icon : '',
                      note: normNote(f.note), gas: [] };
         (Array.isArray(f.gas) ? f.gas : []).forEach(x => {
@@ -655,8 +655,8 @@ const KNX = (() => {
       else usedPa.add(pa);
       return {
         id: takeId(d.id, 'd', seenDev),
-        name: String(d.name || 'Gerät'),
-        product: String(d.product || ''),
+        name: normName(d.name, 'Gerät'),
+        product: normName(d.product, ''),
         lineId: lineIds.has(d.lineId) ? d.lineId : firstLine,
         addr: pa,
         roomId: roomIds.has(d.roomId) ? d.roomId : null,
@@ -672,7 +672,7 @@ const KNX = (() => {
           id: takeId(o.id, 'o', seenObj),
           ref: o.ref || null,
           num: clamp(o.num, 0, 65535, i),
-          name: String(o.name || 'Objekt'),
+          name: normName(o.name, 'Objekt'),
           dpt: dptById(o.dpt).id,
           flags: normFlags(o.flags),
           stale: !!o.stale,
@@ -690,26 +690,26 @@ const KNX = (() => {
       if (Array.isArray(objs)) {
         const o = {};
         objs.forEach((x, i) => {
-          o['O-' + i] = { num: clamp(x.num, 0, 65535, i), name: String(x.name || 'Objekt'),
+          o['O-' + i] = { num: clamp(x.num, 0, 65535, i), name: normName(x.name, 'Objekt'),
                           dpt: dptById(x.dpt).id, f: flagStr2(x.flags) };
         });
         objs = o;
       }
       return {
         id: takeId(c.id, 'c', seenCat),
-        name: String(c.name || 'Produkt'),
-        order: String(c.order || ''),
-        manufacturer: String(c.manufacturer || ''),
-        appName: String(c.appName || ''),
+        name: normName(c.name, 'Produkt'),
+        order: normName(c.order, ''),
+        manufacturer: normName(c.manufacturer, ''),
+        appName: normName(c.appName, ''),
         types: (c.types && typeof c.types === 'object') ? c.types : {},
         params: (c.params && typeof c.params === 'object') ? c.params : {},
         objs: (objs && typeof objs === 'object') ? objs : {},
         dyn: Array.isArray(c.dyn) ? c.dyn : [],
         // Programmierdaten aus der Produktdatei; alte Kataloge haben sie nicht.
         prog: (c.prog && typeof c.prog === 'object') ? c.prog : null,
-        mask: String(c.mask || ''),
+        mask: normName(c.mask, ''),
         ip: !!c.ip,
-        medium: String(c.medium || ''),
+        medium: normName(c.medium, ''),
         ma: clamp(c.ma, 0, 5000, 0),
         coupler: !!c.coupler,
         powerSupply: !!c.powerSupply,
@@ -771,6 +771,14 @@ const KNX = (() => {
   /* Notizen sind frei, aber begrenzt — sie wandern in jede Projektdatei mit. */
   const NOTE_MAX = 2000;
   const normNote = v => String(v == null ? '' : v).slice(0, NOTE_MAX);
+  /* Namen ebenso. Der längste echte Produktname im KNX-Onlinekatalog liegt bei
+     rund 60 Zeichen; 200 lässt Luft und hält eine fremde Datei davon ab, uns
+     megabytegroße Bezeichnungen in das Projekt zu schreiben. */
+  const NAME_MAX = 200;
+  const normName = (v, dflt) => {
+    const t = String(v == null ? '' : v).trim().slice(0, NAME_MAX);
+    return t || dflt;
+  };
   /* Seriennummer: 6 Byte, in der Anzeige ohne Trenner und in Grossbuchstaben. */
   function normSerial(v) {
     const hex = String(v == null ? '' : v).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
@@ -1570,18 +1578,18 @@ const KNX = (() => {
     items.forEach(it => {
       const c = {
         id: nid('c'),
-        name: String(it.name || 'Produkt'),
-        order: String(it.order || ''),
-        manufacturer: String(it.manufacturer || ''),
-        appName: String(it.appName || ''),
+        name: normName(it.name, 'Produkt'),
+        order: normName(it.order, ''),
+        manufacturer: normName(it.manufacturer, ''),
+        appName: normName(it.appName, ''),
         types: it.types || {},
         params: it.params || {},
         objs: it.objs || {},
         dyn: it.dyn || [],
         prog: (it.prog && typeof it.prog === 'object') ? it.prog : null,
-        mask: String(it.mask || ''),
+        mask: normName(it.mask, ''),
         ip: !!it.ip,
-        medium: String(it.medium || ''),
+        medium: normName(it.medium, ''),
         ma: +it.ma || 0,
         coupler: !!it.coupler,
         powerSupply: !!it.powerSupply,

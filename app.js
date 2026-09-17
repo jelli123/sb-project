@@ -273,6 +273,113 @@ function modalConfirm() {
    daraus geöffneter Folgedialog würde sofort wieder zugehen. */
 const nextModal = fn => setTimeout(fn, 0);
 
+/* ---------- Kontextmenü ---------- *
+ * Rechtsklick auf eine Zeile bietet dieselben Aktionen wie der Detailbereich
+ * rechts — und nur die, die für dieses Element gültig sind; welche das sind,
+ * entscheidet `menuFor` in app-render.js. Abgefangen wird nur auf den Zeilen
+ * selbst: in Eingabefeldern und bei markiertem Text bleibt das Browsermenü,
+ * sonst wäre Kopieren und Einfügen nicht mehr erreichbar.                  */
+
+let menuEl = null;
+
+/* `items`: Einträge {label, icon?, run, danger?, disabled?}, '-' als Trenner.
+   Falsche Werte fallen heraus — so lassen sich Einträge inline bedingen. */
+function openMenu(x, y, items) {
+  closeMenu();
+  const live = [];
+  items.forEach(it => {
+    if (!it) return;
+    // Kein Trenner am Anfang und keine zwei hintereinander
+    if (it === '-') { if (live.length && live[live.length - 1] !== '-') live.push('-'); }
+    else live.push(it);
+  });
+  while (live.length && live[live.length - 1] === '-') live.pop();
+  if (!live.some(it => it !== '-')) return;
+
+  menuEl = document.createElement('div');
+  menuEl.className = 'ctx-menu';
+  menuEl.setAttribute('role', 'menu');
+  menuEl.innerHTML = live.map((it, i) => it === '-'
+    ? '<div class="ctx-sep" role="separator"></div>'
+    : `<button type="button" role="menuitem" class="ctx-item${it.danger ? ' danger' : ''}"
+         data-i="${i}"${it.disabled ? ' disabled' : ''}${it.hint ? ` title="${esc(it.hint)}"` : ''}>
+         <span class="ctx-ic">${it.icon || ''}</span><span>${esc(it.label)}</span></button>`).join('');
+  document.body.appendChild(menuEl);
+
+  /* Erst nach dem Einfügen messbar: an der Kante wird gespiegelt statt abgeschnitten. */
+  const box = menuEl.getBoundingClientRect();
+  const pad = 6;
+  menuEl.style.left = Math.max(pad, Math.min(x, window.innerWidth - box.width - pad)) + 'px';
+  menuEl.style.top = Math.max(pad, Math.min(y, window.innerHeight - box.height - pad)) + 'px';
+
+  menuEl.addEventListener('click', ev => {
+    const btn = ev.target.closest('.ctx-item');
+    if (!btn || btn.disabled) return;
+    const it = live[+btn.dataset.i];
+    closeMenu();
+    if (it && it.run) it.run();
+  });
+  // Ein Rechtsklick im Menü soll es nicht erneut aufklappen
+  menuEl.addEventListener('contextmenu', ev => ev.preventDefault());
+
+  document.addEventListener('pointerdown', onMenuAway, true);
+  document.addEventListener('keydown', onMenuKey, true);
+  document.addEventListener('scroll', closeMenu, true);
+  window.addEventListener('resize', closeMenu);
+  window.addEventListener('blur', closeMenu);
+
+  const first = menuEl.querySelector('.ctx-item:not([disabled])');
+  if (first) first.focus();
+}
+
+function closeMenu() {
+  if (!menuEl) return;
+  menuEl.remove();
+  menuEl = null;
+  document.removeEventListener('pointerdown', onMenuAway, true);
+  document.removeEventListener('keydown', onMenuKey, true);
+  document.removeEventListener('scroll', closeMenu, true);
+  window.removeEventListener('resize', closeMenu);
+  window.removeEventListener('blur', closeMenu);
+}
+
+function onMenuAway(ev) {
+  if (menuEl && !menuEl.contains(ev.target)) closeMenu();
+}
+
+function onMenuKey(ev) {
+  if (!menuEl) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); closeMenu(); return; }
+  if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp' && ev.key !== 'Home' && ev.key !== 'End') return;
+  ev.preventDefault();
+  const all = [...menuEl.querySelectorAll('.ctx-item:not([disabled])')];
+  if (!all.length) return;
+  const at = all.indexOf(document.activeElement);
+  const to = ev.key === 'Home' ? 0
+    : ev.key === 'End' ? all.length - 1
+    : ev.key === 'ArrowDown' ? (at + 1) % all.length
+    : (at - 1 + all.length) % all.length;
+  all[to].focus();
+}
+
+/* Öffnet das Menü zu einem Rechtsklick, sofern für das Element etwas anzubieten ist. */
+function contextMenuFor(ev, kind, id) {
+  const items = window.KNXRender && window.KNXRender.menuFor
+    ? window.KNXRender.menuFor(kind, id) : [];
+  if (!items || !items.length) return false;
+  ev.preventDefault();
+  select(kind, id);
+  openMenu(ev.clientX, ev.clientY, items);
+  return true;
+}
+
+/* Wo das Browsermenü Vorrang hat. */
+function nativeMenuWins(ev) {
+  if (ev.target.closest('input, textarea, select, [contenteditable="true"]')) return true;
+  const sel = window.getSelection();
+  return !!(sel && !sel.isCollapsed && sel.toString().trim());
+}
+
 /* ---------- Baum-Hilfen ---------- */
 function inSubtree(id, ancestorId) {
   if (id === ancestorId) return true;
@@ -637,6 +744,7 @@ window.KNXApp = {
   actNewNode, actRenameNode, actDeleteNode,
   pickDialog, trailOf, moveNode, actPickChildren, actPickDevices, setDeviceRoom, parentOptions,
   iconBtn,
+  openMenu, closeMenu, contextMenuFor, nativeMenuWins,
   IC, IC_PENCIL, IC_TRASH, IC_LINK
 };
 

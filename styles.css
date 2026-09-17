@@ -1252,6 +1252,44 @@ textarea.input.note {
 .ovl-activity.warn  { color: var(--warn); background: var(--warn-weak); }
 .ovl-activity.error { color: var(--danger); background: var(--danger-weak); }
 
+/* ---------- Kontextmenü ---------- */
+.ctx-menu {
+  position: fixed;
+  z-index: 60;                /* über dem Modal-Hintergrund (50) */
+  min-width: 190px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ctx-item:hover:not(:disabled), .ctx-item:focus-visible {
+  background: var(--accent-weak);
+  outline: none;
+}
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover:not(:disabled), .ctx-item.danger:focus-visible { background: var(--danger-weak); }
+.ctx-item:disabled { color: var(--faint); cursor: default; }
+/* Feste Spalte, damit die Beschriftungen untereinander stehen — auch ohne Symbol. */
+.ctx-ic { flex: 0 0 14px; display: inline-grid; place-items: center; line-height: 0; }
+.ctx-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+
 /* ---------- Enge Fenster ---------- *
  * Die Topbar ist eine einzige Zeile mit fester Hoehe; umbrechen darf sie
  * nicht, ohne das Rasterlayout darunter zu verschieben. Gemessen braucht sie

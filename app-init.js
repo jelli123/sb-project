@@ -261,6 +261,17 @@ document.querySelectorAll('th.sortable').forEach(th => {
   });
 });
 
+/* ---------- Kontextmenü ---------- *
+ * Baum- und Tabellenzeilen hängen sich in app-render.js selbst ein, weil dort
+ * die Referenz schon im Closure liegt. Hier bleibt der Detailbereich, dessen
+ * Verweise kind und id im DOM tragen — delegiert, weil sein Inhalt bei jedem
+ * Rendern ersetzt wird, der Behälter selbst aber bleibt.                    */
+$('#detail')?.addEventListener('contextmenu', ev => {
+  if (A.nativeMenuWins(ev)) return;
+  const row = ev.target.closest('[data-kind][data-id]');
+  if (row) A.contextMenuFor(ev, row.dataset.kind, row.dataset.id);
+});
+
 /* ---------- Darstellung: hell, dunkel, automatisch ---------- *
  * Das Umlegen selbst macht KNXTheme im Kopf der Seite - dort, weil es vor
  * dem Stylesheet passieren muss. Hier haengt nur der Knopf daran.        */

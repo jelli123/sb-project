@@ -156,6 +156,10 @@ function buildTreeRow(o, index) {
   }
 
   row.onclick = () => o.onSelect();
+  row.oncontextmenu = e => {
+    if (A.nativeMenuWins(e)) return;
+    A.contextMenuFor(e, o.ref.kind, o.ref.id);
+  };
   if (o.onEdit) row.ondblclick = e => { e.stopPropagation(); o.onEdit(); };
   row.onkeydown = e => {
     if (e.key === 'Enter') { e.preventDefault(); o.onSelect(); }
@@ -622,6 +626,10 @@ function gaRow(ga) {
   tr.dataset.ptId = 'ga-' + ga.id;
   tr.tabIndex = -1;
   tr.onclick = () => A.select('ga', ga.id);
+  tr.oncontextmenu = e => {
+    if (A.nativeMenuWins(e)) return;
+    A.contextMenuFor(e, 'ga', ga.id);
+  };
   tr.ondblclick = () => G.actEditGa(ga.id);
   // Auf eine Gruppe im Baum ziehen verschiebt die Adresse — markierte gleich mit
   tr.draggable = true;
@@ -713,6 +721,10 @@ function devRow(d) {
   tr.dataset.ptId = 'dev-' + d.id;
   tr.tabIndex = -1;
   tr.onclick = () => A.select('dev', d.id);
+  tr.oncontextmenu = e => {
+    if (A.nativeMenuWins(e)) return;
+    A.contextMenuFor(e, 'dev', d.id);
+  };
   tr.ondblclick = () => T.actEditDevice(d.id);
   // Auf einen Raum im Gebäudebaum ziehen verbaut das Gerät dort
   tr.draggable = true;
@@ -1590,6 +1602,133 @@ function expandTo(kind, id) {
   }
 }
 
+/* ---------- Kontextmenü: gültige Aktionen je Element ---------- *
+ * Bewusst dieselben Aktionen wie der Detailbereich und nach denselben Regeln:
+ * der Wurzelknoten, der Backbone, die Hauptlinie und Segment 0 lassen sich
+ * nicht löschen, Parameter gibt es nur mit Produktdatei oder bei IP-Geräten,
+ * und ein Gerät aus einer .knxprod bekommt keine eigenen Objekte. Was nicht
+ * gilt, wird weggelassen statt gesperrt — ein Menü voller toter Einträge
+ * hilft niemandem.                                                         */
+function menuFor(kind, id) {
+  const p = KNX.project();
+  const bus = window.KNXBus;
+  const edit = { label: 'Bearbeiten …', icon: A.IC_PENCIL };
+  const del  = { label: 'Löschen …', icon: A.IC_TRASH, danger: true };
+
+  switch (kind) {
+    case 'node': {
+      const n = KNX.findNode(id);
+      if (!n) return [];
+      const holds = KNX.kindHolds(n.kind).length > 0;
+      const host = KNX.DEVICE_HOSTS.has(n.kind);
+      return [
+        holds && { label: 'Untergeordnetes anlegen …', run: () => A.actNewNode(id) },
+        holds && { label: 'Vorhandene übernehmen …', run: () => A.actPickChildren(id) },
+        { label: 'Funktion anlegen …', run: () => F.actNewFunction(id) },
+        { label: 'Funktionen übernehmen …', run: () => F.actPickFunctions(id) },
+        host && { label: 'Gerät anlegen …', run: () => T.actNewDevice({ roomId: id }) },
+        host && { label: 'Geräte übernehmen …', run: () => A.actPickDevices(id) },
+        '-',
+        { ...edit, run: () => A.actRenameNode(id) },
+        n.id !== p.tree.id && { ...del, run: () => A.actDeleteNode(id) }
+      ];
+    }
+    case 'fn': {
+      if (!KNX.functionById(id)) return [];
+      return [
+        { label: 'Adressen zuordnen …', run: () => F.actAssignFunctionGas(id) },
+        '-',
+        { ...edit, run: () => F.actEditFunction(id) },
+        { ...del, run: () => F.actDeleteFunction(id) }
+      ];
+    }
+    case 'ga': {
+      if (!KNX.gaById(id)) return [];
+      // Gehört die Adresse zur Markierung, gelten die Aktionen für alle markierten.
+      const marked = state.checked.has(id) ? [...state.checked] : null;
+      const n = marked ? marked.length : 0;
+      return [
+        { label: 'Zuordnen …', run: () => G.actAssignGa(id) },
+        { label: 'Verschieben …', run: () => G.actMoveGas([id]) },
+        '-',
+        { ...edit, run: () => G.actEditGa(id) },
+        { ...del, run: () => G.actDeleteGa(id) },
+        n > 1 && '-',
+        n > 1 && { label: `${n} markierte verschieben …`, run: () => G.actMoveGas(marked) },
+        n > 1 && { label: `${n} markierte löschen …`, danger: true, run: () => G.actDeleteSelected() }
+      ];
+    }
+    case 'grp': {
+      return [
+        { label: 'Adresse anlegen …', run: () => G.actNewGa(id) },
+        { label: 'Untergruppe anlegen …', run: () => G.actNewGaGroup(id) },
+        { label: 'Adressen verschieben …', run: () => G.actMoveGas(KNX.gasInGroup(id).map(g => g.id)) },
+        '-',
+        { label: 'Umbenennen …', icon: A.IC_PENCIL, run: () => T.actRenameGaGroup(id) },
+        { ...del, label: 'Gruppe löschen …', run: () => G.actDeleteGaGroup(id) }
+      ];
+    }
+    case 'dev': {
+      const d = KNX.deviceById(id);
+      if (!d) return [];
+      const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
+      return [
+        (item || KNX.deviceIsIp(d)) && { label: 'Parameter …', run: () => T.actParams(id) },
+        item && bus && bus.available && { label: 'Programmieren …', run: () => bus.program(id) },
+        !item && { label: 'Objekt anlegen …', run: () => T.actNewObj(id) },
+        '-',
+        { ...edit, run: () => T.actEditDevice(id) },
+        { ...del, run: () => T.actDeleteDevice(id) }
+      ];
+    }
+    case 'obj': {
+      if (!KNX.objById(id)) return [];
+      return [
+        { label: 'Adresse zuordnen …', run: () => T.actAssignObj(id) },
+        '-',
+        { ...edit, run: () => T.actEditObj(id) },
+        { ...del, run: () => T.actDeleteObj(id) }
+      ];
+    }
+    case 'line': {
+      const l = KNX.lineById(id);
+      const a = l && KNX.areaOfLine(id);
+      if (!l || !a) return [];
+      return [
+        { label: 'Gerät anlegen …', run: () => T.actNewDevice({ lineId: id }) },
+        { label: 'Segment anlegen …', run: () => T.actNewSegment(id) },
+        a.backbone && { label: 'Bereich anlegen …', run: () => T.actNewArea() },
+        '-',
+        { ...edit, run: () => T.actEditLine(id) },
+        !a.backbone && l.addr !== 0 && { ...del, run: () => T.actDeleteLine(id) }
+      ];
+    }
+    case 'seg': {
+      const s = KNX.segmentInfo(id);
+      if (!s) return [];
+      return [
+        { label: 'Gerät anlegen …',
+          run: () => T.actNewDevice({ lineId: s.line.id, segmentId: s.seg ? id : null }) },
+        '-',
+        { ...edit, run: () => T.actEditSegment(id) },
+        s.seg && { ...del, run: () => T.actDeleteSegment(id) }
+      ];
+    }
+    case 'area': {
+      const a = p.areas.find(x => x.id === id);
+      if (!a) return [];
+      return [
+        { label: 'Linie anlegen …', run: () => T.actNewLine(id) },
+        '-',
+        { ...edit, run: () => T.actEditArea(id) },
+        !a.backbone && KNX.regularAreas().length > 1 && { ...del, run: () => T.actDeleteArea(id) }
+      ];
+    }
+    default:
+      return [];
+  }
+}
+
 /* ---------- Master ---------- */
 function render() {
   issueMap = new Map();
@@ -1606,7 +1745,7 @@ function render() {
 }
 window.KNXOnRender = render;
 window.KNXRender = { render, jumpTo, moveTreeSel, paintTreeViewport, paintTable,
-                     issues: () => issueMap };
+                     menuFor, issues: () => issueMap };
 
 })();
 

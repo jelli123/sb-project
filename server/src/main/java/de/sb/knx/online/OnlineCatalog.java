@@ -64,13 +64,47 @@ public final class OnlineCatalog {
     private static final Pattern ATTR_KNX_ID = Pattern.compile("KnxManufacturerId=\"(\\d+)\"");
     private static final Pattern ATTR_NAME = Pattern.compile("Name=\"([^\"]*)\"");
 
-    /** Felder eines Katalogeintrags, die die Oberflaeche wirklich braucht. */
-    private static final String[] KEEP = {
-            "Id", "OrderNumber", "CatalogItemName", "ProductName", "ApplicationProgramName",
-            "MediumTypeIds", "ApplicationIdentifier", "FingerPrint",
-            "DownloadInfoIncomplete", "NoDownloadWithoutPlugin", "RequiresExternalSoftware",
-            "IsRailMounted", "WidthInMillimeter", "BusCurrent"
-    };
+    /**
+     * Felder eines Katalogeintrags, die die Oberflaeche braucht - mit dem Typ, den
+     * sie haben muessen. Der Katalog ist eine fremde Quelle: was nicht passt, wird
+     * weggelassen und nicht blind weitergereicht. Ohne diese Pruefung landet jede
+     * Struktur, die der Dienst liefert, im Cache und danach im Browser.
+     */
+    private enum Kind { TEXT, NUMBER, FLAG, TEXTS, NUMBERS }
+
+    private static final Map<String, Kind> KEEP = Map.ofEntries(
+            Map.entry("Id", Kind.TEXT),
+            Map.entry("OrderNumber", Kind.TEXT),
+            Map.entry("CatalogItemName", Kind.TEXT),
+            Map.entry("ProductName", Kind.TEXT),
+            Map.entry("ApplicationProgramName", Kind.TEXT),
+            Map.entry("MediumTypeIds", Kind.TEXTS),
+            Map.entry("ApplicationIdentifier", Kind.NUMBERS),
+            Map.entry("FingerPrint", Kind.NUMBER),
+            Map.entry("DownloadInfoIncomplete", Kind.FLAG),
+            Map.entry("NoDownloadWithoutPlugin", Kind.FLAG),
+            Map.entry("RequiresExternalSoftware", Kind.FLAG),
+            Map.entry("IsRailMounted", Kind.FLAG),
+            Map.entry("WidthInMillimeter", Kind.NUMBER),
+            Map.entry("BusCurrent", Kind.NUMBER));
+
+    /* Obergrenzen. Kein Eintrag im Katalog kommt ihnen nahe; sie begrenzen nur,
+       was eine fehlerhafte oder boeswillige Antwort anrichten kann. */
+    private static final int MAX_ENTRIES = 50_000;
+    private static final int MAX_TEXT = 500;
+    private static final int MAX_LIST = 32;
+
+    /** Erlaubte Sprachkennung, z. B. de-DE. Geht unveraendert an den Katalog. */
+    private static final Pattern LANGUAGE = Pattern.compile("[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8}){0,2}");
+    /**
+     * Katalog-Ids sehen aus wie M-0083_H-30-1_HP-0030-20-FCCB_CI-BE.2D16000.2E01-1:
+     * Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich. Kein Schraegstrich und
+     * kein ".." - beides gehoert nicht in eine Id und hat in einem Pfad nichts zu
+     * suchen. Den Dateinamen entschaerft productFile ohnehin noch einmal.
+     */
+    private static final Pattern CATALOG_ID = Pattern.compile("[A-Za-z0-9._-]{1,400}");
+    public static final int MAX_QUERY = 200;
+    public static final int MAX_MANUFACTURER_ID = 0xFFFF;
 
     private final Path root;
     private final Path indexDir;
@@ -90,6 +124,42 @@ public final class OnlineCatalog {
                 .connectTimeout(Duration.ofSeconds(20))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    /* ---------------- Pruefung der Eingaben ---------------- *
+     * Alles, was von der Oberflaeche kommt, wird hier geprueft, bevor es in eine
+     * URL, einen Rumpf oder einen Dateinamen geraet.                          */
+
+    public static int checkManufacturerId(int id) {
+        if (id < 0 || id > MAX_MANUFACTURER_ID) {
+            throw new IllegalArgumentException("Hersteller-Nummer ausserhalb 0.." + MAX_MANUFACTURER_ID);
+        }
+        return id;
+    }
+
+    public static String checkLanguage(String lang) {
+        if (lang == null || !LANGUAGE.matcher(lang).matches()) {
+            throw new IllegalArgumentException("Unbrauchbare Sprachkennung: " + shorten(lang));
+        }
+        return lang;
+    }
+
+    public static String checkCatalogId(String id) {
+        if (id == null || !CATALOG_ID.matcher(id).matches() || id.contains("..")) {
+            throw new IllegalArgumentException("Unbrauchbare Katalog-Id");
+        }
+        return id;
+    }
+
+    /** Haelt Fehlermeldungen kurz - die Eingabe kann beliebig lang sein. */
+    private static String shorten(String s) {
+        if (s == null) return "(fehlt)";
+        return s.length() <= 40 ? s : s.substring(0, 40) + "…";
+    }
+
+    public static String checkQuery(String q) {
+        String s = q == null ? "" : q.strip();
+        return s.length() > MAX_QUERY ? s.substring(0, MAX_QUERY) : s;
     }
 
     /* ---------------- Hersteller ---------------- */
@@ -162,6 +232,8 @@ public final class OnlineCatalog {
      * der gewuenschten Sprache. Ohne `refresh` wird geliefert, was im Cache liegt.
      */
     public Map<String, Object> index(int manufacturerId, String language, boolean refresh) throws IOException {
+        checkManufacturerId(manufacturerId);
+        checkLanguage(language);
         Path cache = indexFile(manufacturerId);
         synchronized (lock("index-" + manufacturerId)) {
             Map<String, Object> cached = readJson(cache);
@@ -184,29 +256,87 @@ public final class OnlineCatalog {
         return doc;
     }
 
-    /** Aus der Antwort des Katalogs wird das, was die Liste zeigt - Rest faellt weg. */
+    /**
+     * Aus der Antwort des Katalogs wird das, was die Liste zeigt - der Rest faellt
+     * weg. Jedes uebernommene Feld muss den erwarteten Typ haben und die Laengen-
+     * grenzen einhalten, sonst wird es ausgelassen. Ein Eintrag ohne brauchbare
+     * Katalog-Id ist wertlos, weil sich dazu nichts herunterladen laesst.
+     */
     @SuppressWarnings("unchecked")
     static Map<String, Object> slim(Map<String, Object> raw, int manufacturerId, String language) {
         List<Object> entries = Json.arr();
-        Object rawEntries = raw.get("Entries");
-        if (rawEntries instanceof List<?> list) {
+        int dropped = 0;
+        if (raw.get("Entries") instanceof List<?> list) {
             for (Object o : list) {
-                if (!(o instanceof Map)) continue;
+                if (entries.size() >= MAX_ENTRIES) { dropped += 1; continue; }
+                if (!(o instanceof Map)) { dropped++; continue; }
                 Map<String, Object> e = (Map<String, Object>) o;
                 Map<String, Object> slim = Json.obj();
-                for (String k : KEEP) if (e.containsKey(k)) slim.put(k, e.get(k));
+                KEEP.forEach((key, kind) -> {
+                    Object v = check(e.get(key), kind);
+                    if (v != null) slim.put(key, v);
+                });
+                if (!(slim.get("Id") instanceof String id)
+                        || !CATALOG_ID.matcher(id).matches() || id.contains("..")) {
+                    dropped++;
+                    continue;
+                }
                 applyTranslation(e, slim, language);
+                // Ohne irgendeine Bezeichnung ist der Eintrag in der Liste nicht wiederzuerkennen.
+                if (!slim.containsKey("ProductName") && !slim.containsKey("CatalogItemName")
+                        && !slim.containsKey("OrderNumber")) {
+                    dropped++;
+                    continue;
+                }
                 entries.add(slim);
             }
         }
         Map<String, Object> doc = Json.obj();
         doc.put("manufacturerId", manufacturerId);
-        doc.put("manufacturerName", Json.str(raw, "ManufacturerName", "Hersteller " + manufacturerId));
+        doc.put("manufacturerName",
+                text(Json.str(raw, "ManufacturerName", null), "Hersteller " + manufacturerId));
         doc.put("version", Json.integer(raw, "Version", 0));
         doc.put("language", language);
         doc.put("fetchedAt", System.currentTimeMillis());
+        doc.put("dropped", dropped);
         doc.put("entries", entries);
         return doc;
+    }
+
+    /** Liefert den Wert, wenn er dem erwarteten Typ und den Grenzen entspricht, sonst null. */
+    private static Object check(Object v, Kind kind) {
+        if (v == null) return null;
+        switch (kind) {
+            case TEXT:
+                return v instanceof String s && !s.isBlank() ? cut(s) : null;
+            case NUMBER:
+                return v instanceof Number n && !(n instanceof Double d && (d.isNaN() || d.isInfinite()))
+                        ? n : null;
+            case FLAG:
+                return v instanceof Boolean b ? b : null;
+            case TEXTS:
+            case NUMBERS: {
+                if (!(v instanceof List<?> list)) return null;
+                List<Object> out = Json.arr();
+                for (Object x : list) {
+                    if (out.size() >= MAX_LIST) break;
+                    if (kind == Kind.TEXTS && x instanceof String s && !s.isBlank()) out.add(cut(s));
+                    else if (kind == Kind.NUMBERS && x instanceof Number n) out.add(n);
+                }
+                return out.isEmpty() ? null : out;
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static String cut(String s) {
+        String t = s.strip();
+        return t.length() > MAX_TEXT ? t.substring(0, MAX_TEXT) : t;
+    }
+
+    private static String text(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : cut(value);
     }
 
     /**
@@ -231,7 +361,7 @@ public final class OnlineCatalog {
     }
 
     private static void put(Map<String, Object> m, String key, String value) {
-        if (value != null && !value.isBlank()) m.put(key, value);
+        if (value != null && !value.isBlank()) m.put(key, cut(value));
     }
 
     /* ---------------- Suche ueber das, was schon im Cache liegt ---------------- */
@@ -242,7 +372,7 @@ public final class OnlineCatalog {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> search(String query, int limit) throws IOException {
-        String q = query.trim().toLowerCase(Locale.ROOT);
+        String q = checkQuery(query).toLowerCase(Locale.ROOT);
         List<Object> hits = Json.arr();
         int scanned = 0;
         if (q.isEmpty()) return result(hits, 0, false);
@@ -295,6 +425,8 @@ public final class OnlineCatalog {
      * Applikation, darum wird eine einmal geholte Datei nie wieder angefragt.
      */
     public byte[] product(String catalogId, String language) throws IOException {
+        checkCatalogId(catalogId);
+        checkLanguage(language);
         Path cache = productFile(catalogId, language);
         synchronized (lock("product-" + cache.getFileName())) {
             if (Files.isRegularFile(cache)) return Files.readAllBytes(cache);
@@ -336,6 +468,7 @@ public final class OnlineCatalog {
      */
     public Map<String, Object> syncAll(String language, boolean force, BiConsumer<String, Object> progress)
             throws IOException, InterruptedException {
+        checkLanguage(language);
         List<Object> all = entriesOf(manufacturers(false));
         int done = 0, fetched = 0, failed = 0;
         long bytes = 0, sourceBytes = 0;
