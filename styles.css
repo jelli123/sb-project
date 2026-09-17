@@ -937,6 +937,9 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   overflow-wrap: anywhere;
 }
 .detail-list li .addr { flex: 0 0 auto; }
+/* Beschriftung/Wert-Liste: die Beschriftung links darf nicht schrumpfen. Steht
+   rechts ein langer Pfad, bricht sie sonst buchstabenweise um („Ab/la/ge“). */
+.detail-list.kv > li > span:first-child { flex: 0 0 auto; white-space: nowrap; }
 .detail-list li .dpt-tag { flex: 0 0 auto; }
 .detail-list li .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-list li.clickable, .detail-list .addr.clickable { cursor: pointer; }

@@ -738,11 +738,11 @@ function actOnlineCache(onBack) {
     try {
       const s = await be.online.status();
       if (!live()) return;
-      $('#m-stat').innerHTML = `<ul class="detail-list">
-        <li><span>Hersteller bekannt</span><span>${s.manufacturers || 0}</span></li>
-        <li><span>Produktlisten geholt</span><span>${s.indexes || 0} · ${onlineSize(s.indexBytes)}</span></li>
-        <li><span>Produktdateien im Speicher</span><span>${s.products || 0} · ${onlineSize(s.productBytes)}</span></li>
-        <li><span>Ablage</span><span>${esc(s.dir || '')}</span></li>
+      $('#m-stat').innerHTML = `<ul class="detail-list kv">
+        <li><span>Hersteller bekannt</span><span class="grow">${s.manufacturers || 0}</span></li>
+        <li><span>Produktlisten geholt</span><span class="grow">${s.indexes || 0} · ${onlineSize(s.indexBytes)}</span></li>
+        <li><span>Produktdateien im Speicher</span><span class="grow">${s.products || 0} · ${onlineSize(s.productBytes)}</span></li>
+        <li><span>Ablage</span><span class="grow" title="${esc(s.dir || '')}">${esc(s.dir || '')}</span></li>
       </ul>`;
     } catch (e) {
       if (live()) $('#m-stat').innerHTML = `<p class="hint warn">${esc(e && e.message ? e.message : String(e))}</p>`;
