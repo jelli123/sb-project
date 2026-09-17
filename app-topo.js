@@ -340,6 +340,8 @@ function actCatalog(onPick) {
         <button type="button" class="btn btn-sm btn-primary" id="m-load">Produktdatei laden …</button>
         <button type="button" class="btn btn-sm" id="m-online"
                 title="Produktdaten aus dem offenen KNX-Onlinekatalog holen">Onlinekatalog …</button>
+      </div>
+      <div class="pick-row">
         <input class="input" id="m-search" placeholder="Katalog durchsuchen …">
       </div>
       <div class="chk-list tall" id="m-cat-list">

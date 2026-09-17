@@ -261,6 +261,44 @@ document.querySelectorAll('th.sortable').forEach(th => {
   });
 });
 
+/* ---------- Darstellung: hell, dunkel, automatisch ---------- *
+ * Das Umlegen selbst macht KNXTheme im Kopf der Seite - dort, weil es vor
+ * dem Stylesheet passieren muss. Hier haengt nur der Knopf daran.        */
+
+const THEME_LABEL = { system: 'Automatisch', light: 'Hell', dark: 'Dunkel' };
+const THEME_ICON = {
+  // Halb gefuellter Kreis: folgt der Systemvorgabe
+  system: '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4">'
+    + '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" stroke="none"/></svg>',
+  light: '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4">'
+    + '<circle cx="8" cy="8" r="3.1"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15'
+    + 'M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M12.95 3.05l-1.13 1.13M4.18 11.82l-1.13 1.13"/></svg>',
+  dark: '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4">'
+    + '<path d="M13 9.8A5.6 5.6 0 0 1 6.2 3a5.6 5.6 0 1 0 6.8 6.8z"/></svg>'
+};
+
+function syncThemeButton() {
+  const btn = $('#btn-theme'), th = window.KNXTheme;
+  if (!btn || !th) return;
+  const mode = th.mode();
+  btn.innerHTML = THEME_ICON[mode];
+  btn.title = `Darstellung: ${THEME_LABEL[mode]}`
+    + (mode === 'system' ? ` (gerade ${THEME_LABEL[th.resolved()]})` : '')
+    + ` — klicken für ${THEME_LABEL[th.next()]}`;
+  btn.setAttribute('aria-label', btn.title);
+}
+
+if ($('#btn-theme') && window.KNXTheme) {
+  $('#btn-theme').addEventListener('click', () => {
+    window.KNXTheme.set(window.KNXTheme.next());
+    syncThemeButton();
+  });
+  // Wechselt die Systemvorgabe, waehrend „Automatisch“ laeuft, stimmt sonst der Hinweistext nicht mehr.
+  window.matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', syncThemeButton);
+  syncThemeButton();
+}
+
 /* ---------- Import / Export ---------- */
 $('#btn-export').addEventListener('click', () => {
   const p = KNX.project();

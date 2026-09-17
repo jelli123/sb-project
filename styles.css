@@ -19,12 +19,123 @@
   --danger:    oklch(48% 0.17 25);
   --warn:      oklch(55% 0.12 70);
 
+  /* Abgeleitete Farben. Vorher standen diese Werte verstreut im Blatt; als
+     Token lassen sie sich fuer den Dunkelmodus an einer Stelle umlegen. */
+  --on-accent:       oklch(98% 0 0);     /* Text auf Akzentflaechen */
+  --on-status:       oklch(100% 0 0);    /* Text auf Melde-Punkten */
+  --accent-hover:    oklch(43% 0.16 245);
+  --accent-border:   oklch(84% 0.05 245);
+  --ok-border:       oklch(84% 0.055 150);
+  --danger-weak:     oklch(96.5% 0.02 25);
+  --danger-tint:     oklch(98% 0.02 25);
+  --danger-border:   oklch(85% 0.05 25);
+  --warn-weak:       oklch(96.5% 0.025 70);
+  --warn-border:     oklch(85% 0.05 70);
+  --sel:             oklch(96% 0.02 240);
+  --sel-hover:       oklch(94% 0.025 240);
+  --backdrop:        oklch(20% 0.02 240 / 0.4);
+  --hover-filter:    brightness(0.97);
+
+  /* Topbar und Toast sind auch im Hellmodus dunkel und brauchen darum eigene
+     Werte - sie duerfen nicht an --fg haengen, das im Dunkelmodus hell wird. */
+  --bar-bg:          oklch(22% 0.02 240);
+  --bar-fg:          oklch(96% 0.005 240);
+  --bar-fg2:         oklch(88% 0.01 240);
+  --bar-muted:       oklch(80% 0.01 240);
+  --bar-faint:       oklch(73% 0.01 240);
+  --bar-accent-hover: oklch(55% 0.16 245);
+
+  /* Symbolfarben des Baums und der Funktionen */
+  --ic-room:    oklch(55% 0.10 150);
+  --ic-part:    oklch(50% 0.10 245);
+  --ic-outdoor: oklch(55% 0.12 140);
+  --ic-cabinet: oklch(50% 0.02 240);
+  --ic-area:    oklch(50% 0.14 300);
+  --ic-line:    oklch(52% 0.13 30);
+  --ic-device:  oklch(45% 0.12 245);
+  --ic-grp:     oklch(52% 0.12 70);
+  --ic-light:   oklch(62% 0.14 75);
+  --ic-shade:   oklch(52% 0.12 240);
+  --ic-hvac:    oklch(55% 0.16 30);
+  --ic-power:   oklch(52% 0.12 150);
+  --ic-sensor:  oklch(50% 0.13 300);
+  --ic-scene:   oklch(52% 0.10 190);
+  --ic-meter:   oklch(50% 0.06 240);
+
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'Cascadia Mono', ui-monospace, Consolas, Menlo, monospace;
   --shadow: 0 2px 6px oklch(20% 0.02 240 / 0.08), 0 12px 32px oklch(20% 0.02 240 / 0.14);
   --radius: 6px;
   --topbar-h: 54px;
   --statusbar-h: 30px;
+}
+
+/* ---------- Dunkelmodus ---------- *
+ * Umgelegt wird ausschliesslich ueber die Tokens oben; kein Regelwerk
+ * darunter kennt den Modus. Gesetzt wird `data-theme` von Hand im Kopf der
+ * Seite (siehe index.html) - die Systemvorgabe loest das Skript vorher zu
+ * `light` oder `dark` auf, damit hier keine zweite, doppelte Palette fuer
+ * `prefers-color-scheme` gepflegt werden muss.                            */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg:        oklch(17.5% 0.012 240);
+  --surface:   oklch(21.5% 0.013 240);
+  --surface2:  oklch(25% 0.014 240);
+  --fg:        oklch(93% 0.008 240);
+  --muted:     oklch(71% 0.014 240);
+  --faint:     oklch(56% 0.012 240);
+  --border:    oklch(30% 0.014 240);
+  --border2:   oklch(38% 0.016 240);
+  --accent:    oklch(68% 0.14 245);
+  --accent-weak: oklch(30% 0.055 245);
+  --ok:        oklch(72% 0.14 150);
+  --ok-weak:   oklch(28% 0.05 150);
+  --danger:    oklch(70% 0.16 25);
+  --warn:      oklch(78% 0.13 70);
+
+  /* Der Akzent ist jetzt hell - Text darauf muss dunkel werden. */
+  --on-accent:       oklch(18% 0.02 245);
+  --on-status:       oklch(16% 0.015 240);
+  --accent-hover:    oklch(74% 0.14 245);
+  --accent-border:   oklch(42% 0.07 245);
+  --ok-border:       oklch(40% 0.07 150);
+  --danger-weak:     oklch(28% 0.055 25);
+  --danger-tint:     oklch(25% 0.045 25);
+  --danger-border:   oklch(42% 0.08 25);
+  --warn-weak:       oklch(29% 0.05 70);
+  --warn-border:     oklch(42% 0.07 70);
+  --sel:             oklch(29% 0.032 245);
+  --sel-hover:       oklch(33% 0.038 245);
+  --backdrop:        oklch(8% 0.01 240 / 0.62);
+  /* Aufhellen statt Abdunkeln, sonst verschwindet die Zeile beim Ueberfahren. */
+  --hover-filter:    brightness(1.18);
+  --shadow: 0 2px 6px oklch(0% 0 0 / 0.45), 0 12px 32px oklch(0% 0 0 / 0.6);
+
+  /* Etwas heller als der Seitengrund, damit die Leiste Leiste bleibt. */
+  --bar-bg:          oklch(25% 0.016 240);
+  --bar-fg:          oklch(94% 0.006 240);
+  --bar-fg2:         oklch(85% 0.01 240);
+  --bar-muted:       oklch(76% 0.012 240);
+  --bar-faint:       oklch(68% 0.012 240);
+  --bar-accent-hover: oklch(74% 0.14 245);
+
+  --ic-room:    oklch(72% 0.12 150);
+  --ic-part:    oklch(70% 0.12 245);
+  --ic-outdoor: oklch(73% 0.13 140);
+  --ic-cabinet: oklch(68% 0.02 240);
+  --ic-area:    oklch(71% 0.14 300);
+  --ic-line:    oklch(72% 0.14 30);
+  --ic-device:  oklch(69% 0.13 245);
+  --ic-grp:     oklch(75% 0.13 70);
+  --ic-light:   oklch(79% 0.14 75);
+  --ic-shade:   oklch(71% 0.13 240);
+  --ic-hvac:    oklch(72% 0.16 30);
+  --ic-power:   oklch(72% 0.13 150);
+  --ic-sensor:  oklch(71% 0.14 300);
+  --ic-scene:   oklch(72% 0.11 190);
+  --ic-meter:   oklch(70% 0.07 240);
 }
 
 * { box-sizing: border-box; }
@@ -68,11 +179,11 @@ input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(98% 0 0); font-weight: 600; }
-.btn-primary:hover { background: oklch(43% 0.16 245); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled:hover { background: var(--accent); }
-.btn-danger { color: var(--danger); border-color: oklch(85% 0.05 25); }
-.btn-danger:hover { background: oklch(95% 0.03 25); }
+.btn-danger { color: var(--danger); border-color: var(--danger-border); }
+.btn-danger:hover { background: var(--danger-weak); }
 .btn-sm { min-height: 28px; padding: 0 10px; font-size: 13px; }
 
 .icon-btn {
@@ -130,8 +241,8 @@ select:focus-visible,
   align-items: center;
   gap: 14px;
   padding: 0 14px;
-  background: var(--fg);
-  color: oklch(96% 0.005 240);
+  background: var(--bar-bg);
+  color: var(--bar-fg);
 }
 #topbar .brand {
   display: flex;
@@ -148,17 +259,17 @@ select:focus-visible,
   place-items: center;
   font-weight: 800;
   font-size: 9px;
-  color: oklch(98% 0 0);
+  color: var(--on-accent);
   letter-spacing: -0.3px;
 }
 #topbar .brand-text b { display: block; font-size: 13.5px; font-weight: 650; line-height: 1.2; }
-#topbar .brand-text span { font-size: 11px; color: oklch(75% 0.01 240); }
+#topbar .brand-text span { font-size: 11px; color: var(--bar-faint); }
 
 #project-name {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius);
-  color: oklch(96% 0.005 240);
+  color: var(--bar-fg);
   font-weight: 600;
   font-size: 14px;
   font-family: inherit;
@@ -170,7 +281,7 @@ select:focus-visible,
 #project-name:focus { background: oklch(0% 0 0 / 0.25); border-color: oklch(100% 0 0 / 0.3); outline: none; }
 
 #topbar .dpt-tag {
-  color: oklch(80% 0.01 240);
+  color: var(--bar-muted);
   background: oklch(100% 0 0 / 0.08);
   border-color: oklch(100% 0 0 / 0.14);
 }
@@ -194,10 +305,10 @@ select:focus-visible,
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: oklch(88% 0.01 240);
+  color: var(--bar-fg2);
   cursor: pointer;
 }
-.hist-btn:hover:not(:disabled) { background: oklch(100% 0 0 / 0.16); color: oklch(98% 0 0); }
+.hist-btn:hover:not(:disabled) { background: oklch(100% 0 0 / 0.16); color: var(--bar-fg); }
 .hist-btn:active:not(:disabled) { background: oklch(100% 0 0 / 0.24); }
 .hist-btn:disabled { opacity: 0.3; cursor: default; }
 .hist-sep { width: 1px; height: 18px; background: oklch(100% 0 0 / 0.18); margin: 0 3px; }
@@ -210,7 +321,7 @@ select:focus-visible,
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: oklch(72% 0.01 240);
+  color: var(--bar-faint);
 }
 #topbar .topbar-field select {
   font: inherit;
@@ -218,7 +329,7 @@ select:focus-visible,
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  color: oklch(96% 0.005 240);
+  color: var(--bar-fg);
   background: oklch(100% 0 0 / 0.08);
   border: 1px solid oklch(100% 0 0 / 0.16);
   border-radius: var(--radius);
@@ -228,11 +339,19 @@ select:focus-visible,
 #topbar .btn {
   background: oklch(100% 0 0 / 0.08);
   border-color: oklch(100% 0 0 / 0.16);
-  color: oklch(96% 0.005 240);
+  color: var(--bar-fg);
 }
 #topbar .btn:hover { background: oklch(100% 0 0 / 0.16); }
-#topbar .btn-primary { background: var(--accent); border-color: oklch(100% 0 0 / 0.25); color: oklch(98% 0 0); }
-#topbar .btn-primary:hover { background: oklch(55% 0.16 245); }
+/* Quadratischer Knopf, der nur ein Symbol traegt. */
+#topbar .btn-icon {
+  padding: 0;
+  width: 30px;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+#topbar .btn-primary { background: var(--accent); border-color: oklch(100% 0 0 / 0.25); color: var(--on-accent); }
+#topbar .btn-primary:hover { background: var(--bar-accent-hover); }
 
 /* ---------- Drei Spalten mit ziehbaren Trennstegen ---------- */
 #main {
@@ -391,17 +510,17 @@ body.resizing .resizer { background: var(--accent); }
 .tree-row .caret.invisible { visibility: hidden; cursor: default; }
 
 .lvl-ic { display: inline-flex; color: var(--muted); flex: 0 0 auto; }
-.lvl-ic.room, .lvl-ic.corridor { color: oklch(55% 0.10 150); }
+.lvl-ic.room, .lvl-ic.corridor { color: var(--ic-room); }
 .lvl-ic.floor, .lvl-ic.building { color: var(--accent); }
-.lvl-ic.part { color: oklch(50% 0.10 245); }
-.lvl-ic.outdoor { color: oklch(55% 0.12 140); }
-.lvl-ic.cabinet { color: oklch(50% 0.02 240); }
+.lvl-ic.part { color: var(--ic-part); }
+.lvl-ic.outdoor { color: var(--ic-outdoor); }
+.lvl-ic.cabinet { color: var(--ic-cabinet); }
 .lvl-ic.site { color: var(--fg); }
-.lvl-ic.area { color: oklch(50% 0.14 300); }
-.lvl-ic.line { color: oklch(52% 0.13 30); }
-.lvl-ic.device { color: oklch(45% 0.12 245); }
+.lvl-ic.area { color: var(--ic-area); }
+.lvl-ic.line { color: var(--ic-line); }
+.lvl-ic.device { color: var(--ic-device); }
 .lvl-ic.obj { color: var(--faint); }
-.lvl-ic.grp { color: oklch(52% 0.12 70); }
+.lvl-ic.grp { color: var(--ic-grp); }
 .lvl-ic.big {
   width: 40px; height: 40px;
   border: 1px solid var(--border2);
@@ -448,7 +567,7 @@ body.resizing .resizer { background: var(--accent); }
   place-items: center;
   font-size: 10px;
   font-weight: 700;
-  color: oklch(100% 0 0);
+  color: var(--on-status);
   cursor: help;
 }
 .issue-dot.error { background: var(--danger); }
@@ -512,8 +631,8 @@ table.ga tbody td {
 }
 table.ga tbody tr:hover { background: var(--surface2); }
 table.ga tbody tr.sel { background: var(--accent-weak); }
-table.ga tbody tr.checked { background: oklch(96% 0.02 240); }
-table.ga tbody tr.checked:hover { background: oklch(94% 0.025 240); }
+table.ga tbody tr.checked { background: var(--sel); }
+table.ga tbody tr.checked:hover { background: var(--sel-hover); }
 table.ga tbody tr.row-spacer { cursor: default; height: auto; }
 table.ga tbody tr.row-spacer:hover { background: transparent; }
 table.ga tbody tr.row-spacer td { padding: 0; border: none; height: auto; }
@@ -544,11 +663,11 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   background: var(--surface2);
   white-space: nowrap;
 }
-.room-chip.more { color: var(--accent); border-color: oklch(82% 0.05 245); background: var(--accent-weak); }
+.room-chip.more { color: var(--accent); border-color: var(--accent-border); background: var(--accent-weak); }
 .room-chip.empty { border-style: dashed; color: var(--faint); }
-.room-chip.send { color: var(--ok); border-color: oklch(82% 0.06 150); background: var(--ok-weak); font-family: var(--mono); }
+.room-chip.send { color: var(--ok); border-color: var(--ok-border); background: var(--ok-weak); font-family: var(--mono); }
 
-.dpt-tag.bad { color: var(--danger); border-color: oklch(85% 0.05 25); background: oklch(96% 0.02 25); }
+.dpt-tag.bad { color: var(--danger); border-color: var(--danger-border); background: var(--danger-weak); }
 .src-tag {
   display: inline-block;
   font-size: 10.5px;
@@ -561,7 +680,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   background: var(--surface2);
   border: 1px solid var(--border2);
 }
-.src-tag.prog { color: var(--accent); background: var(--accent-weak); border-color: oklch(85% 0.05 245); }
+.src-tag.prog { color: var(--accent); background: var(--accent-weak); border-color: var(--accent-border); }
 .flags { font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: 1px; flex: 0 0 auto; }
 .onum {
   font-family: var(--mono);
@@ -587,7 +706,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   color: var(--faint);
   background: var(--surface2);
 }
-.flag-chip.on { color: oklch(98% 0 0); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.flag-chip.on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 700; }
 
 .flag-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .flag-box {
@@ -621,9 +740,11 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .chk-row .chk-label { flex: 1; }
 
 /* ---------- Produktkatalog ---------- */
-.pick-row { display: flex; align-items: center; gap: 8px; }
-.pick-row .select, .pick-row .input { flex: 1; min-width: 0; }
-.pick-row .btn { flex: 0 0 auto; }
+/* Umbrechend wie `.ovl-sec .row`: der Dialog ist nur 440 px breit, und sobald
+   eine Zeile mehrere Knoepfe traegt, muessen die ueberzaehligen nach unten. */
+.pick-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pick-row .select, .pick-row .input { flex: 1 1 160px; min-width: 120px; }
+.pick-row .btn { flex: 0 0 auto; max-width: 100%; }
 
 .cat-row {
   display: flex;
@@ -684,7 +805,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 }
 .prm > span em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 11px; }
 .prm .select, .prm .input { min-height: 30px; padding: 4px 8px; font-size: 12.5px; }
-.prm .input:invalid { border-color: var(--danger); background: oklch(98% 0.02 25); }
+.prm .input:invalid { border-color: var(--danger); background: var(--danger-tint); }
 .prm :disabled { background: var(--surface2); color: var(--muted); cursor: default; }
 
 .detail-list li.stale { opacity: 0.55; }
@@ -694,7 +815,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .issue-list li {
   padding: 7px 10px 7px 24px;
   border-left: 3px solid var(--warn);
-  background: oklch(97% 0.02 70);
+  background: var(--warn-weak);
   border-radius: 0 4px 4px 0;
   margin-bottom: 5px;
   font-size: 12.5px;
@@ -707,7 +828,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   font-weight: 700;
   color: var(--warn);
 }
-.issue-list li.error { border-left-color: var(--danger); background: oklch(97% 0.02 25); }
+.issue-list li.error { border-left-color: var(--danger); background: var(--danger-weak); }
 .issue-list li.error::before { content: '!'; color: var(--danger); }
 .issue-list li.info { border-left-color: var(--border2); background: var(--surface2); }
 .issue-list li.info::before { content: 'i'; color: var(--faint); font-style: italic; }
@@ -715,7 +836,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .issue-list li.ok::before { content: '✓'; color: var(--ok); }
 .issue-list.big { max-height: 55vh; overflow: auto; }
 .issue-list.big li { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
-.issue-list.big li:hover { filter: brightness(0.97); }
+.issue-list.big li:hover { filter: var(--hover-filter); }
 .issue-list.big b { font-family: var(--mono); font-size: 12px; }
 
 .issues {
@@ -723,14 +844,14 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   font-size: 11.5px;
   color: var(--warn);
   background: transparent;
-  border: 1px solid oklch(85% 0.05 70);
+  border: 1px solid var(--warn-border);
   border-radius: 10px;
   padding: 1px 10px;
   cursor: pointer;
 }
-.issues:hover { background: oklch(96% 0.03 70); }
-.issues.error { color: var(--danger); border-color: oklch(85% 0.05 25); }
-.issues.error:hover { background: oklch(96% 0.02 25); }
+.issues:hover { background: var(--warn-weak); }
+.issues.error { color: var(--danger); border-color: var(--danger-border); }
+.issues.error:hover { background: var(--danger-weak); }
 .issues.info { color: var(--muted); border-color: var(--border2); }
 .issues.info:hover { background: var(--surface); }
 
@@ -919,7 +1040,7 @@ textarea.input.note {
 #modal-backdrop {
   position: fixed;
   inset: 0;
-  background: oklch(20% 0.02 240 / 0.4);
+  background: var(--backdrop);
   display: none;
   align-items: flex-start;
   justify-content: center;
@@ -963,8 +1084,8 @@ textarea.input.note {
   bottom: calc(var(--statusbar-h) + 14px);
   left: 50%;
   transform: translate(-50%, 10px);
-  background: var(--fg);
-  color: oklch(96% 0.005 240);
+  background: var(--bar-bg);
+  color: var(--bar-fg);
   font-size: 13px;
   padding: 9px 16px;
   border-radius: var(--radius);
@@ -995,7 +1116,7 @@ textarea.input.note {
   align-items: flex-start;
   justify-content: center;
   padding: 3vh 20px;
-  background: oklch(20% 0.02 240 / 0.4);
+  background: var(--backdrop);
   overflow: auto;
 }
 #bus-overlay.open { display: flex; }
@@ -1055,7 +1176,7 @@ textarea.input.note {
 }
 .ovl-sec .chk input, .ovl-head .chk input { accent-color: var(--accent); }
 .ovl-sec .lbl { font-size: 12.5px; color: var(--muted); }
-.ovl-sec .input.invalid { border-color: var(--danger); background: oklch(98% 0.02 25); }
+.ovl-sec .input.invalid { border-color: var(--danger); background: var(--danger-tint); }
 
 /* Abschnitte, die eine Busverbindung brauchen, bleiben lesbar, wirken aber inaktiv. */
 .ovl-sec .sec-lock {
@@ -1125,8 +1246,22 @@ textarea.input.note {
   animation: slide 1.3s ease-in-out infinite;
 }
 .ovl-activity.ok    { color: var(--ok); background: var(--ok-weak); }
-.ovl-activity.warn  { color: var(--warn); background: oklch(96% 0.035 70); }
-.ovl-activity.error { color: var(--danger); background: oklch(96% 0.02 25); }
+.ovl-activity.warn  { color: var(--warn); background: var(--warn-weak); }
+.ovl-activity.error { color: var(--danger); background: var(--danger-weak); }
+
+/* ---------- Enge Fenster ---------- *
+ * Die Topbar ist eine einzige Zeile mit fester Hoehe; umbrechen darf sie
+ * nicht, ohne das Rasterlayout darunter zu verschieben. Gemessen braucht sie
+ * rund 1610 px. Reicht das nicht, weichen zuerst die entbehrlichen Texte -
+ * erst der Markentext (205 px), dann die Beschriftung des Adressfelds
+ * (70 px). Die Knoepfe selbst bleiben in voller Breite erreichbar.        */
+@media (max-width: 1620px) {
+  #topbar .brand-text { display: none; }
+  #topbar .brand { padding-right: 0; border-right: none; }
+}
+@media (max-width: 1420px) {
+  #topbar .topbar-field > span { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ovl-activity.running::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
@@ -1154,7 +1289,7 @@ textarea.input.note {
 .log-line.warn  { color: var(--warn); }
 .log-line.error { color: var(--danger); }
 
-.dpt-tag.ok { color: var(--ok); border-color: oklch(85% 0.05 150); background: var(--ok-weak); }
+.dpt-tag.ok { color: var(--ok); border-color: var(--ok-border); background: var(--ok-weak); }
 
 /* Kompakte Tabellen im Overlay und in Dialogen */
 table.ga.mini { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -1193,13 +1328,13 @@ table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--border); 
  * Symbole aus Lucide, eingefärbt nach Kategorie — Licht warm, Beschattung
  * kühl, Heizung rot: in Baum und Tabelle auf einen Blick zu unterscheiden. */
 .fn-ic { display: inline-flex; vertical-align: -2px; color: var(--muted); flex: 0 0 auto; }
-.fn-ic.fn-light  { color: oklch(62% 0.14 75); }
-.fn-ic.fn-shade  { color: oklch(52% 0.12 240); }
-.fn-ic.fn-hvac   { color: oklch(55% 0.16 30); }
-.fn-ic.fn-power  { color: oklch(52% 0.12 150); }
-.fn-ic.fn-sensor { color: oklch(50% 0.13 300); }
-.fn-ic.fn-scene  { color: oklch(52% 0.10 190); }
-.fn-ic.fn-meter  { color: oklch(50% 0.06 240); }
+.fn-ic.fn-light  { color: var(--ic-light); }
+.fn-ic.fn-shade  { color: var(--ic-shade); }
+.fn-ic.fn-hvac   { color: var(--ic-hvac); }
+.fn-ic.fn-power  { color: var(--ic-power); }
+.fn-ic.fn-sensor { color: var(--ic-sensor); }
+.fn-ic.fn-scene  { color: var(--ic-scene); }
+.fn-ic.fn-meter  { color: var(--ic-meter); }
 
 .fn-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
 .fn-type {

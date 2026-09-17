@@ -4,6 +4,39 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KNX Struktur — Wohnobjekt-Editor</title>
+<script>
+/* Muss vor dem Stylesheet laufen, sonst blitzt die Seite erst hell auf.
+   Die Systemvorgabe wird hier zu "light" oder "dark" aufgeloest - das
+   Stylesheet kennt nur diese zwei Werte und braucht deshalb keine zweite,
+   doppelt gepflegte Palette fuer prefers-color-scheme. */
+(() => {
+  const KEY = 'knx-theme-v1', MODES = ['system', 'light', 'dark'];
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  let pref = 'system';
+  try { pref = localStorage.getItem(KEY) || 'system'; } catch (e) { /* nur Komfort */ }
+  if (!MODES.includes(pref)) pref = 'system';
+
+  const apply = () => {
+    document.documentElement.dataset.theme =
+      pref === 'system' ? (media.matches ? 'dark' : 'light') : pref;
+  };
+  apply();
+  media.addEventListener('change', () => { if (pref === 'system') apply(); });
+
+  window.KNXTheme = {
+    MODES,
+    mode: () => pref,
+    resolved: () => document.documentElement.dataset.theme,
+    set(next) {
+      pref = MODES.includes(next) ? next : 'system';
+      try { localStorage.setItem(KEY, pref); } catch (e) { /* nur Komfort */ }
+      apply();
+      return pref;
+    },
+    next: () => ({ system: 'light', light: 'dark', dark: 'system' })[pref]
+  };
+})();
+</script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -49,6 +82,7 @@
       </select>
     </label>
 
+    <button id="btn-theme" class="btn btn-icon" data-pt-id="btn-theme" aria-label="Darstellung"></button>
     <button id="btn-export" class="btn" data-pt-id="btn-export" title="Projekt als JSON-Datei speichern">Export</button>
     <button id="btn-import" class="btn" data-pt-id="btn-import" title="Projekt aus JSON-Datei laden">Import</button>
     <input type="file" id="import-file" accept=".json,application/json" hidden>
