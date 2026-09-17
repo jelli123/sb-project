@@ -9,8 +9,18 @@
 
 const KNXProd = (() => {
 
-const MAX_FILE = 64 * 1024 * 1024;      // Schutz gegen aufgeblähte Archive
+/* Obergrenzen. Eine .knxprod kommt vom Hersteller oder aus dem Onlinekatalog —
+   beides fremde Quellen. Die Größenangaben im Inhaltsverzeichnis macht die Datei
+   über sich selbst und sind darum kein Schutz: geprüft wird zusätzlich, was beim
+   Entpacken wirklich herauskommt.
+   Gemessen an 21 echten Produktdateien (ABB, Bosch, Gira, Helios, Jung, MDT):
+   höchstens 18 Einträge, 8 XML-Dateien, 8,6 MB im größten Eintrag, 23 MB
+   entpackt, Namen bis 75 Zeichen. Die Grenzen lassen davon ein Mehrfaches zu. */
+const MAX_FILE = 64 * 1024 * 1024;
 const MAX_TOTAL = 256 * 1024 * 1024;
+const MAX_ENTRIES = 2000;
+const MAX_NAME = 512;
+const MAX_XML_DOCS = 256;
 
 /* ---------- ZIP ---------- */
 const SIG_EOCD = 0x06054b50, SIG_CEN = 0x02014b50, SIG_LOC = 0x04034b50;
@@ -33,6 +43,8 @@ function zipEntries(buf) {
   let p = view.getUint32(eocd + 16, true);
   if (view.getUint32(eocd + 12, true) === 0xFFFFFFFF || p === 0xFFFFFFFF)
     throw new Error('ZIP64-Archive werden nicht unterstützt.');
+  if (count > MAX_ENTRIES)
+    throw new Error(`Das Archiv nennt ${count} Einträge — mehr als ${MAX_ENTRIES}.`);
 
   const dec = new TextDecoder('utf-8');
   const out = [];
@@ -47,37 +59,83 @@ function zipEntries(buf) {
     const extraLen = view.getUint16(p + 30, true);
     const commLen = view.getUint16(p + 32, true);
     const localAt = view.getUint32(p + 42, true);
+    // Alle Längen stammen aus der Datei — ohne diese Prüfung wirft die Sicht
+    // darauf einen nackten RangeError statt einer lesbaren Meldung.
+    if (nameLen > MAX_NAME) throw new Error('Ein Eintragsname im Archiv ist unerwartet lang.');
+    if (p + 46 + nameLen > buf.byteLength) throw new Error('Das Inhaltsverzeichnis ist abgeschnitten.');
     const name = dec.decode(new Uint8Array(buf, p + 46, nameLen));
 
     if (flags & 0x01) throw new Error(`Eintrag „${name}“ ist verschlüsselt.`);
     if (rawSize > MAX_FILE) throw new Error(`Eintrag „${name}“ ist unerwartet groß.`);
+    if (localAt + 30 > buf.byteLength) throw new Error(`Eintrag „${name}“ zeigt hinter das Dateiende.`);
     total += rawSize;
     if (total > MAX_TOTAL) throw new Error('Archivinhalt ist unerwartet groß.');
 
     out.push({ name, method, compSize, rawSize, localAt });
     p += 46 + nameLen + extraLen + commLen;
   }
+  /* Die Schleife bricht bei einem kaputten Verzeichnis einfach ab. Ohne diese
+     Prüfung sähe eine halb übertragene Datei wie eine leere aus und der Nutzer
+     bekäme „enthält keine XML-Dateien“ statt eines Hinweises auf den Schaden. */
+  if (out.length < count)
+    throw new Error(`Das Archiv ist unvollständig — ${count} ${count === 1 ? 'Eintrag' : 'Einträge'} angekündigt, ${out.length} gefunden.`);
   return out;
 }
 
-async function inflate(bytes) {
-  const stream = new Blob([bytes]).stream()
-    .pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+/* Entpackt mit Obergrenze. Frueher las das hier den ganzen Strom über
+   Response.arrayBuffer() ein — eine Deflate-Bombe konnte im Verzeichnis 1000
+   Byte ankündigen und beim Entpacken Megabytes liefern. Jetzt wird stückweise
+   gelesen und beim Überschreiten abgebrochen, bevor der Speicher volläuft. */
+async function inflate(bytes, limit, name) {
+  const reader = new Blob([bytes]).stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+    .getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      throw new Error(`Eintrag „${name}“ entpackt sich auf mehr als ${limit} Byte.`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
 }
 
-/* Entpackt einen einzelnen Eintrag. */
-async function zipRead(buf, e) {
+/**
+ * Entpackt einen einzelnen Eintrag. `budget` zählt mit, wie viel über alle
+ * Einträge zusammen schon herausgekommen ist — sonst ließe sich die Grenze je
+ * Eintrag mit vielen kleinen Einträgen umgehen.
+ */
+async function zipRead(buf, e, budget) {
   const view = new DataView(buf);
   if (view.getUint32(e.localAt, true) !== SIG_LOC)
     throw new Error(`Beschädigter Eintrag „${e.name}“.`);
   const nameLen = view.getUint16(e.localAt + 26, true);
   const extraLen = view.getUint16(e.localAt + 28, true);
   const at = e.localAt + 30 + nameLen + extraLen;
-  const raw = new Uint8Array(buf, at, e.compSize);
-  if (e.method === 0) return raw;
-  if (e.method === 8) return inflate(raw);
-  throw new Error(`Eintrag „${e.name}“ nutzt ein unbekanntes Kompressionsverfahren.`);
+  if (at + e.compSize > buf.byteLength)
+    throw new Error(`Eintrag „${e.name}“ reicht über das Dateiende hinaus.`);
+
+  const limit = Math.min(MAX_FILE, budget ? budget.left : MAX_FILE);
+  let out;
+  if (e.method === 0) out = new Uint8Array(buf, at, e.compSize);
+  else if (e.method === 8) out = await inflate(new Uint8Array(buf, at, e.compSize), limit, e.name);
+  else throw new Error(`Eintrag „${e.name}“ nutzt ein unbekanntes Kompressionsverfahren.`);
+
+  if (out.length > limit) throw new Error(`Eintrag „${e.name}“ ist unerwartet groß.`);
+  /* Ein heiles Archiv nennt im Inhaltsverzeichnis die richtige Größe. Weicht
+     sie ab, ist die Datei beschädigt oder macht falsche Angaben. */
+  if (out.length !== e.rawSize)
+    throw new Error(`Eintrag „${e.name}“ ist anders groß als angekündigt.`);
+  if (budget) budget.left -= out.length;
+  return out;
 }
 
 /* ---------- XML-Hilfen ---------- *
@@ -673,6 +731,8 @@ async function read(file, prefer) {
   const buf = await file.arrayBuffer();
   const all = zipEntries(buf);
   const entries = all.filter(e => /\.xml$/i.test(e.name));
+  if (entries.length > MAX_XML_DOCS)
+    throw new Error(`Das Archiv enthält ${entries.length} XML-Dateien — mehr als ${MAX_XML_DOCS}.`);
   const binaries = all.filter(e => BINARY.test(e.name))
     .map(e => ({ name: e.name, bytes: e.rawSize }));
   const extras = all.filter(e => !/\.xml$/i.test(e.name) && !BINARY.test(e.name) && e.rawSize > 0)
@@ -682,8 +742,11 @@ async function read(file, prefer) {
   const parser = new DOMParser();
   const dec = new TextDecoder('utf-8');
   const docs = [];
+  /* Gemeinsames Restbudget: die Grenze je Eintrag allein liesse sich mit
+     vielen kleinen Einträgen umgehen. */
+  const budget = { left: MAX_TOTAL };
   for (const e of entries) {
-    const doc = parser.parseFromString(dec.decode(await zipRead(buf, e)), 'application/xml');
+    const doc = parser.parseFromString(dec.decode(await zipRead(buf, e, budget)), 'application/xml');
     if (!doc.getElementsByTagName('parsererror').length) docs.push(doc);
   }
   if (!docs.length) throw new Error('Keine lesbaren XML-Daten gefunden.');
