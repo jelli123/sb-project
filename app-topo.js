@@ -58,7 +58,7 @@ function flagBoxes(flags) {
   return '<div class="flag-grid">' + KNX.KO_FLAGS.map(f => `
     <label class="flag-box" title="${esc(f.desc)}">
       <input type="checkbox" id="m-f-${f.key}"${flags[f.key] ? ' checked' : ''}>
-      <b>${f.short}</b><span>${esc(f.de)}</span>
+      <b>${esc(A.t(f.short))}</b><span>${esc(A.t(f.de))}</span>
     </label>`).join('') + '</div>';
 }
 const readFlags = () => {

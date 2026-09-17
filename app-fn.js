@@ -8,7 +8,7 @@
 
 (() => {
 const A = window.KNXApp, $ = s => document.querySelector(s);
-const state = A.state, esc = A.esc;
+const state = A.state, esc = A.esc, T18 = A.t;
 
 /* Symbol einer Funktion oder eines Typs, eingefärbt nach Kategorie. */
 function fnIc(fn, size = 15) {
@@ -58,28 +58,28 @@ function actNewFunction(nodeId) {
   const depth = KNX.gaStyle().parts.length - 1;
   let type = KNX.fnType('light-switch'), icon = '', nameTouched = false;
 
-  A.openModal(`Neue Funktion in „${node.name}“`, `
-    <div class="field"><span>Typ</span>
+  A.openModal(T18('Neue Funktion in „{0}“', node.name), `
+    <div class="field"><span>${T18('Typ')}</span>
       <div class="fn-types" id="m-types">${KNX.FN_TYPES.map(t => `
         <button type="button" class="fn-type" data-type="${t.key}">
-          ${typeIc(t, 20)}<span>${esc(t.de)}</span></button>`).join('')}
+          ${typeIc(t, 20)}<span>${esc(T18(t.de))}</span></button>`).join('')}
       </div>
     </div>
-    <label class="field"><span>Name</span>
+    <label class="field"><span>${T18('Name')}</span>
       <input class="input" id="m-name" maxlength="60">
     </label>
-    <details class="fn-icons"><summary>Symbol <span id="m-icon-cur"></span></summary>${iconGrid('')}</details>
-    <div class="field" id="m-roles-f"><span>Gruppenadressen dazu anlegen</span>
+    <details class="fn-icons"><summary>${T18('Symbol')} <span id="m-icon-cur"></span></summary>${iconGrid('')}</details>
+    <div class="field" id="m-roles-f"><span>${T18('Gruppenadressen dazu anlegen')}</span>
       <div class="chk-list" id="m-roles"></div>
     </div>
-    <label class="field" id="m-folder-f"><span>${depth >= 1 ? 'in Gruppe' : 'Adressen'}</span>
+    <label class="field" id="m-folder-f"><span>${depth >= 1 ? T18('in Gruppe') : T18('Adressen')}</span>
       <select class="select" id="m-folder"></select>
     </label>
     <p class="hint" id="m-fn-hint"></p>
     <div id="m-err"></div>
   `, () => {
     const name = $('#m-name').value.trim();
-    if (!name) { showErr('Bitte einen Namen vergeben.'); $('#m-name').focus(); return false; }
+    if (!name) { showErr(T18('Bitte einen Namen vergeben.')); $('#m-name').focus(); return false; }
     const roles = [...$('#m-roles').querySelectorAll('.chk:checked')].map(c => c.dataset.role);
     const choice = $('#m-folder').value;
     const fn = KNX.addFunction({ id: KNX.uid('f'), nodeId, type: type.key, name, icon, note: '', gas: [] });
@@ -93,7 +93,9 @@ function actNewFunction(nodeId) {
     state.sel = { kind: 'fn', id: fn.id };
     state.filter = { kind: 'fn', id: fn.id };
     A.commit();
-    if (missing) A.warn(`${missing} ${missing === 1 ? 'Adresse fand' : 'Adressen fanden'} in der Gruppe keinen Platz mehr.`);
+    if (missing) A.warn(missing === 1
+      ? T18('{0} Adresse fand in der Gruppe keinen Platz mehr.', missing)
+      : T18('{0} Adressen fanden in der Gruppe keinen Platz mehr.', missing));
   });
 
   const folders = folderList();
@@ -107,7 +109,7 @@ function actNewFunction(nodeId) {
     $('#m-roles').innerHTML = type.roles.map(r => `
       <label class="chk-row">
         <input type="checkbox" class="chk" data-role="${r.key}" checked>
-        <span class="chk-label">${esc(r.de)}</span>
+        <span class="chk-label">${esc(T18(r.de))}</span>
         <span class="dpt-tag">${r.dpt}</span>
       </label>`).join('');
 
@@ -115,15 +117,15 @@ function actNewFunction(nodeId) {
     const sug = KNX.functionFolder(nodeId, type.key);
     const isNew = sug && Object.keys(sug.create).length;
     $('#m-folder').innerHTML = (depth >= 1
-      ? `<option value="auto">${esc(sug ? sug.label : 'nächste freie Adressen')}${isNew ? ' (wird angelegt)' : ''}</option>` +
+      ? `<option value="auto">${esc(sug ? sug.label : T18('nächste freie Adressen'))}${isNew ? ' ' + T18('(wird angelegt)') : ''}</option>` +
         folders.filter(f => !sug || f.key !== sug.key).map(f =>
           `<option value="${esc(f.key)}">${esc(f.key)}${f.label ? ' ' + esc(f.label) : ''}</option>`).join('')
-      : '<option value="free">nächste freie Adressen</option>') +
-      '<option value="none">keine Adressen anlegen</option>';
+      : `<option value="free">${T18('nächste freie Adressen')}</option>`) +
+      `<option value="none">${T18('keine Adressen anlegen')}</option>`;
     if (keep && keep !== 'auto' && [...$('#m-folder').options].some(o => o.value === keep)) $('#m-folder').value = keep;
     $('#m-fn-hint').textContent = type.roles.length
-      ? 'Die Adressen heißen wie die Funktion plus Rolle und liegen dort auf den nächsten freien Nummern.'
-      : 'Benutzerdefinierte Funktionen haben keine festen Rollen — Adressen danach zuordnen oder auf die Funktion ziehen.';
+      ? T18('Die Adressen heißen wie die Funktion plus Rolle und liegen dort auf den nächsten freien Nummern.')
+      : T18('Benutzerdefinierte Funktionen haben keine festen Rollen — Adressen danach zuordnen oder auf die Funktion ziehen.');
   };
   $('#m-types').addEventListener('click', e => {
     const b = e.target.closest('.fn-type');
@@ -143,25 +145,24 @@ function actEditFunction(id) {
   const fn = KNX.functionById(id);
   if (!fn) return;
   let icon = fn.icon;
-  A.openModal('Funktion bearbeiten', `
+  A.openModal(T18('Funktion bearbeiten'), `
     <label class="field"><span>Name</span>
       <input class="input" id="m-name" maxlength="60" value="${esc(fn.name)}">
     </label>
-    <label class="field"><span>Typ</span>
+    <label class="field"><span>${T18('Typ')}</span>
       <select class="select" id="m-type">${KNX.FN_TYPES.map(t =>
-        `<option value="${t.key}"${t.key === fn.type ? ' selected' : ''}>${esc(t.de)}</option>`).join('')}</select>
+        `<option value="${t.key}"${t.key === fn.type ? ' selected' : ''}>${esc(T18(t.de))}</option>`).join('')}</select>
     </label>
-    <details class="fn-icons"${fn.icon ? ' open' : ''}><summary>Symbol <span id="m-icon-cur"></span></summary>${iconGrid(fn.icon)}</details>
-    <label class="field"><span>Notiz</span>
+    <details class="fn-icons"${fn.icon ? ' open' : ''}><summary>${T18('Symbol')} <span id="m-icon-cur"></span></summary>${iconGrid(fn.icon)}</details>
+    <label class="field"><span>${T18('Notiz')}</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
-                placeholder="Freitext zur Dokumentation">${esc(fn.note || '')}</textarea>
+                placeholder="${T18('Freitext zur Dokumentation')}">${esc(fn.note || '')}</textarea>
     </label>
-    <p class="hint">Beim Typwechsel behalten Adressen ihre Rolle, wenn der neue Typ sie kennt —
-       sonst laufen sie als weitere Adressen mit.</p>
+    <p class="hint">${T18('Beim Typwechsel behalten Adressen ihre Rolle, wenn der neue Typ sie kennt — sonst laufen sie als weitere Adressen mit.')}</p>
     <div id="m-err"></div>
   `, () => {
     const name = $('#m-name').value.trim();
-    if (!name) { showErr('Bitte einen Namen vergeben.'); $('#m-name').focus(); return false; }
+    if (!name) { showErr(T18('Bitte einen Namen vergeben.')); $('#m-name').focus(); return false; }
     fn.name = name;
     fn.type = $('#m-type').value;
     fn.icon = icon;
@@ -182,22 +183,23 @@ function actDeleteFunction(id) {
   if (!fn) return;
   const own = fn.gas.filter(x => KNX.functionsOfGa(x.ga).length === 1);
   const linked = own.filter(x => KNX.gaLinks(x.ga).length).length;
-  A.openModal(`Funktion „${fn.name}“ löschen?`, `
-    <p>Die Funktion wird entfernt.</p>
+  A.openModal(T18('Funktion „{0}“ löschen?', fn.name), `
+    <p>${T18('Die Funktion wird entfernt.')}</p>
     ${own.length ? `
     <label class="chk-row">
       <input type="checkbox" class="chk" id="m-withgas">
-      <span class="chk-label">auch ihre ${own.length === 1 ? 'Gruppenadresse' : own.length + ' Gruppenadressen'} löschen</span>
+      <span class="chk-label">${own.length === 1 ? T18('auch ihre Gruppenadresse löschen')
+        : T18('auch ihre {0} Gruppenadressen löschen', own.length)}</span>
     </label>
-    ${linked ? `<p class="hint warn">${linked} davon sind Kommunikationsobjekten zugeordnet.</p>` : ''}`
-    : '<p class="hint">Adressen, die auch andere Funktionen nutzen, bleiben in jedem Fall erhalten.</p>'}
+    ${linked ? `<p class="hint warn">${T18('{0} davon sind Kommunikationsobjekten zugeordnet.', linked)}</p>` : ''}`
+    : `<p class="hint">${T18('Adressen, die auch andere Funktionen nutzen, bleiben in jedem Fall erhalten.')}</p>`}
   `, () => {
     const withGas = !!$('#m-withgas')?.checked;
     const n = KNX.deleteFunction(id, withGas);
     if (state.sel?.kind === 'fn' && state.sel.id === id) state.sel = { kind: 'node', id: fn.nodeId };
     if (state.filter?.kind === 'fn' && state.filter.id === id) state.filter = { kind: 'node', id: fn.nodeId };
     A.commit();
-    if (n) A.toast(`${n} ${n === 1 ? 'Adresse' : 'Adressen'} mitgelöscht`);
+    if (n) A.toast(n === 1 ? T18('{0} Adresse mitgelöscht', n) : T18('{0} Adressen mitgelöscht', n));
   });
 }
 
@@ -207,17 +209,16 @@ function actAssignFunctionGas(id) {
   if (!fn) return;
   const has = new Set(fn.gas.map(x => x.ga));
   const gs = KNX.project().groups.slice().sort((a, b) => a.raw - b.raw);
-  A.openModal(`Adressen — ${fn.name}`, `
-    <p class="hint">Adressen mit passendem DPT übernehmen die nächste freie Rolle.
-       Schneller geht es, Adressen aus Tabelle oder Baum auf die Funktion zu ziehen.</p>
-    <input class="input" id="m-search" placeholder="Adressen filtern …">
+  A.openModal(T18('Adressen — {0}', fn.name), `
+    <p class="hint">${T18('Adressen mit passendem DPT übernehmen die nächste freie Rolle. Schneller geht es, Adressen aus Tabelle oder Baum auf die Funktion zu ziehen.')}</p>
+    <input class="input" id="m-search" placeholder="${T18('Adressen filtern …')}">
     <div class="chk-list tall" id="m-gas">${gs.map(g => `
       <label class="chk-row" data-name="${esc((KNX.addrStr(g) + ' ' + g.name).toLowerCase())}">
         <input type="checkbox" class="chk" data-ga="${g.id}"${has.has(g.id) ? ' checked' : ''}>
         <span class="addr">${KNX.addrStr(g)}</span>
         <span class="chk-label">${esc(g.name)}</span>
         <span class="dpt-tag">${g.dpt}</span>
-      </label>`).join('') || '<p class="hint">Noch keine Gruppenadressen angelegt.</p>'}
+      </label>`).join('') || `<p class="hint">${T18('Noch keine Gruppenadressen angelegt.')}</p>`}
     </div>
   `, () => {
     const picked = new Set([...$('#m-gas').querySelectorAll('.chk:checked')].map(c => c.dataset.ga));
@@ -240,7 +241,7 @@ function createRoleGa(id, role) {
   const folder = key ? { key, create: {} } : KNX.functionFolder(fn.nodeId, fn.type);
   const missing = KNX.createRoleGas(fn, [role], folder);
   A.commit();
-  if (missing) A.warn('In der Gruppe ist keine Adresse mehr frei.');
+  if (missing) A.warn(T18('In der Gruppe ist keine Adresse mehr frei.'));
 }
 
 /* Rolle wechseln; wer die Rolle bisher hatte, wird zur weiteren Adresse. */
@@ -266,8 +267,9 @@ function dropGas(ids, fnId) {
   const n = KNX.attachGas(fnId, ids);
   if (n) {
     A.commit();
-    A.toast(`${n} ${n === 1 ? 'Adresse' : 'Adressen'} zu „${fn.name}“ hinzugefügt`);
-  } else A.toast('Die Adressen gehören schon zu „' + fn.name + '“');
+    A.toast(n === 1 ? T18('{0} Adresse zu „{1}“ hinzugefügt', n, fn.name)
+                    : T18('{0} Adressen zu „{1}“ hinzugefügt', n, fn.name));
+  } else A.toast(T18('Die Adressen gehören schon zu „{0}“', fn.name));
 }
 
 /* ---------- Umhängen ---------- */
@@ -280,7 +282,7 @@ function actPickFunctions(nodeId) {
   const node = KNX.findNode(nodeId);
   if (!node) return;
   const items = KNX.project().functions.filter(f => f.nodeId !== nodeId).map(f => ({
-    id: f.id, label: f.name, sub: KNX.fnType(f.type).de + ' · bisher ' + A.trailOf(f.nodeId), icon: fnIc(f)
+    id: f.id, label: f.name, sub: T18(KNX.fnType(f.type).de) + ' · ' + T18('bisher {0}', A.trailOf(f.nodeId)), icon: fnIc(f)
   }));
   A.pickDialog(`Funktionen nach „${node.name}“ holen`, 'Die Funktionen behalten ihre Adressen.', items, ids => {
     ids.forEach(id => KNX.moveFunction(id, nodeId));

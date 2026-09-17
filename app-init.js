@@ -30,11 +30,10 @@ function syncProjectMeta() {
 function showMigrationNotes() {
   const n = KNX.migrationNotes();
   if (!n.length) return;
-  A.openModal('Projekt angepasst', `
-    <p>Beim Laden wurden Daten an das aktuelle Modell angeglichen:</p>
+  A.openModal(T18('Projekt angepasst'), `
+    <p>${T18('Beim Laden wurden Daten an das aktuelle Modell angeglichen:')}</p>
     <ul class="issue-list">${n.map(x => `<li class="info">${esc(x)}</li>`).join('')}</ul>
-    <p class="hint">Die Änderungen sind bereits gespeichert. Bei Bedarf die alte Datei
-    aufbewahren und die betroffenen Adressen nachziehen.</p>
+    <p class="hint">${T18('Die Änderungen sind bereits gespeichert. Bei Bedarf die alte Datei aufbewahren und die betroffenen Adressen nachziehen.')}</p>
   `, () => {});
   $('#modal-cancel').hidden = true;
 }
@@ -60,7 +59,7 @@ $('#project-name').addEventListener('change', e => {
 $('#ga-style').addEventListener('change', e => {
   KNX.project().gaStyle = e.target.value;
   A.commit();
-  A.status('Darstellung: ' + KNX.gaStyle().label);
+  A.status(T18('Adressdarstellung: {0}', KNX.gaStyle().label));
 });
 
 /* ---------- Ansichtsumschalter ---------- */
@@ -155,7 +154,7 @@ document.querySelectorAll('.resizer').forEach(bar => {
   bar.addEventListener('dblclick', () => {
     setCol(edge, COL_DEFAULT[edge]);
     storeCols();
-    A.status('Spaltenbreite zurückgesetzt');
+    A.status(T18('Spaltenbreite zurückgesetzt'));
   });
 
   bar.addEventListener('keydown', e => {
@@ -226,20 +225,20 @@ function showIssues() {
   const label = i => {
     if (i.kind === 'ga') { const g = KNX.gaById(i.id); return g ? KNX.addrStr(g) + ' ' + g.name : ''; }
     if (i.kind === 'device') { const d = KNX.deviceById(i.id); return d ? KNX.paStr(d.addr) + ' ' + d.name : ''; }
-    if (i.kind === 'line') return 'Linie ' + KNX.lineLabel(i.id);
-    if (i.kind === 'seg') { const s = KNX.segmentInfo(i.id); return s ? 'Linie ' + KNX.lineLabel(s.line.id) + ' · ' + s.name : ''; }
-    if (i.kind === 'fn') { const f = KNX.functionById(i.id); return f ? 'Funktion ' + f.name : ''; }
-    if (i.kind === 'area') { const a = KNX.project().areas.find(x => x.id === i.id); return a ? 'Bereich ' + a.name : ''; }
+    if (i.kind === 'line') return T18('Linie {0}', KNX.lineLabel(i.id));
+    if (i.kind === 'seg') { const s = KNX.segmentInfo(i.id); return s ? T18('Linie {0}', KNX.lineLabel(s.line.id)) + ' · ' + s.name : ''; }
+    if (i.kind === 'fn') { const f = KNX.functionById(i.id); return f ? T18('Funktion {0}', f.name) : ''; }
+    if (i.kind === 'area') { const a = KNX.project().areas.find(x => x.id === i.id); return a ? T18('Bereich {0}', a.name) : ''; }
     return '';
   };
   const order = { error: 0, warn: 1, info: 2 };
   all.sort((a, b) => order[a.level] - order[b.level]);
   const n = l => all.filter(i => i.level === l).length;
-  A.openModal(`Prüfergebnis — ${n('error')} Fehler, ${n('warn')} Hinweise, ${n('info')} Anmerkungen`, `
+  A.openModal(T18('Prüfergebnis — {0} Fehler, {1} Hinweise, {2} Anmerkungen', n('error'), n('warn'), n('info')), `
     <ul class="issue-list big" id="m-issues">
       ${all.map(i => `<li class="${i.level}" data-kind="${i.kind === 'device' ? 'dev' : i.kind}" data-id="${i.id}">
         <b>${esc(label(i))}</b><span>${esc(i.msg)}</span></li>`).join('')
-        || '<li class="ok">Keine Auffälligkeiten.</li>'}
+        || `<li class="ok">${T18('Keine Auffälligkeiten.')}</li>`}
     </ul>
   `, () => {});
   $('#m-issues').addEventListener('click', ev => {
@@ -341,7 +340,7 @@ $('#btn-export').addEventListener('click', () => {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  A.status('Projekt exportiert.');
+  A.status(T18('Projekt exportiert.'));
 });
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
 $('#import-file').addEventListener('change', e => {
@@ -360,10 +359,10 @@ $('#import-file').addEventListener('change', e => {
       A.persistUI();
       syncProjectMeta();
       window.KNXOnRender();
-      A.toast('Projekt importiert.');
+      A.toast(T18('Projekt importiert.'));
       showMigrationNotes();
     } catch (err) {
-      A.warn('Datei konnte nicht gelesen werden (unerwartetes Format).');
+      A.warn(T18('Datei konnte nicht gelesen werden (unerwartetes Format).'));
     }
     e.target.value = '';
   };
@@ -372,10 +371,10 @@ $('#import-file').addEventListener('change', e => {
 
 /* ---------- Neues Projekt ---------- */
 $('#btn-new').addEventListener('click', () => {
-  A.openModal('Neues Projekt starten', `
-    <p>Das aktuelle Projekt („<b>${esc(KNX.project().name)}</b>") wird ersetzt. Vorher per <b>Export</b> sichern?</p>
-    <label class="field"><span>Name des neuen Objekts</span>
-      <input class="input" id="m-name" maxlength="40" placeholder="z. B. Haus Bergstraße 4">
+  A.openModal(T18('Neues Projekt starten'), `
+    <p>${T18('Das aktuelle Projekt („<b>{0}</b>“) wird ersetzt. Vorher per <b>Export</b> sichern?', esc(KNX.project().name))}</p>
+    <label class="field"><span>${T18('Name des neuen Objekts')}</span>
+      <input class="input" id="m-name" maxlength="40" placeholder="${T18('z. B. Haus Bergstraße 4')}">
     </label>
   `, () => {
     const name = $('#m-name').value.trim();

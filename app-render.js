@@ -244,7 +244,7 @@ function fnNode(fn, depth) {
   emit({
     depth, key: open, ref: { kind: 'fn', id: fn.id },
     icon: KNXIcons.svg(KNX.fnIcon(fn), 15), iconClass: 'fn-ic fn-' + t.cat,
-    label: fn.name, title: t.de,
+    label: fn.name, title: A.t(t.de),
     meta: fn.gas.length ? fn.gas.length + '\u00A0GA' : '',
     hasKids: fn.gas.length > 0, collapsed: !state.collapsed.has(open),
     actions: () => [
@@ -264,7 +264,7 @@ function fnNode(fn, depth) {
     children: () => fn.gas.forEach(x => {
       const g = KNX.gaById(x.ga);
       const r = KNX.fnRole(fn, x.role);
-      if (g) gaLeafNode(g, depth + 1, { key: 'fn:' + fn.id + ':' + g.id, role: r ? r.de : '' });
+      if (g) gaLeafNode(g, depth + 1, { key: 'fn:' + fn.id + ':' + g.id, role: r ? A.t(r.de) : '' });
     })
   });
 }
@@ -1019,18 +1019,18 @@ function detailFn(fn) {
   const roleRows = t.roles.map(r => {
     const g = byRole.has(r.key) ? KNX.gaById(byRole.get(r.key)) : null;
     return g
-      ? `<li class="jump" data-kind="ga" data-id="${g.id}"><span class="fn-role">${esc(r.de)}</span>
+      ? `<li class="jump" data-kind="ga" data-id="${g.id}"><span class="fn-role">${esc(A.t(r.de))}</span>
            ${gaCells(g, r.dpt)}${unlink(g.id)}</li>`
-      : `<li><span class="fn-role">${esc(r.de)}</span><span class="grow hint">frei</span>
+      : `<li><span class="fn-role">${esc(A.t(r.de))}</span><span class="grow hint">${A.t('frei')}</span>
            <span class="dpt-tag">${r.dpt}</span>
-           <button class="btn btn-sm fn-create" data-role="${r.key}" title="Neue Adresse für diese Rolle">anlegen</button></li>`;
+           <button class="btn btn-sm fn-create" data-role="${r.key}" title="${A.t('Neue Adresse für diese Rolle')}">${A.t('anlegen')}</button></li>`;
   }).join('');
   const extra = fn.gas.filter(x => !x.role).map(x => KNX.gaById(x.ga)).filter(Boolean);
   const extraRows = extra.map(g => `
     <li class="jump" data-kind="ga" data-id="${g.id}">${gaCells(g)}
       ${free.length ? `<select class="select fn-role-pick" data-ga="${g.id}" title="Einer Rolle zuweisen">
         <option value="">Rolle …</option>${free.map(r =>
-          `<option value="${r.key}">${esc(r.de)}</option>`).join('')}</select>` : ''}
+          `<option value="${r.key}">${esc(A.t(r.de))}</option>`).join('')}</select>` : ''}
       ${unlink(g.id)}</li>`).join('');
 
   return `
@@ -1038,7 +1038,7 @@ function detailFn(fn) {
       <span class="lvl-ic big">${F.fnIc(fn, 22)}</span>
       <div>
         <h2 data-pt-id="detail-fn-title">${esc(fn.name)}</h2>
-        <p class="detail-sub">Funktion · ${esc(t.de)} · ${esc(path ? path.trail : '')}</p>
+        <p class="detail-sub">${A.t('Funktion')} · ${esc(A.t(t.de))} · ${esc(path ? path.trail : '')}</p>
       </div>
     </div>
     <div class="detail-meta">
@@ -1126,7 +1126,7 @@ function filterSection(d) {
     `<button class="meta-item pick${state.filterView === key ? ' on' : ''}" data-fv="${key}">
        <span class="meta-num">${n}</span><span class="meta-lbl">${label}</span></button>`;
   return `
-    <h3 class="detail-h">Filtertabelle · ${esc(f.scope.de)} ${esc(f.scope.label)}</h3>
+    <h3 class="detail-h">${A.t('Filtertabelle')} · ${esc(A.t(f.scope.de))} ${esc(f.scope.label)}</h3>
     <div class="detail-meta">
       ${tile('pass', f.pass.length, 'durchgelassen')}
       ${tile('local', f.local.length, 'gesperrt')}
@@ -1253,7 +1253,7 @@ function detailObj(dev, o) {
       </div>
     </div>
     <div class="flag-row">${KNX.KO_FLAGS.map(f =>
-      `<span class="flag-chip${o.flags[f.key] ? ' on' : ''}" title="${esc(f.de + ' — ' + f.desc)}">${f.short}</span>`).join('')}
+      `<span class="flag-chip${o.flags[f.key] ? ' on' : ''}" title="${esc(A.t(f.de) + ' — ' + A.t(f.desc))}">${esc(A.t(f.short))}</span>`).join('')}
       <span class="dpt-tag">${o.dpt}</span>
     </div>
     <div class="detail-actions">
