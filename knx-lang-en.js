@@ -94,6 +94,12 @@ KNXI18n.add('en', {
   'Adressen:': 'Addresses:',
   'Zuordnungen:': 'Assignments:',
 
+  'Die Adresse 0/0/0 ist als Broadcast reserviert.': 'Address 0/0/0 is reserved for broadcast.',
+  'passt zum DPT der Adresse': 'matches the address datapoint type',
+  'weicht vom DPT der Adresse ab': 'differs from the address datapoint type',
+  'K L S Ü A': 'C R W T U',
+  'Keine Objekte angelegt.': 'No objects created.',
+
   /* ---------- Darstellung ---------- */
   'Automatisch': 'Automatic',
   'Hell': 'Light',
@@ -238,6 +244,115 @@ KNXI18n.add('en', {
   'anlegen': 'create',
   'Neue Adresse für diese Rolle': 'New address for this role',
   'Filtertabelle': 'Filter table',
+
+  /* ---------- Verlauf und Speichern ---------- */
+  'Kein früherer Schritt': 'No earlier step',
+  'Kein späterer Schritt': 'No later step',
+  'Nichts rückgängig zu machen': 'Nothing to undo',
+  'Nichts zu wiederholen': 'Nothing to redo',
+  'Rückgängig — noch {0} Schritte': 'Undone — {0} steps left',
+  'Wiederhergestellt': 'Redone',
+  'Gespeichert': 'Saved',
+
+  '{0} Schritt': '{0} step',
+  '{0} Schritte': '{0} steps',
+  'Rückgängig: {0} (Strg+Z)': 'Undo: {0} (Ctrl+Z)',
+  'Wiederholen: {0} (Strg+Y)': 'Redo: {0} (Ctrl+Y)',
+  'Zurück zur vorherigen Ansicht (Alt+←)': 'Back to the previous view (Alt+←)',
+  'Vor zur nächsten Ansicht (Alt+→)': 'Forward to the next view (Alt+→)',
+
+  /* ---------- Gebäudestruktur ---------- */
+  'Liegenschaft': 'Site',
+  /* „Gebäude“ steht schon oben bei den Ansichten — gleicher Text, gleiche Bedeutung. */
+  'Gebäudeteil': 'Building part',
+  'Geschoss': 'Floor',
+  'Außenbereich': 'Outdoor area',
+  'Raum': 'Room',
+  'Flur': 'Corridor',
+  'Verteiler': 'Cabinet',
+  'Unter „{0}“ anlegen': 'Create under "{0}"',
+  '{0} bearbeiten': 'Edit {0}',
+  '{0} „{1}“ löschen?': 'Delete {0} "{1}"?',
+  'z. B. Bad': 'e.g. Bathroom',
+  '„{0}“ kann kein {1} enthalten — erlaubt: {2}.': '"{0}" cannot contain a {1} — allowed: {2}.',
+  'Ein {0} kann kein {1} („{2}“) enthalten.': 'A {0} cannot contain a {1} ("{2}").',
+  'Hier sind {0} Geräte verbaut — ein {1} kann keine Geräte aufnehmen.':
+    '{0} devices are installed here — a {1} cannot hold devices.',
+  'Das Element und alles, was darunter liegt, wird entfernt':
+    'The element and everything below it will be removed',
+  ', auch {0}. Deren Gruppenadressen bleiben erhalten': ', including {0}. Their group addresses are kept',
+  'eine Funktion': 'one function',
+  '{0} Funktionen': '{0} functions',
+  '{0} Geräte verlieren ihre Raumzuordnung. Die Geräte selbst bleiben mit allen Objekten und Adressen in der Topologie erhalten.':
+    '{0} devices lose their room assignment. The devices themselves are kept in the topology with all objects and addresses.',
+  'Hier sind keine Geräte verbaut.': 'No devices are installed here.',
+  'Vorhandenes in „{0}“ einordnen': 'Move existing items into "{0}"',
+  'Angeboten wird, was ein {0} enthalten kann. Unterelemente wandern mit.':
+    'Offered is what a {0} can contain. Sub-elements move along.',
+  'Geräte in „{0}“ verbauen': 'Install devices in "{0}"',
+  'Ein Gerät hat genau einen Einbauort — der bisherige wird ersetzt.':
+    'A device has exactly one installation place — the previous one is replaced.',
+  'Geräte lassen sich nur in Räumen, Fluren, Verteilern und Außenbereichen verbauen.':
+    'Devices can only be installed in rooms, corridors, cabinets and outdoor areas.',
+  'ohne Raum': 'no room',
+  'Nichts Passendes vorhanden': 'Nothing suitable available',
+  'Filtern …': 'Filter …',
+
+  'Hier können <b>Geräte</b> verbaut werden.': '<b>Devices</b> can be installed here.',
+  'Enthält: {0}.': 'Contains: {0}.',
+  'Unterste Ebene — keine weitere Unterteilung.': 'Lowest level — no further subdivision.',
+
+  /* ---------- Gruppenadressen ---------- */
+  'Neue Gruppenadresse anlegen': 'Create a new group address',
+  'Gruppenadresse bearbeiten': 'Edit group address',
+  'Gruppenadresse löschen?': 'Delete group address?',
+  'z. B. Licht Flur OG schalten': 'e.g. Light corridor upstairs switch',
+  'Adresse ({0})': 'Address ({0})',
+  'Datenpunkttyp': 'Datapoint type',
+  'optional': 'optional',
+  '3-stufig  HG/MG/UG': '3-level  main/middle/sub',
+  '2-stufig  HG/UG': '2-level  main/sub',
+  'frei  (0–65535)': 'free  (0–65535)',
+  'Hauptgruppe': 'Main group',
+  'Mittelgruppe': 'Middle group',
+  'Untergruppe': 'Sub group',
+  '<b>{0}</b> — „{1}“ wird dauerhaft entfernt.': '<b>{0}</b> — "{1}" will be removed permanently.',
+  '{0} Kommunikationsobjekte verlieren diese Adresse.': '{0} communication objects lose this address.',
+  '{0} Adressen löschen?': 'Delete {0} addresses?',
+  'Die markierten Gruppenadressen werden dauerhaft entfernt.':
+    'The selected group addresses will be removed permanently.',
+  '{0} Objektzuordnungen gehen dabei verloren.': '{0} object assignments will be lost.',
+  'Alle {0}n{1} sind belegt.': 'All {0}s{1} are taken.',
+  'in {0}': 'in {0}',
+  'Neue {0}{1}': 'New {0}{1}',
+  'z. B. Beleuchtung': 'e.g. Lighting',
+  'z. B. Erdgeschoss': 'e.g. Ground floor',
+  '{0} muss zwischen 0 und {1} liegen.': '{0} must be between 0 and {1}.',
+  '{0} {1} gibt es schon.': '{0} {1} already exists.',
+  'Bitte einen Namen vergeben — eine leere Gruppe besteht über ihren Namen.':
+    'Please enter a name — an empty group exists through its name.',
+  '{0} {1} löschen?': 'Delete {0} {1}?',
+  '<b>{0}</b>{1} wird entfernt{2}.': '<b>{0}</b>{1} will be removed{2}.',
+  ', mit <b>{0}</b> Gruppenadressen': ', with <b>{0}</b> group addresses',
+  'Sollen die Adressen erhalten bleiben, vorher markieren und verschieben.':
+    'To keep the addresses, select and move them first.',
+  '{0} Adresse nach {1} verschoben': '{0} address moved to {1}',
+  '{0} Adressen nach {1} verschoben': '{0} addresses moved to {1}',
+  '{0} Adresse passt nicht mehr in {1} — dort ist nichts mehr frei.':
+    '{0} address no longer fits into {1} — nothing is free there.',
+  '{0} Adressen passen nicht mehr in {1} — dort ist nichts mehr frei.':
+    '{0} addresses no longer fit into {1} — nothing is free there.',
+  'Die Adressen liegen bereits in {0}': 'The addresses are already in {0}',
+  'Bei freier Adressierung gibt es keine Gruppen zum Verschieben.':
+    'With free addressing there are no groups to move into.',
+  'Adresse verschieben': 'Move address',
+  '{0} Adressen verschieben': 'Move {0} addresses',
+  'Vorhandene Gruppe': 'Existing group',
+  'Zuordnung — {0} {1}': 'Assignment — {0} {1}',
+  'Objekte markieren, die auf dieser Adresse senden oder hören. Das <b>erste</b> Objekt mit Ü-Flag ist das sendende.':
+    'Select the objects that send or listen on this address. The <b>first</b> object with the transmit flag is the sending one.',
+  'Geräte filtern …': 'Filter devices …',
+  'Noch keine Geräte angelegt.': 'No devices created yet.',
 
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',

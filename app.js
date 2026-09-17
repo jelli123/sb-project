@@ -144,7 +144,7 @@ function navApply(i) {
 function navGo(delta) {
   const target = nav.idx + delta;
   if (target < 0 || target >= nav.stack.length) {
-    toast(delta < 0 ? 'Kein früherer Schritt' : 'Kein späterer Schritt', 900);
+    toast(delta < 0 ? T18('Kein früherer Schritt') : T18('Kein späterer Schritt'), 900);
     return;
   }
   history.go(delta);
@@ -179,7 +179,7 @@ const canRedo = () => redoStack.length > 0;
 
 /* Hält die vier Verlaufsknöpfe im Kopfbereich aktuell. */
 function syncHistoryButtons() {
-  const steps = n => n + (n === 1 ? ' Schritt' : ' Schritte');
+  const steps = n => n === 1 ? T18('{0} Schritt', n) : T18('{0} Schritte', n);
   const set = (id, on, label) => {
     const b = $(id);
     if (!b) return;
@@ -187,11 +187,11 @@ function syncHistoryButtons() {
     b.title = label;
   };
   set('#btn-undo', canUndo(),
-    canUndo() ? `Rückgängig: ${steps(undoStack.length)} (Strg+Z)` : 'Nichts rückgängig zu machen');
+    canUndo() ? T18('Rückgängig: {0} (Strg+Z)', steps(undoStack.length)) : T18('Nichts rückgängig zu machen'));
   set('#btn-redo', canRedo(),
-    canRedo() ? `Wiederholen: ${steps(redoStack.length)} (Strg+Y)` : 'Nichts zu wiederholen');
-  set('#btn-back', canBack(), canBack() ? 'Zurück zur vorherigen Ansicht (Alt+←)' : 'Kein früherer Schritt');
-  set('#btn-fwd', canFwd(), canFwd() ? 'Vor zur nächsten Ansicht (Alt+→)' : 'Kein späterer Schritt');
+    canRedo() ? T18('Wiederholen: {0} (Strg+Y)', steps(redoStack.length)) : T18('Nichts zu wiederholen'));
+  set('#btn-back', canBack(), canBack() ? T18('Zurück zur vorherigen Ansicht (Alt+←)') : T18('Kein früherer Schritt'));
+  set('#btn-fwd', canFwd(), canFwd() ? T18('Vor zur nächsten Ansicht (Alt+→)') : T18('Kein späterer Schritt'));
 }
 
 function applySnapshot(json) {
@@ -202,18 +202,18 @@ function applySnapshot(json) {
   reRender();
 }
 function undo() {
-  if (!canUndo()) { toast('Nichts rückgängig zu machen', 900); return; }
+  if (!canUndo()) { toast(T18('Nichts rückgängig zu machen'), 900); return; }
   redoStack.push(baseline);
   baseline = undoStack.pop();
   applySnapshot(baseline);
-  status('Rückgängig — noch ' + undoStack.length + ' Schritte');
+  status(T18('Rückgängig — noch {0} Schritte', undoStack.length));
 }
 function redo() {
   if (!canRedo()) { toast('Nichts zu wiederholen', 900); return; }
   undoStack.push(baseline);
   baseline = redoStack.pop();
   applySnapshot(baseline);
-  status('Wiederhergestellt');
+  status(T18('Wiederhergestellt'));
 }
 
 function commit() {
@@ -228,7 +228,7 @@ function commit() {
   persistUI();
   syncHistoryButtons();
   reRender();
-  ok ? toast('Gespeichert', 800) : warn(KNX.saveError());
+  ok ? toast(T18('Gespeichert'), 800) : warn(KNX.saveError());
 }
 
 /* ---------- Toast / Status ---------- */
@@ -531,17 +531,17 @@ function actNewNode(parentId) {
   if (!parent) return;
   const holds = KNX.kindHolds(parent.kind);
   if (!holds.length) return;
-  openModal(`Unter „${esc(parent.name)}“ anlegen`, `
-    <label class="field"><span>Typ</span>
+  openModal(T18('Unter „{0}“ anlegen', parent.name), `
+    <label class="field"><span>${T18('Typ')}</span>
       <select class="select" id="m-kind">${holds.map(k =>
-        `<option value="${k}">${esc(KNX.kindDe(k))}</option>`).join('')}</select>
+        `<option value="${k}">${esc(T18(KNX.kindDe(k)))}</option>`).join('')}</select>
     </label>
-    <label class="field"><span>Name</span>
-      <input class="input" id="m-name" maxlength="40" placeholder="z. B. Bad">
+    <label class="field"><span>${T18('Name')}</span>
+      <input class="input" id="m-name" maxlength="40" placeholder="${T18('z. B. Bad')}">
     </label>
-    <label class="field"><span>Notiz</span>
+    <label class="field"><span>${T18('Notiz')}</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
-                placeholder="Freitext zur Dokumentation"></textarea>
+                placeholder="${T18('Freitext zur Dokumentation')}"></textarea>
     </label>
     <p class="hint" id="m-kind-hint"></p>
   `, () => {
@@ -559,10 +559,10 @@ function actNewNode(parentId) {
     const k = $('#m-kind').value;
     const sub = KNX.kindHolds(k);
     hint.innerHTML = (KNX.DEVICE_HOSTS.has(k)
-        ? 'Hier können <b>Geräte</b> verbaut werden. '
+        ? T18('Hier können <b>Geräte</b> verbaut werden.') + ' '
         : '') +
-      (sub.length ? 'Enthält: ' + sub.map(x => esc(KNX.kindDe(x))).join(', ') + '.'
-                  : 'Unterste Ebene — keine weitere Unterteilung.');
+      (sub.length ? T18('Enthält: {0}.', sub.map(x => esc(T18(KNX.kindDe(x)))).join(', '))
+                  : T18('Unterste Ebene — keine weitere Unterteilung.'));
   };
   $('#m-kind').addEventListener('change', upd);
   upd();
@@ -576,17 +576,17 @@ function actRenameNode(id) {
   // Struktur ungültig und die Migration müsste sie beim nächsten Laden umbauen.
   const allowed = isRoot ? [] : KNX.kindHolds(KNX.parentOf(id).kind);
   const holds = isRoot ? [] : allowed.includes(n.kind) ? allowed : [n.kind, ...allowed];
-  openModal(`${KNX.kindDe(n.kind)} bearbeiten`, `
-    <label class="field"><span>Name</span>
+  openModal(T18('{0} bearbeiten', T18(KNX.kindDe(n.kind))), `
+    <label class="field"><span>${T18('Name')}</span>
       <input class="input" id="m-name" maxlength="40" value="${esc(n.name)}">
     </label>
-    ${holds.length ? `<label class="field"><span>Typ</span>
+    ${holds.length ? `<label class="field"><span>${T18('Typ')}</span>
       <select class="select" id="m-kind">${holds.map(k =>
-        `<option value="${k}"${k === n.kind ? ' selected' : ''}>${esc(KNX.kindDe(k))}</option>`).join('')}</select>
+        `<option value="${k}"${k === n.kind ? ' selected' : ''}>${esc(T18(KNX.kindDe(k)))}</option>`).join('')}</select>
     </label>` : ''}
-    <label class="field"><span>Notiz</span>
+    <label class="field"><span>${T18('Notiz')}</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
-                placeholder="Freitext zur Dokumentation">${esc(n.note || '')}</textarea>
+                placeholder="${T18('Freitext zur Dokumentation')}">${esc(n.note || '')}</textarea>
     </label>
     ${holds.length ? '<div id="m-err"></div>' : ''}
   `, () => {
@@ -594,22 +594,22 @@ function actRenameNode(id) {
     if (!name) { $('#m-name').focus(); return false; }
     const kind = $('#m-kind')?.value || n.kind;
     if (!isRoot && !allowed.includes(kind)) {
-      $('#m-err').innerHTML = `<span class="hint warn">„${esc(KNX.parentOf(id).name)}“ kann kein ` +
-        `${esc(KNX.kindDe(kind))} enthalten — erlaubt: ${allowed.map(k => esc(KNX.kindDe(k))).join(', ')}.</span>`;
+      $('#m-err').innerHTML = `<span class="hint warn">${T18('„{0}“ kann kein {1} enthalten — erlaubt: {2}.',
+        esc(KNX.parentOf(id).name), esc(T18(KNX.kindDe(kind))), allowed.map(k => esc(T18(KNX.kindDe(k)))).join(', '))}</span>`;
       return false;
     }
     if (kind !== n.kind) {
       const holdsNew = KNX.kindHolds(kind);
       const bad = n.children.find(c => !holdsNew.includes(c.kind));
       if (bad) {
-        $('#m-err').innerHTML = `<span class="hint warn">Ein ${esc(KNX.kindDe(kind))} kann kein ` +
-          `${esc(KNX.kindDe(bad.kind))} („${esc(bad.name)}“) enthalten.</span>`;
+        $('#m-err').innerHTML = `<span class="hint warn">${T18('Ein {0} kann kein {1} („{2}“) enthalten.',
+          esc(T18(KNX.kindDe(kind))), esc(T18(KNX.kindDe(bad.kind))), esc(bad.name))}</span>`;
         return false;
       }
       const lost = !KNX.DEVICE_HOSTS.has(kind) && KNX.devicesInRoom(n.id).length;
       if (lost) {
-        $('#m-err').innerHTML = `<span class="hint warn">Hier sind ${lost} Geräte verbaut — ` +
-          `ein ${esc(KNX.kindDe(kind))} kann keine Geräte aufnehmen.</span>`;
+        $('#m-err').innerHTML = `<span class="hint warn">${T18('Hier sind {0} Geräte verbaut — ein {1} kann keine Geräte aufnehmen.',
+          lost, esc(T18(KNX.kindDe(kind))))}</span>`;
         return false;
       }
       n.kind = kind;
@@ -626,13 +626,13 @@ function actDeleteNode(id) {
   const roomIds = KNX.roomIdsUnder(id);
   const devs = roomIds.reduce((s, r) => s + KNX.devicesInRoom(r).length, 0);
   const fns = KNX.functionsUnder(id).length;
-  openModal(`${KNX.kindDe(n.kind)} „${esc(n.name)}“ löschen?`, `
-    <p>Das Element und alles, was darunter liegt, wird entfernt${fns
-      ? `, auch ${fns === 1 ? 'eine Funktion' : fns + ' Funktionen'}. Deren Gruppenadressen bleiben erhalten` : ''}.</p>
+  openModal(T18('{0} „{1}“ löschen?', T18(KNX.kindDe(n.kind)), n.name), `
+    <p>${T18('Das Element und alles, was darunter liegt, wird entfernt')}${fns
+      ? T18(', auch {0}. Deren Gruppenadressen bleiben erhalten',
+            fns === 1 ? T18('eine Funktion') : T18('{0} Funktionen', fns)) : ''}.</p>
     ${devs
-      ? `<p class="hint warn">${devs} Geräte verlieren ihre Raumzuordnung. Die Geräte selbst
-         bleiben mit allen Objekten und Adressen in der Topologie erhalten.</p>`
-      : '<p class="hint">Hier sind keine Geräte verbaut.</p>'}
+      ? `<p class="hint warn">${T18('{0} Geräte verlieren ihre Raumzuordnung. Die Geräte selbst bleiben mit allen Objekten und Adressen in der Topologie erhalten.', devs)}</p>`
+      : `<p class="hint">${T18('Hier sind keine Geräte verbaut.')}</p>`}
   `, () => {
     KNX.deleteNode(id);
     if (state.sel?.kind === 'node' && (state.sel.id === id || inSubtree(state.sel.id, id))) state.sel = null;
@@ -646,10 +646,10 @@ function actDeleteNode(id) {
 
 /* Auswahl vorhandener Einträge mit Suche. items: { id, label, sub, icon } */
 function pickDialog(title, hint, items, onPick) {
-  if (!items.length) { toast('Nichts Passendes vorhanden'); return; }
+  if (!items.length) { toast(T18('Nichts Passendes vorhanden')); return; }
   openModal(title, `
     ${hint ? `<p class="hint">${hint}</p>` : ''}
-    <input class="input" id="m-search" placeholder="Filtern …">
+    <input class="input" id="m-search" placeholder="${T18('Filtern …')}">
     <div class="chk-list tall" id="m-pick">${items.map(it => `
       <label class="chk-row" data-name="${esc((it.label + ' ' + (it.sub || '')).toLowerCase())}">
         <input type="checkbox" class="chk" data-id="${esc(it.id)}">
@@ -672,7 +672,7 @@ const trailOf = id => KNX.nodePath(id)?.sub || KNX.project().tree.name;
 
 function moveNode(id, parentId, refId, where) {
   const err = KNX.nodeMoveError(id, parentId);
-  if (err) { warn(err); return false; }
+  if (err) { warn(T18(err)); return false; }
   KNX.moveNode(id, parentId, refId, where);
   state.collapsed.delete(parentId);
   commit();
@@ -686,11 +686,11 @@ function actPickChildren(nodeId) {
   const items = [];
   KNX.walk(KNX.project().tree, n => {
     if (KNX.parentOf(n.id)?.id !== nodeId && !KNX.nodeMoveError(n.id, nodeId))
-      items.push({ id: n.id, label: n.name, sub: KNX.kindDe(n.kind) + ' · ' + trailOf(n.id),
+      items.push({ id: n.id, label: n.name, sub: T18(KNX.kindDe(n.kind)) + ' · ' + trailOf(n.id),
                    icon: `<span class="lvl-ic ${n.kind}">${IC[n.kind] || IC.room}</span>` });
   });
-  pickDialog(`Vorhandenes in „${node.name}“ einordnen`,
-    `Angeboten wird, was ein ${esc(KNX.kindDe(node.kind))} enthalten kann. Unterelemente wandern mit.`,
+  pickDialog(T18('Vorhandenes in „{0}“ einordnen', node.name),
+    T18('Angeboten wird, was ein {0} enthalten kann. Unterelemente wandern mit.', esc(T18(KNX.kindDe(node.kind)))),
     items, ids => {
       ids.forEach(id => KNX.moveNode(id, nodeId));
       state.collapsed.delete(nodeId);
@@ -704,10 +704,11 @@ function actPickDevices(nodeId) {
   if (!node || !KNX.DEVICE_HOSTS.has(node.kind)) return;
   const items = KNX.project().devices.filter(d => d.roomId !== nodeId).slice().sort(KNX.byPa).map(d => ({
     id: d.id, label: KNX.paStr(d.addr) + '  ' + d.name,
-    sub: d.roomId ? 'bisher ' + trailOf(d.roomId) : 'ohne Raum',
+    sub: d.roomId ? T18('bisher {0}', trailOf(d.roomId)) : T18('ohne Raum'),
     icon: `<span class="lvl-ic device">${IC.device}</span>`
   }));
-  pickDialog(`Geräte in „${node.name}“ verbauen`, 'Ein Gerät hat genau einen Einbauort — der bisherige wird ersetzt.',
+  pickDialog(T18('Geräte in „{0}“ verbauen', node.name),
+    T18('Ein Gerät hat genau einen Einbauort — der bisherige wird ersetzt.'),
     items, ids => {
       ids.forEach(id => KNX.setDeviceRoom(id, nodeId));
       state.collapsed.delete(nodeId);
@@ -716,7 +717,7 @@ function actPickDevices(nodeId) {
 }
 
 function setDeviceRoom(devId, nodeId) {
-  if (!KNX.setDeviceRoom(devId, nodeId)) { warn('Geräte lassen sich nur in Räumen, Fluren, Verteilern und Außenbereichen verbauen.'); return; }
+  if (!KNX.setDeviceRoom(devId, nodeId)) { warn(T18('Geräte lassen sich nur in Räumen, Fluren, Verteilern und Außenbereichen verbauen.')); return; }
   if (nodeId) state.collapsed.delete(nodeId);
   commit();
 }
@@ -727,7 +728,7 @@ function parentOptions(id) {
   const out = [];
   KNX.walk(KNX.project().tree, n => {
     if (n.id === cur || !KNX.nodeMoveError(id, n.id))
-      out.push(`<option value="${n.id}"${n.id === cur ? ' selected' : ''}>${esc(trailOf(n.id))} (${esc(KNX.kindDe(n.kind))})</option>`);
+      out.push(`<option value="${n.id}"${n.id === cur ? ' selected' : ''}>${esc(trailOf(n.id))} (${esc(T18(KNX.kindDe(n.kind)))})</option>`);
   });
   return out.join('');
 }
