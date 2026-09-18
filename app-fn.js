@@ -37,7 +37,7 @@ function folderList() {
 /* Symbolauswahl: leer heißt Symbol des Typs. */
 function iconGrid(current) {
   return `<div class="icon-grid" id="m-icons">
-    <button type="button" class="icon-pick std${current ? '' : ' on'}" data-icon="" title="Symbol des Typs">Standard</button>
+    <button type="button" class="icon-pick std${current ? '' : ' on'}" data-icon="" title="${T18('Symbol des Typs')}">${T18('Standard')}</button>
     ${KNXIcons.names().map(n => `<button type="button" class="icon-pick${n === current ? ' on' : ''}"
       data-icon="${n}" title="${n}">${KNXIcons.svg(n, 18)}</button>`).join('')}
   </div>`;
@@ -146,7 +146,7 @@ function actEditFunction(id) {
   if (!fn) return;
   let icon = fn.icon;
   A.openModal(T18('Funktion bearbeiten'), `
-    <label class="field"><span>Name</span>
+    <label class="field"><span>${T18('Name')}</span>
       <input class="input" id="m-name" maxlength="60" value="${esc(fn.name)}">
     </label>
     <label class="field"><span>${T18('Typ')}</span>

@@ -1036,18 +1036,18 @@ function detailFn(fn) {
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${fn.gas.length}</span><span class="meta-lbl">Adressen</span></div>
-      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">Geräte beteiligt</span></div>
+      <div class="meta-item"><span class="meta-num">${fn.gas.length}</span><span class="meta-lbl">${A.t('Adressen')}</span></div>
+      <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Geräte beteiligt')}</span></div>
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Adressen zuordnen</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
-    <label class="field detail-field"><span>Liegt in</span>
+    <label class="field detail-field"><span>${A.t('Liegt in')}</span>
       <select class="select" id="d-fnnode" title="${A.t('Gebäudeteil wählen — oder im Baum ziehen')}">${nodeOptions(fn.nodeId)}</select></label>
     ${issueList(fn.id)}
-    ${t.roles.length ? `<h3 class="detail-h">Rollen</h3><ul class="detail-list">${roleRows}</ul>` : ''}
+    ${t.roles.length ? `<h3 class="detail-h">${A.t('Rollen')}</h3><ul class="detail-list">${roleRows}</ul>` : ''}
     ${extra.length || !t.roles.length
       ? `<h3 class="detail-h">${t.roles.length ? A.t('Weitere Adressen') : A.t('Adressen')}</h3>` +
         (extra.length ? `<ul class="detail-list">${extraRows}</ul>`
@@ -1075,8 +1075,8 @@ function detailGa(ga) {
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${links.length}</span><span class="meta-lbl">Objekte</span></div>
-      <div class="meta-item"><span class="meta-num">${rooms.length}</span><span class="meta-lbl">Räume</span></div>
+      <div class="meta-item"><span class="meta-num">${links.length}</span><span class="meta-lbl">${A.t('Objekte')}</span></div>
+      <div class="meta-item"><span class="meta-num">${rooms.length}</span><span class="meta-lbl">${A.t('Räume')}</span></div>
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Objekte zuordnen</button>
@@ -1177,10 +1177,10 @@ function detailDev(d) {
     </div>
     ${coupler && !d.objs.length ? '' : `
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${d.objs.length}</span><span class="meta-lbl">Objekte</span></div>
+      <div class="meta-item"><span class="meta-num">${d.objs.length}</span><span class="meta-lbl">${A.t('Objekte')}</span></div>
       ${item || isIp
-        ? `<div class="meta-item"><span class="meta-num">${nSet}</span><span class="meta-lbl">geänderte Einstellungen</span></div>`
-        : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">Adresszuordnungen</span></div>`}
+        ? `<div class="meta-item"><span class="meta-num">${nSet}</span><span class="meta-lbl">${A.t('geänderte Einstellungen')}</span></div>`
+        : `<div class="meta-item"><span class="meta-num">${d.objs.reduce((s, o) => s + o.gas.length, 0)}</span><span class="meta-lbl">${A.t('Adresszuordnungen')}</span></div>`}
     </div>`}
     <div class="detail-actions">
       ${item || isIp ? `<button class="btn btn-sm btn-primary" id="d-params">${A.t('Parameter …')}</button>` : ''}
@@ -1252,7 +1252,7 @@ function detailObj(dev, o) {
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
-    <h3 class="detail-h">Adressen</h3>
+    <h3 class="detail-h">${A.t('Adressen')}</h3>
     ${gas.length
       ? '<ul class="detail-list">' + gas.map((g, i) => `
           <li>
@@ -1372,7 +1372,7 @@ function detailLine(l) {
     </div>
     <div class="detail-meta">
       <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
-      <div class="meta-item"><span class="meta-num">${255 - devs.length}</span><span class="meta-lbl">freie Nummern</span></div>
+      <div class="meta-item"><span class="meta-num">${255 - devs.length}</span><span class="meta-lbl">${A.t('freie Nummern')}</span></div>
     </div>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-adddev">${A.t('+ Gerät')}</button>
@@ -1406,7 +1406,7 @@ function detailArea(a) {
       </div>
     </div>
     <div class="detail-meta">
-      <div class="meta-item"><span class="meta-num">${a.lines.length}</span><span class="meta-lbl">Linien</span></div>
+      <div class="meta-item"><span class="meta-num">${a.lines.length}</span><span class="meta-lbl">${A.t('Linien')}</span></div>
       <div class="meta-item"><span class="meta-num">${devs.length}</span><span class="meta-lbl">${A.t('Teilnehmer')}</span></div>
     </div>
     <div class="detail-actions">
@@ -1415,7 +1415,7 @@ function detailArea(a) {
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
     ${noteSection(a.note)}
-    <h3 class="detail-h">Linien</h3>
+    <h3 class="detail-h">${A.t('Linien')}</h3>
     <ul class="detail-list">${a.lines.slice().sort((x, y) => x.addr - y.addr).map(l =>
       `<li class="jump" data-kind="line" data-id="${l.id}">
         <span class="addr">${a.addr}.${l.addr}</span>

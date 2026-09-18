@@ -64,8 +64,7 @@ function actNewGa(groupKey) {
     <label class="field"><span>${T18('Datenpunkttyp')}</span>
       <select class="select" id="m-dpt">${dptOptions('1.001')}</select>
     </label>
-    <p class="hint">Wirksam wird die Adresse erst, wenn ihr Kommunikationsobjekte
-    zugeordnet sind — danach über das Kettensymbol.</p>
+    <p class="hint">${T18('Wirksam wird die Adresse erst, wenn ihr Kommunikationsobjekte zugeordnet sind — danach über das Kettensymbol.')}</p>
   `, () => {
     const name = $('#m-name').value.trim();
     if (!name) { showErr(T18('Bitte einen Namen vergeben.')); $('#m-name').focus(); return false; }
@@ -98,7 +97,7 @@ function actEditGa(id) {
       ${addrFields(ga.raw)}
       <div id="m-err"></div>
     </div>
-    <label class="field"><span>Datenpunkttyp</span>
+    <label class="field"><span>${T18('Datenpunkttyp')}</span>
       <select class="select" id="m-dpt">${dptOptions(ga.dpt)}</select>
     </label>
     <label class="field"><span>${T18('Notiz')}</span>
@@ -248,15 +247,14 @@ function actMoveGas(ids) {
   collect(tree, []);
   A.openModal(ids.length === 1 ? T18('Adresse verschieben') : T18('{0} Adressen verschieben', ids.length), `
     <label class="field"><span>${T18('Vorhandene Gruppe')}</span>
-      <select class="select" id="m-folder"><option value="">— Nummer unten eingeben —</option>${folders.map(f =>
+      <select class="select" id="m-folder"><option value="">${T18('— Nummer unten eingeben —')}</option>${folders.map(f =>
         `<option value="${esc(f.key)}">${esc(f.key)}${f.label ? ' — ' + esc(f.label) : ''}</option>`).join('')}</select>
     </label>
     <div class="addr-grid" style="grid-template-columns:repeat(${depth},1fr)">${style.parts.slice(0, depth).map((p, i) => `
       <div class="field"><span>${esc(T18(p.label))} <em>0–${p.max}</em></span>
         <input class="input mono" id="m-p${i}" type="number" min="0" max="${p.max}" value="${first[i]}"></div>`).join('')}
     </div>
-    <p class="hint">Die letzte Stufe bleibt, wenn sie in der Zielgruppe frei ist, sonst gibt es die
-       nächste freie. Zuordnungen zu Objekten bleiben erhalten.</p>
+    <p class="hint">${T18('Die letzte Stufe bleibt, wenn sie in der Zielgruppe frei ist, sonst gibt es die nächste freie. Zuordnungen zu Objekten bleiben erhalten.')}</p>
     <div id="m-err"></div>
   `, () => {
     const vals = [];

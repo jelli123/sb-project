@@ -570,6 +570,277 @@ KNXI18n.add('en', {
   'RF (Funk)': 'RF (radio)',
   'PL (Powerline)': 'PL (powerline)',
 
+  /* ---------- Topologie, Geräte, Katalog und Parameter ---------- */
+  'Katalog …': 'Catalogue …',
+  'z. B. Schaltaktor 8-fach': 'e.g. Switch actuator 8-fold',
+  'Produkt / Bauform': 'Product / type',
+  'z. B. REG, 16 A': 'e.g. DIN rail, 16 A',
+  'Segment': 'Segment',
+  'Physikalische Adresse': 'Individual address',
+  'nur freie': 'free only',
+  'Drosseln, Netzteile und passives Zubehör: nur der Linie zugeordnet, belegen keine Adresse':
+    'Chokes, power supplies and passive accessories: only assigned to the line, they take no address',
+  'Ohne physikalische Adresse': 'Without individual address',
+  'Einspeisung': 'Supply',
+  'mA, 0 = keine': 'mA, 0 = none',
+  '6 Byte hex, optional': '6 bytes hex, optional',
+  'wird beim Auslesen am Bus eingetragen': 'filled in when read from the bus',
+  'z. B. Einbauort im Verteiler, Besonderheiten, Reklamation':
+    'e.g. position in the cabinet, particulars, complaint',
+  'Auf dieser Linie ist keine Adresse mehr frei.': 'No address is free on this line any more.',
+  'Die Seriennummer besteht aus 6 Byte, also 12 Hex-Zeichen (z. B. 00FA12345678).':
+    'The serial number has 6 bytes, i.e. 12 hex characters (e.g. 00FA12345678).',
+  'Neues Gerät anlegen': 'Create a new device',
+  'Ohne Produkt entsteht ein leeres Gerät — Objekte legt man später einzeln an.':
+    'Without a product you get an empty device — objects are added one by one later.',
+  'Ohne Applikation': 'Without application',
+  'Die Einspeisung steht nicht in der Produktdatei — bitte unten den Nennstrom des angeschlossenen Netzteils eintragen.':
+    'The supply is not in the product file — please enter the rated current of the connected power supply below.',
+  'Die Einspeisung steht nicht in der Produktdatei — bitte unten den Nennstrom des Netzteils eintragen.':
+    'The supply is not in the product file — please enter the rated current of the power supply below.',
+  'Das Gerät hat keine physikalische Adresse und hängt nur an seiner Linie.':
+    'The device has no individual address and is only attached to its line.',
+  '<b>{0}</b> Kommunikationsobjekte und <b>{1}</b> Parameter in der Grundeinstellung':
+    '<b>{0}</b> communication objects and <b>{1}</b> parameters in the default setting',
+  '<b>{0}</b> Parameter, keine Kommunikationsobjekte in der Grundeinstellung':
+    '<b>{0}</b> parameters, no communication objects in the default setting',
+  'Gerät bearbeiten — {0}': 'Edit device — {0}',
+  'Gerät „{0}“ löschen?': 'Delete device "{0}"?',
+  '<b>{0}</b> wird mit allen {1} Kommunikationsobjekten entfernt.':
+    '<b>{0}</b> will be removed with all {1} communication objects.',
+  '{0} Adresszuordnungen gehen verloren. Die Gruppenadressen selbst bleiben erhalten.':
+    '{0} address assignments will be lost. The group addresses themselves are kept.',
+  'Produktdatei nicht lesbar: {0}': 'Product file not readable: {0}',
+  'Produkte aus ETS-Produktdateien (<b>.knxprod</b>). Ein gewähltes Produkt legt beim Anlegen eines Geräts alle Kommunikationsobjekte mit an.':
+    'Products from ETS product files (<b>.knxprod</b>). A chosen product creates all communication objects along with the device.',
+  'Produktdatei laden …': 'Load product file …',
+  'Produktdaten aus dem offenen KNX-Onlinekatalog holen':
+    'Fetch product data from the open KNX online catalogue',
+  'Onlinekatalog …': 'Online catalogue …',
+  'Katalog durchsuchen …': 'Search the catalogue …',
+  'ohne Applikation': 'without application',
+  'Aus dem Katalog entfernen': 'Remove from the catalogue',
+  'Der Katalog ist leer. Oben eine <b>.knxprod</b>-Datei laden.':
+    'The catalogue is empty. Load a <b>.knxprod</b> file above.',
+  'Produktkatalog': 'Product catalogue',
+  'Dafür muss der lokale Dienst laufen.': 'This needs the local service to be running.',
+  'Ladeprozeduren vollständig gelesen — das Gerät lässt sich programmieren':
+    'Load procedures read completely — the device can be programmed',
+  'Für einen Download fehlen Angaben oder es wird ein herstellereigenes Programm gebraucht':
+    'Information for a download is missing, or a manufacturer plug-in is needed',
+  'Maske {0}': 'Mask {0}',
+  'Objekte und Parameter der Produktdatei': 'Objects and parameters of the product file',
+  '1 Produkt in {0}': '1 product in {0}',
+  '{0} Produkte in {1}': '{0} products in {1}',
+  'Produkte auswählen, die in den Katalog übernommen werden sollen.':
+    'Select the products to take into the catalogue.',
+  '1 Produkt liess sich nicht laden:': '1 product could not be loaded:',
+  '{0} Produkte liessen sich nicht laden:': '{0} products could not be loaded:',
+  'Alle': 'All',
+  'Keine': 'None',
+  'Mindestens ein Produkt auswählen.': 'Select at least one product.',
+  '1 Produkt im Katalog': '1 product in the catalogue',
+  '{0} Produkte im Katalog': '{0} products in the catalogue',
+  'Das Gerät wird in der ETS über ein herstellereigenes Programm parametriert. Die Produktdaten lassen sich trotzdem laden.':
+    'The device is configured in ETS through a manufacturer plug-in. The product data can be loaded anyway.',
+  'Zusatzprogramm': 'Plug-in',
+  'Übertragungsmedium': 'Transmission medium',
+  'Der Onlinekatalog braucht den lokalen Dienst — im reinen Browserbetrieb steht er nicht bereit.':
+    'The online catalogue needs the local service — it is not available in browser-only mode.',
+  'Onlinekatalog': 'Online catalogue',
+  'Produktdaten aus dem offenen KNX-Onlinekatalog. Einmal Geholtes bleibt auf diesem Rechner — der zweite Zugriff kommt ohne Übertragung aus. Ohne gewählten Hersteller durchsucht das Suchfeld alles, was schon geholt wurde.':
+    'Product data from the open KNX online catalogue. Whatever has been fetched stays on this computer — a second access needs no transfer. Without a chosen manufacturer the search field covers everything fetched so far.',
+  '— Hersteller werden geladen … —': '— loading manufacturers … —',
+  'Diesen Hersteller neu vom Katalog holen': 'Fetch this manufacturer again from the catalogue',
+  /* Zugleich der KO-Flag „Aktualisieren“ (ETS: Update) — darum auch beim Knopf „Update“. */
+  'Aktualisieren': 'Update',
+  'Zwischenspeicher ansehen': 'View the cache',
+  'Speicher …': 'Storage …',
+  'Name oder Bestellnummer …': 'Name or order number …',
+  'Einen Hersteller wählen.': 'Choose a manufacturer.',
+  '{0} Treffer — angezeigt werden die ersten {1}. Bitte enger suchen.':
+    '{0} hits — showing the first {1}. Please narrow the search.',
+  'Zu diesem Hersteller steht nichts im Katalog.': 'The catalogue has nothing for this manufacturer.',
+  'Einen Hersteller wählen — oder hier suchen, dann werden die bereits geholten Hersteller durchsucht.':
+    'Choose a manufacturer — or search here to go through the manufacturers already fetched.',
+  'Kein Treffer in den {0} bereits geholten Herstellern.':
+    'No hit in the {0} manufacturers fetched so far.',
+  'Noch kein Hersteller geholt. Oben einen auswählen — oder unter „Speicher …“ einmal alle holen, dann sucht dieses Feld über den ganzen Katalog.':
+    'No manufacturer fetched yet. Choose one above — or fetch them all once under "Storage …", then this field searches the whole catalogue.',
+  'Nicht durchsucht: {0} noch nicht geholte Hersteller.':
+    'Not searched: {0} manufacturers not fetched yet.',
+  '{0} und mehr Treffer aus {1} Herstellern.': '{0} or more hits from {1} manufacturers.',
+  '{0} Treffer aus {1} Herstellern.': '{0} hits from {1} manufacturers.',
+  'Suche fehlgeschlagen: {0}': 'Search failed: {0}',
+  'Produktliste wird geholt …': 'Fetching the product list …',
+  'Der Stand ist älter als eine Woche. „Aktualisieren“ holt ihn neu (beim letzten Mal {0} Übertragung).':
+    'This data is older than a week. "Update" fetches it again ({0} transfer last time).',
+  'Der Stand ist älter als eine Woche. „Aktualisieren“ holt ihn neu.':
+    'This data is older than a week. "Update" fetches it again.',
+  'Nichts geladen.': 'Nothing loaded.',
+  'Hersteller nicht ladbar: {0}': 'Manufacturer could not be loaded: {0}',
+  '— im geholten Bestand suchen —': '— search what has been fetched —',
+  'Herstellerliste nicht erreichbar: {0}': 'Manufacturer list not reachable: {0}',
+  'Produktdatei {0} von {1}: {2} …': 'Product file {0} of {1}: {2} …',
+  'Nichts geladen': 'Nothing loaded',
+  'Keine der gewählten Produktdateien liess sich holen.':
+    'None of the chosen product files could be fetched.',
+  '{0} Produktdateien aus dem Onlinekatalog': '{0} product files from the online catalogue',
+  'Speicher des Onlinekatalogs': 'Online catalogue storage',
+  'Wird gelesen …': 'Reading …',
+  'Der Katalog kennt weder Kurzabfrage noch Komprimierung — jeder Hersteller kostet stets die volle Übertragung. Darum wird einzeln nur geholt, was gebraucht wird. Einmal alle 252 Hersteller zu holen sind rund 60 MB und etwa eine Viertelminute; daraus werden gut 5 MB Zwischenspeicher. Danach durchsucht die Suche den ganzen Katalog, ohne das Netz noch einmal zu berühren.':
+    'The catalogue offers neither conditional requests nor compression — every manufacturer always costs the full transfer. So only what is needed is fetched one at a time. Fetching all 252 manufacturers once is about 60 MB and a quarter of a minute, leaving a little over 5 MB of cache. After that the search covers the whole catalogue without touching the network again.',
+  'Alle Hersteller holen …': 'Fetch all manufacturers …',
+  'Produktlisten verwerfen': 'Discard product lists',
+  'Produktdateien verwerfen': 'Discard product files',
+  'Hersteller bekannt': 'Manufacturers known',
+  'Produktlisten geholt': 'Product lists fetched',
+  'Produktdateien im Speicher': 'Product files stored',
+  'Ablage': 'Location',
+  '{0} von {1} Herstellern — {2} geholt': '{0} of {1} manufacturers — {2} fetched',
+  '{0} fehlgeschlagen': '{0} failed',
+  'Durchlauf {0}': 'Run {0}',
+  'Wird geholt … Der Dialog darf offen bleiben; ein Abbruch behält das bereits Geholte.':
+    'Fetching … The dialog may stay open; cancelling keeps what has been fetched.',
+  'Diesem Gerät liegt kein Produkt aus einer .knxprod zugrunde.':
+    'This device is not based on a product from a .knxprod.',
+  'laut Produktdatei': 'per product file',
+  '<b>{0}</b> Parameter, <b>{1}</b> Kommunikationsobjekte.':
+    '<b>{0}</b> parameters, <b>{1}</b> communication objects.',
+  '<b>{0}</b> Parameter — dieses Gerät arbeitet ohne Kommunikationsobjekte.':
+    '<b>{0}</b> parameters — this device works without communication objects.',
+  'Nicht jede Einstellung ist immer sichtbar; die Liste folgt der Auswahl.':
+    'Not every setting is always visible; the list follows the selection.',
+  'Parameter filtern …': 'Filter parameters …',
+  'Keine einstellbaren Parameter.': 'No adjustable parameters.',
+  'Parameter — {0}': 'Parameters — {0}',
+  'Ungültiger Wert bei „{0}“.': 'Invalid value for "{0}".',
+  '1 Objekt entfällt durch die neue Einstellung, trägt aber noch Gruppenadressen — es bleibt als überzählig stehen.':
+    '1 object is dropped by the new setting but still carries group addresses — it stays as surplus.',
+  '{0} Objekte entfallen durch die neue Einstellung, tragen aber noch Gruppenadressen — sie bleiben als überzählig stehen.':
+    '{0} objects are dropped by the new setting but still carry group addresses — they stay as surplus.',
+  '{0} Kommunikationsobjekte': '{0} communication objects',
+  'Einstellungen übernommen': 'Settings applied',
+  'z. B. A1 Schalten': 'e.g. A1 switch',
+  'Die Objektliste kommt aus der Produktdatei — sie folgt der Parametrierung. Über „Parameter …“ anpassen.':
+    'The object list comes from the product file — it follows the parameters. Adjust it via "Parameters …".',
+  'Neues Objekt — {0}': 'New object — {0}',
+  'Objekt bearbeiten — {0}': 'Edit object — {0}',
+  'Weicht vom DPT der Adresse {0} ({1}) ab. Erneut bestätigen, um es trotzdem zu übernehmen.':
+    'Differs from the DPT of address {0} ({1}). Confirm again to apply it anyway.',
+  'Dieses Objekt gehört zur Produktdatei. Über „Parameter …“ abwählen, statt es zu löschen.':
+    'This object belongs to the product file. Deselect it via "Parameters …" instead of deleting it.',
+  'Kommunikationsobjekt löschen?': 'Delete communication object?',
+  '„{0}“ von <b>{1}</b> wird entfernt.': '"{0}" of <b>{1}</b> will be removed.',
+  '{0} Adresszuordnungen gehen verloren.': '{0} address assignments will be lost.',
+  'Objekt-DPT <b>{0}</b>. Die <b>erste</b> markierte Adresse ist die sendende.':
+    'Object DPT <b>{0}</b>. The <b>first</b> selected address is the sending one.',
+  'Neuen Bereich anlegen': 'Create a new area',
+  'Bereichsnummer': 'Area number',
+  '1–15, 0 ist der Backbone': '1–15, 0 is the backbone',
+  'z. B. Nebengebäude': 'e.g. Annex',
+  'Medium der Hauptlinie': 'Medium of the main line',
+  'Bereichsnummer muss zwischen 1 und 15 liegen — Bereich 0 ist der Backbone.':
+    'The area number must be between 1 and 15 — area 0 is the backbone.',
+  'Bereich {0} ist bereits vergeben.': 'Area {0} is already taken.',
+  'Bereich bearbeiten': 'Edit area',
+  'Beim Ändern der Nummer werden die physikalischen Adressen aller Geräte dieses Bereichs mitgezogen.':
+    'Changing the number carries the individual addresses of all devices in this area along.',
+  'Der Backbone gehört zu jedem Projekt und lässt sich nicht löschen.':
+    'The backbone belongs to every project and cannot be deleted.',
+  'Der letzte Bereich kann nicht gelöscht werden.': 'The last area cannot be deleted.',
+  'Bereich „{0}“ löschen?': 'Delete area "{0}"?',
+  'Der Bereich mit {0} Linien wird entfernt.': 'The area with {0} lines will be removed.',
+  '{0} Geräte werden auf die erste verbleibende Linie verschoben — ihre physikalischen Adressen passen dann nicht mehr und werden als Fehler markiert.':
+    '{0} devices will be moved to the first remaining line — their individual addresses will no longer fit and will be flagged as errors.',
+  'Der Backbone hat nur die Linie 0.0 — neue Linien gehören in einen Bereich.':
+    'The backbone only has line 0.0 — new lines belong in an area.',
+  'Neue Linie in „{0}“': 'New line in "{0}"',
+  'Liniennummer': 'Line number',
+  '1–15, 0 ist die Hauptlinie': '1–15, 0 is the main line',
+  'z. B. Linie Keller': 'e.g. Basement line',
+  'Medium': 'Medium',
+  'Liniennummer muss zwischen 1 und 15 liegen — Linie 0 ist die Hauptlinie.':
+    'The line number must be between 1 and 15 — line 0 is the main line.',
+  'Linie {0} ist bereits vergeben.': 'Line {0} is already taken.',
+  'Die Hauptlinie gehört fest zum Bereich und behält die Nummer 0.':
+    'The main line belongs to the area and keeps number 0.',
+  'Beim Ändern der Nummer werden die Adressen der Geräte auf dieser Linie mitgezogen.':
+    'Changing the number carries the addresses of the devices on this line along.',
+  'Backbone bearbeiten': 'Edit backbone',
+  'Routing-Multicast-Adresse': 'Routing multicast address',
+  'Der Backbone verbindet die Bereiche. Die Multicast-Adresse gilt für alle KNXnet/IP-Router und wird beim Programmieren in jeden geschrieben.':
+    'The backbone connects the areas. The multicast address applies to every KNXnet/IP router and is written into each one when programming.',
+  'Die Multicast-Adresse muss zwischen 224.0.0.0 und 239.255.255.255 liegen.':
+    'The multicast address must be between 224.0.0.0 and 239.255.255.255.',
+  'Die Hauptlinie {0}.0 gehört fest zum Bereich und lässt sich nicht löschen.':
+    'Main line {0}.0 belongs to the area and cannot be deleted.',
+  'Linie {0} „{1}“ löschen?': 'Delete line {0} "{1}"?',
+  '{0} Geräte werden auf die Hauptlinie {1}.0 verschoben — ihre physikalischen Adressen passen dann nicht mehr und werden als Fehler markiert.':
+    '{0} devices will be moved to main line {1}.0 — their individual addresses will no longer fit and will be flagged as errors.',
+  'Auf dieser Linie sind keine Geräte.': 'There are no devices on this line.',
+  'Die letzte Linie kann nicht gelöscht werden.': 'The last line cannot be deleted.',
+  '{0} angelegt — die bisherigen Geräte bleiben in Segment 0':
+    '{0} created — the existing devices stay in segment 0',
+  'Segment bearbeiten': 'Edit segment',
+  'Segmentnummer': 'Segment number',
+  'z. B. Linienverstärker im Verteiler OG': 'e.g. line repeater in the upstairs cabinet',
+  'Segmentnummer muss zwischen 1 und 15 liegen — Segment 0 ist die Linie selbst.':
+    'The segment number must be between 1 and 15 — segment 0 is the line itself.',
+  'Segment {0} gibt es auf dieser Linie schon.': 'Segment {0} already exists on this line.',
+  '{0} löschen?': 'Delete {0}?',
+  'Das Segment wird entfernt.': 'The segment will be removed.',
+  '{0} Geräte wechseln in Segment 0 der Linie; ihre Adressen bleiben.':
+    '{0} devices move to segment 0 of the line; their addresses stay.',
+  '{0} {1} benennen': 'Name {0} {1}',
+  'Leer lassen entfernt den Namen. Die Adressen bleiben unverändert.':
+    'Leaving it empty removes the name. The addresses stay unchanged.',
+  '1 herstellereigene Datei wird übergangen ({1}). Solche Programme laufen nur unter Windows in der ETS. Die Produktdaten selbst sind davon unberührt.':
+    '1 manufacturer file is skipped ({1}). Such programs only run under Windows inside ETS. The product data itself is unaffected.',
+  '{0} herstellereigene Dateien werden übergangen ({1}). Solche Programme laufen nur unter Windows in der ETS. Die Produktdaten selbst sind davon unberührt.':
+    '{0} manufacturer files are skipped ({1}). Such programs only run under Windows inside ETS. The product data itself is unaffected.',
+  'Gerätename': 'Device name',
+  'IP-Adresse beziehen': 'Obtain IP address',
+  'Automatisch (DHCP / AutoIP)': 'Automatic (DHCP / AutoIP)',
+  'Manuell': 'Manual',
+  'fertig': 'finished',
+  'fehler': 'failed',
+  'abgebrochen': 'cancelled',
+  'gestartet': 'started',
+
+  /* ---------- KO-Flags (ETS-Begriffe) ---------- */
+  'K': 'C', 'L': 'R', 'S': 'W', 'Ü': 'T', 'A': 'U',
+  'Kommunikation': 'Communication',
+  'Lesen': 'Read',
+  'Schreiben': 'Write',
+  'Übertragen': 'Transmit',
+  'Objekt nimmt am Bus teil': 'Object takes part on the bus',
+  'Wert darf ausgelesen werden': 'Value may be read',
+  'Objekt nimmt Werte vom Bus an': 'Object accepts values from the bus',
+  'Objekt sendet von sich aus': 'Object sends on its own',
+  'Wert wird durch Lesen aktualisiert': 'Value is updated by reading',
+  '— frei definiert —': '— hand-made —',
+  'Hauptlinie {0}.0 bearbeiten': 'Edit main line {0}.0',
+  'Linie bearbeiten': 'Edit line',
+  'Nr.': 'No.',
+  'Diese Angaben stehen nicht in der Produktdatei — die ETS führt sie im Eigenschaftsfenster des Geräts. Die Routing-Multicast-Adresse ({0}) gilt für das ganze Projekt und wird am Backbone eingestellt.':
+    'This information is not in the product file — ETS keeps it in the device properties. The routing multicast address ({0}) applies to the whole project and is set on the backbone.',
+
+  /* ---------- Nachzügler aus früheren Stapeln ---------- */
+  'Geräte beteiligt': 'devices involved',
+  'Rollen': 'roles',
+  'geänderte Einstellungen': 'changed settings',
+  'Adresszuordnungen': 'address assignments',
+  'freie Nummern': 'free numbers',
+  'Linien': 'lines',
+  'Wirksam wird die Adresse erst, wenn ihr Kommunikationsobjekte zugeordnet sind — danach über das Kettensymbol.':
+    'The address only takes effect once communication objects are assigned to it — afterwards via the chain icon.',
+  '— Nummer unten eingeben —': '— enter the number below —',
+  'Die letzte Stufe bleibt, wenn sie in der Zielgruppe frei ist, sonst gibt es die nächste freie. Zuordnungen zu Objekten bleiben erhalten.':
+    'The last level is kept if it is free in the target group, otherwise the next free one is used. Object assignments are kept.',
+  'Standard': 'Default',
+  'Symbol des Typs': 'Icon of the type',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'
