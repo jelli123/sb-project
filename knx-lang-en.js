@@ -930,8 +930,12 @@ KNXI18n.add('en', {
   'Werkszustand vollständig': 'Full factory reset',
   'Neu starten': 'Restart',
   'Interface-Objekt': 'Interface object',
-  'Index des Interface-Objekts (3 = Applikationsprogramm)':
-    'Index of the interface object (3 = application program)',
+  'Der Dienst sucht das Objekt dieses Typs im Gerät — die Reihenfolge ist je Gerät verschieden.':
+    'The service looks up the object of this type in the device — the order differs from device to device.',
+  'Applikationsprogramm': 'Application program',
+  'Zuordnungstabelle': 'Association table',
+  'Router (Filtertabelle)': 'Router (filter table)',
+  'Interface-Programm (PEI)': 'Interface program (PEI)',
   'Ladezustand lesen': 'Read load state',
   'Objekt entladen': 'Unload object',
   'Diese Aktionen verändern das Gerät. Der Werkszustand löscht die Applikation vollständig — danach muss neu geladen werden.':
@@ -1069,14 +1073,12 @@ KNXI18n.add('en', {
   '{0} an {1}': '{0} at {1}',
   'Läuft …': 'Running …',
   '{0} ausgeführt': '{0} executed',
-  'Der Objektindex ist eine Zahl von 0 bis 255 (3 = Applikationsprogramm).':
-    'The object index is a number from 0 to 255 (3 = application program).',
   'Objekt entladen?': 'Unload object?',
-  'Interface-Objekt <b>{0}</b> an <b>{1}</b> wird entladen. Die zugehörigen Daten gelten danach als ungültig.':
-    'Interface object <b>{0}</b> at <b>{1}</b> will be unloaded. Its data counts as invalid afterwards.',
-  'Bei Objekt 3 (Applikationsprogramm) ist das Gerät anschließend funktionslos, bis es neu geladen wird.':
-    'With object 3 (application program) the device is out of service afterwards until it is loaded again.',
-  'Objekt {0} an {1} entladen': 'Unload object {0} at {1}',
+  '<b>{0}</b> an <b>{1}</b> wird entladen. Die zugehörigen Daten gelten danach als ungültig.':
+    '<b>{0}</b> at <b>{1}</b> will be unloaded. Its data counts as invalid afterwards.',
+  'Ohne Applikationsprogramm ist das Gerät anschließend funktionslos, bis es neu geladen wird.':
+    'Without its application program the device is out of service until it is loaded again.',
+  '{0} an {1} entladen': 'Unload {0} at {1}',
   'Entlädt …': 'Unloading …',
   'Ladezustand von {0} lesen': 'Read load state of {0}',
   'Status nicht lesbar: {0}': 'Status not readable: {0}',

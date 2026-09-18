@@ -208,8 +208,8 @@ const backend = {
     download:    body    => post('/api/bus/download', body, { timeout: 30000 }),
     restart:     body    => post('/api/bus/restart', body, { timeout: 130000 }),
     unload:      body    => post('/api/bus/unload', body, { timeout: 70000 }),
-    loadState:   (address, objectIndex) =>
-      get('/api/bus/loadstate?address=' + encodeURIComponent(address) + '&objectIndex=' + objectIndex)
+    loadState:   (address, objectType) =>
+      get('/api/bus/loadstate?address=' + encodeURIComponent(address) + '&objectType=' + objectType)
   }
 };
 

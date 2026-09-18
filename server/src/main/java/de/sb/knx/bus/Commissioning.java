@@ -4,6 +4,8 @@ import de.sb.knx.json.Json;
 import tuwien.auto.calimero.DeviceDescriptor;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
+import tuwien.auto.calimero.KNXRemoteException;
+import tuwien.auto.calimero.KNXTimeoutException;
 import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
@@ -19,6 +21,9 @@ import java.util.function.BiConsumer;
 
 /** Stufe 2 und 3: physikalische Adresse vergeben sowie Neustart und Entladen. */
 public final class Commissioning {
+
+    /** Obergrenze fuer die Suche nach einem Interface-Objekt; kein Geraet fuehrt annaehernd so viele. */
+    private static final int MAX_OBJECTS = 32;
 
     private final BusService bus;
 
@@ -185,17 +190,32 @@ public final class Commissioning {
     /**
      * Master-Reset mit Loeschcode. Nur System B und neuer beantworten das; aeltere Geraete
      * melden einen Fehler, dann bleibt nur der einfache Neustart oder das Entladen.
+     * <p>
+     * Manche Geraete starten neu, bevor ihre Antwort den Bus erreicht - so der KNX-Stack von
+     * thelsing, der die Antwort nur einreiht und sofort neu startet. Bleibt die Antwort aus, ist
+     * der Befehl also nicht unbedingt gescheitert; die Meldung sagt dann genau das.
      */
     public Map<String, Object> masterReset(IndividualAddress address, EraseCode code, int channel)
             throws KNXException, InterruptedException {
         return bus.withDestination(address, d -> {
-            Duration processTime = bus.client().restart(d, code, channel);
             Map<String, Object> m = Json.obj();
-            m.put("ok", true);
             m.put("eraseCode", code.name());
             m.put("channel", channel);
+            Duration processTime;
+            try {
+                processTime = bus.client().restart(d, code, channel);
+            } catch (KNXTimeoutException e) {
+                m.put("ok", false);
+                m.put("confirmed", false);
+                m.put("message", "Master-Reset " + code.name() + " an " + address + " gesendet, aber nicht bestaetigt. "
+                        + "Das Geraet kann trotzdem neu gestartet sein - ob der Loeschcode umgesetzt wurde, "
+                        + "zeigt erst der Ladezustand.");
+                return m;
+            }
+            m.put("ok", true);
+            m.put("confirmed", true);
             m.put("processTimeSeconds", processTime == null ? null : processTime.toSeconds());
-            m.put("message", "Master-Reset " + code.name() + " an " + address + " ausgefuehrt.");
+            m.put("message", "Master-Reset " + code.name() + " an " + address + " vom Geraet bestaetigt.");
             return m;
         });
     }
@@ -211,40 +231,48 @@ public final class Commissioning {
      * </ul>
      * Unloading ist ein Zwischenzustand; bis zu 30 s wird nachgelesen (03/05/01 4.23.2).
      */
-    public Map<String, Object> unload(IndividualAddress address, int objectIndex)
+    public Map<String, Object> unload(IndividualAddress address, int objectType)
             throws KNXException, InterruptedException {
         return bus.withDestination(address, d -> {
             int mask = mask(d);
             Map<String, Object> m = Json.obj();
-            m.put("objectIndex", objectIndex);
+            m.put("objectType", objectType);
             m.put("maskVersion", String.format("%04X", mask));
             if (Knx.isBcu1(mask)) {
                 bus.client().writeMemory(d, Knx.BCU1_RUN_ERROR, new byte[] {0});
                 bus.client().writeMemory(d, Knx.BCU1_ADDRTAB_SIZE, new byte[] {1});
                 m.put("ok", true);
                 m.put("message", address + " (BCU1): Applikation angehalten und Adresstabelle geleert. "
-                        + "Realisierungstyp 1 hat keine Load State Machine; der Objektindex spielt keine Rolle.");
+                        + "Realisierungstyp 1 hat keine Load State Machine; die Objektwahl spielt keine Rolle.");
                 return m;
             }
-            int value = Knx.hasMemoryMappedLsm(mask)
-                    ? memoryLsm(d, objectIndex, Knx.LOAD_EVENT_UNLOAD)
-                    : propertyLsm(d, objectIndex, Knx.LOAD_EVENT_UNLOAD);
+            String what = Knx.objectType(objectType);
+            int value;
+            if (Knx.hasMemoryMappedLsm(mask)) {
+                value = memoryLsm(d, memoryLsmNumber(objectType), Knx.LOAD_EVENT_UNLOAD);
+            } else {
+                int index = objectIndex(d, objectType);
+                m.put("objectIndex", index);
+                what += " (Objekt " + index + ")";
+                value = propertyLsm(d, index, Knx.LOAD_EVENT_UNLOAD);
+            }
             m.put("ok", value == 0);
             m.put("loadState", value);
             m.put("loadStateName", Knx.loadState(value));
             m.put("message", value == 0
-                    ? "Objekt " + objectIndex + " an " + address + " ist entladen."
-                    : "Objekt " + objectIndex + " meldet nach dem Entladen den Zustand " + Knx.loadState(value) + ".");
+                    ? what + " an " + address + " ist entladen."
+                    : what + " an " + address + " meldet nach dem Entladen den Zustand " + Knx.loadState(value) + ".");
             return m;
         });
     }
 
-    public Map<String, Object> loadState(IndividualAddress address, int objectIndex)
+    public Map<String, Object> loadState(IndividualAddress address, int objectType)
             throws KNXException, InterruptedException {
         return bus.withDestination(address, d -> {
             int mask = mask(d);
             Map<String, Object> m = Json.obj();
-            m.put("objectIndex", objectIndex);
+            m.put("objectType", objectType);
+            m.put("objectTypeName", Knx.objectType(objectType));
             m.put("maskVersion", String.format("%04X", mask));
             if (Knx.isBcu1(mask)) {
                 // Ersatzweise: laeuft die Applikation und ist die Adresstabelle belegt?
@@ -255,13 +283,45 @@ public final class Commissioning {
                         + String.format("%02X", runError) + "h, Adresstabelle " + entries + " Eintraege");
                 return m;
             }
-            int value = Knx.hasMemoryMappedLsm(mask)
-                    ? Knx.unsigned(bus.client().readMemory(d, Knx.M112_LOAD_STATE_BASE + objectIndex, 1))
-                    : Knx.unsigned(bus.client().readProperty(d, objectIndex, PID.LOAD_STATE_CONTROL, 1, 1));
+            int value;
+            if (Knx.hasMemoryMappedLsm(mask)) {
+                value = Knx.unsigned(bus.client().readMemory(d,
+                        Knx.M112_LOAD_STATE_BASE + memoryLsmNumber(objectType), 1));
+            } else {
+                int index = objectIndex(d, objectType);
+                m.put("objectIndex", index);
+                value = Knx.unsigned(bus.client().readProperty(d, index, PID.LOAD_STATE_CONTROL, 1, 1));
+            }
             m.put("loadState", value);
             m.put("loadStateName", Knx.loadState(value));
             return m;
         });
+    }
+
+    /**
+     * Sucht das Interface-Objekt eines Typs. Die Reihenfolge der Objekte legt das Geraet fest:
+     * bei einem gewoehnlichen System-B-Geraet ist Index 3 das Applikationsprogramm, bei einem
+     * KNXnet/IP-Router (Maske 091Ah) dagegen der IP-Parameter, das Programm steht dort auf 2.
+     */
+    private int objectIndex(Destination d, int objectType) throws KNXException, InterruptedException {
+        for (int index = 0; index < MAX_OBJECTS; index++) {
+            byte[] type;
+            try {
+                type = bus.client().readProperty(d, index, PID.OBJECT_TYPE, 1, 1);
+            } catch (KNXRemoteException e) {
+                break; // Das Geraet kennt keinen weiteren Index.
+            }
+            if (Knx.unsigned(type) == objectType) return index;
+        }
+        throw new IllegalArgumentException("Das Geraet hat kein Objekt vom Typ " + Knx.objectType(objectType) + ".");
+    }
+
+    /** BIM M112 nummeriert die Load State Machines wie die Objekttypen: 1 Adress-, 2 Zuordnungstabelle, 3 Programm, 4 PEI. */
+    private static int memoryLsmNumber(int objectType) {
+        if (objectType < 1 || objectType > 4)
+            throw new IllegalArgumentException("Dieses Geraet fuehrt fuer " + Knx.objectType(objectType)
+                    + " keine Load State Machine.");
+        return objectType;
     }
 
     private int mask(Destination d) throws KNXException, InterruptedException {

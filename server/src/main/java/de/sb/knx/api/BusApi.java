@@ -298,9 +298,35 @@ public final class BusApi implements HttpHandler {
         String code = Json.str(body, "eraseCode", null);
         int channel = Json.integer(body, "channel", 0);
 
-        Map<String, Object> result = code == null
-                ? run(() -> commissioning.restart(addr), 30)
-                : run(() -> commissioning.masterReset(addr, eraseCode(code), channel), 120);
+        EraseCode erase = code == null ? null : eraseCode(code);
+        if (channel < 0 || channel > 255) throw new IllegalArgumentException("Kanal ist 0 bis 255");
+
+        String iface = bus.interfaceAddress();
+        boolean self = iface != null && iface.equals(addr.toString());
+        boolean wasConnected = bus.connected();
+        Map<String, Object> result;
+        try {
+            result = erase == null
+                    ? run(() -> commissioning.restart(addr), 30)
+                    : run(() -> commissioning.masterReset(addr, erase, channel), 120);
+            if (self && bus.connected()) {
+                // Die Schnittstelle startet neu und nimmt ihren Tunnel mit. Calimero merkte das erst
+                // am ausbleibenden Heartbeat, bis dahin sahe die Verbindung gesund aus.
+                bus.abandon("Die Schnittstelle " + addr + " startet neu");
+                result.put("linkLost", true);
+                result.put("message", result.get("message") + " Die Schnittstelle startet dabei neu - "
+                        + "die Verbindung ist getrennt, bitte neu verbinden.");
+            }
+        } catch (IllegalStateException e) {
+            // Setzt man die verbundene Schnittstelle selbst zurueck, stirbt mit ihrem Neustart der Tunnel.
+            if (!wasConnected || bus.connected()) throw e;
+            result = Json.obj();
+            result.put("ok", false);
+            result.put("linkLost", true);
+            result.put("message", "Die Verbindung zur Schnittstelle ist dabei abgerissen"
+                    + (self ? " - " + addr + " ist die Schnittstelle selbst und startet neu." : ".")
+                    + " Bitte neu verbinden.");
+        }
         events.log("warn", String.valueOf(result.get("message")));
         Http.json(ex, 200, result);
     }
@@ -309,16 +335,16 @@ public final class BusApi implements HttpHandler {
         requirePost(method);
         Map<String, Object> body = Http.jsonBody(ex);
         IndividualAddress addr = Knx.address(Json.str(body, "address", null));
-        int index = Json.integer(body, "objectIndex", 3);
-        Map<String, Object> result = run(() -> commissioning.unload(addr, index), 60);
+        int type = objectType(Json.integer(body, "objectType", 3));
+        Map<String, Object> result = run(() -> commissioning.unload(addr, type), 60);
         events.log("warn", String.valueOf(result.get("message")));
         Http.json(ex, 200, result);
     }
 
     private void loadState(HttpExchange ex) throws Exception {
         IndividualAddress addr = Knx.address(requiredParam(ex, "address"));
-        int index = clamp(intParam(ex, "objectIndex", 3), 0, 63);
-        Http.json(ex, 200, run(() -> commissioning.loadState(addr, index), 30));
+        int type = objectType(intParam(ex, "objectType", 3));
+        Http.json(ex, 200, run(() -> commissioning.loadState(addr, type), 30));
     }
 
     /* ---------------- Hilfen ---------------- */
@@ -338,6 +364,13 @@ public final class BusApi implements HttpHandler {
                     : "Keine Antwort innerhalb von " + timeoutSeconds + " s - die Verbindung zur Schnittstelle "
                             + "wurde aufgegeben. Bitte neu verbinden.");
         }
+    }
+
+    /** Nur Objekttypen mit Load State Machine: Adress-, Zuordnungstabelle, Programm, PEI, Router. */
+    private static int objectType(int type) {
+        if (type < 1 || type > 6 || type == 5)
+            throw new IllegalArgumentException("Objekttyp ohne Load State Machine: " + type);
+        return type;
     }
 
     private static EraseCode eraseCode(String name) {

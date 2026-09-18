@@ -353,7 +353,13 @@ function ensureOverlay() {
           </div>
           <div class="row">
             <span class="lbl">${T18('Interface-Objekt')}</span>
-            <input id="bus-unload-idx" class="input narrow" value="3" title="${T18('Index des Interface-Objekts (3 = Applikationsprogramm)')}">
+            <select id="bus-lsm" class="input" title="${T18('Der Dienst sucht das Objekt dieses Typs im Gerät — die Reihenfolge ist je Gerät verschieden.')}">
+              <option value="3">${T18('Applikationsprogramm')}</option>
+              <option value="1">${T18('Adresstabelle')}</option>
+              <option value="2">${T18('Zuordnungstabelle')}</option>
+              <option value="6">${T18('Router (Filtertabelle)')}</option>
+              <option value="4">${T18('Interface-Programm (PEI)')}</option>
+            </select>
             <button id="bus-loadstate" class="btn btn-sm">${T18('Ladezustand lesen')}</button>
             <button id="bus-unload" class="btn btn-sm btn-danger">${T18('Objekt entladen')}</button>
           </div>
@@ -1283,32 +1289,34 @@ function restart() {
   `, () => {
     runTask({ btn: q('#bus-restart'), label: T18('{0} an {1}', label, address), busyText: T18('Läuft …') }, async () => {
       const r = await B.bus.restart(eraseCode ? { address, eraseCode } : { address });
+      if (r.linkLost) {
+        bus.connected = false;
+        q('#bus-reconnect').hidden = false;
+        await refreshStatus();
+      }
       return { level: r.ok === false ? 'warn' : 'ok', message: r.message || T18('{0} ausgeführt', label) };
     });
   });
 }
 
-function readIndex() {
-  const el = q('#bus-unload-idx'), n = Number(el.value.trim());
-  const ok = Number.isInteger(n) && n >= 0 && n <= 255 && el.value.trim() !== '';
-  el.classList.toggle('invalid', !ok);
-  if (!ok) { el.focus(); A.warn(T18('Der Objektindex ist eine Zahl von 0 bis 255 (3 = Applikationsprogramm).')); }
-  return ok ? n : null;
+/** Der gewählte Objekttyp; der Dienst sucht dazu den Index im Gerät. */
+function readLsm() {
+  const sel = q('#bus-lsm');
+  return { objectType: Number(sel.value), name: sel.selectedOptions[0].textContent };
 }
 
 function unload() {
   const address = readPa('#bus-rst-addr');
   if (!address) return;
-  const objectIndex = readIndex();
-  if (objectIndex === null) return;
+  const { objectType, name } = readLsm();
 
   A.openModal(T18('Objekt entladen?'), `
-    <p>${T18('Interface-Objekt <b>{0}</b> an <b>{1}</b> wird entladen. Die zugehörigen Daten gelten danach als ungültig.', objectIndex, esc(address))}</p>
-    <p class="hint warn">${T18('Bei Objekt 3 (Applikationsprogramm) ist das Gerät anschließend funktionslos, bis es neu geladen wird.')}</p>
+    <p>${T18('<b>{0}</b> an <b>{1}</b> wird entladen. Die zugehörigen Daten gelten danach als ungültig.', esc(name), esc(address))}</p>
+    ${objectType === 3 ? `<p class="hint warn">${T18('Ohne Applikationsprogramm ist das Gerät anschließend funktionslos, bis es neu geladen wird.')}</p>` : ''}
   `, () => {
-    runTask({ btn: q('#bus-unload'), label: T18('Objekt {0} an {1} entladen', objectIndex, address),
+    runTask({ btn: q('#bus-unload'), label: T18('{0} an {1} entladen', name, address),
               busyText: T18('Entlädt …') }, async () => {
-      const r = await B.bus.unload({ address, objectIndex });
+      const r = await B.bus.unload({ address, objectType });
       return { level: r.ok ? 'ok' : 'warn', message: r.message };
     });
   });
@@ -1318,12 +1326,12 @@ function readLoadState() {
   if (!q('#bus-rst-addr').value.trim()) q('#bus-rst-addr').value = q('#bus-addr').value.trim();
   const address = readPa('#bus-rst-addr');
   if (!address) return;
-  const objectIndex = readIndex();
-  if (objectIndex === null) return;
+  const { objectType, name } = readLsm();
 
   runTask({ btn: q('#bus-loadstate'), label: T18('Ladezustand von {0} lesen', address), busyText: T18('Liest …') }, async () => {
-    const r = await B.bus.loadState(address, objectIndex);
-    return { level: 'ok', message: `${address}, ${T18('Objekt {0}', objectIndex)}: ${r.loadStateName}` };
+    const r = await B.bus.loadState(address, objectType);
+    const where = r.objectIndex == null ? name : `${name} (${T18('Objekt {0}', r.objectIndex)})`;
+    return { level: 'ok', message: `${address}, ${where}: ${r.loadStateName}` };
   });
 }
 
