@@ -26,6 +26,12 @@ public final class Download {
 
     /** A_Memory_Write mit Standardrahmen: APDU 15 Oktett, davon 3 Kopf - 12 Datenoktette. */
     private static final int MEM_CHUNK = 12;
+    /**
+     * A_PropertyValue_Write mit Standardrahmen: 15 Oktette nach dem TPCI, davon 5 Kopf
+     * (APCI, Objekt, PID, Anzahl und Start) - 10 Datenoktette. Laengere Bloecke braeuchten
+     * einen Extended Frame, und den reicht nicht jede Schnittstelle auf den TP weiter.
+     */
+    private static final int PROP_CHUNK = 10;
 
     /** Uebergaenge der Load State Machine duerfen bis zu 30 s dauern (03/05/01 4.23.2.1). */
     private static final long LSM_TIMEOUT_MS = 30_000;
@@ -292,10 +298,11 @@ public final class Download {
                         + " Oktette - wird ohne Abgleich geschrieben.");
             }
         }
-        // Die Elementanzahl im A_PropertyValue_Write hat 4 Bit - laengere Felder wie der
-        // Geraetename (30 Elemente) gehen in Bloecken von hoechstens 15 Elementen.
+        // Die Elementanzahl im A_PropertyValue_Write hat 4 Bit, und ein Standardrahmen traegt
+        // nur PROP_CHUNK Datenoktette - laengere Felder wie der Geraetename (30 Elemente)
+        // gehen deshalb in Bloecken. Ein einzelnes Element ueber PROP_CHUNK bleibt ungeteilt.
         int size = count > 0 && data.length % count == 0 ? data.length / count : 0;
-        int step = count > MAX_ELEMENTS && size > 0 ? MAX_ELEMENTS : count;
+        int step = size > 0 ? Math.min(count, Math.max(1, Math.min(MAX_ELEMENTS, PROP_CHUNK / size))) : count;
         boolean verify = Json.bool(s, "verify", false);
         for (int done = 0; done < count; done += step) {
             int n = Math.min(step, count - done);
