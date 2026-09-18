@@ -29,8 +29,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -195,6 +197,9 @@ public final class BusService implements AutoCloseable {
                 d.search().get(seconds + 3L, TimeUnit.SECONDS);
 
         List<Map<String, Object>> out = new ArrayList<>();
+        // Calimero sendet eine einfache und eine erweiterte Suche (KNXnet/IP Core v2).
+        // Ein v2-Server beantwortet beide, liefert also zwei gleiche Ergebnisse.
+        Set<String> seen = new HashSet<>();
         for (Discoverer.Result<SearchResponse> r : results) {
             SearchResponse res = r.response();
             DeviceDIB dev = res.getDevice();
@@ -203,6 +208,8 @@ public final class BusService implements AutoCloseable {
             String host = control.getAddress() == null || control.getAddress().isAnyLocalAddress()
                     ? r.remoteEndpoint().getAddress().getHostAddress()
                     : control.getAddress().getHostAddress();
+
+            if (!seen.add(dev.serialNumber() + "|" + host + ":" + control.getPort())) continue;
 
             Map<String, Object> m = Json.obj();
             m.put("name", dev.getName());
