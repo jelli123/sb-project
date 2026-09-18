@@ -745,7 +745,12 @@ function collect(docs, prefer) {
     if (seen.has(key)) return;
     seen.add(key);
     const lg = docLangs.get(doc);
-    const ciName = pair(lg.de.get(key + '|Name'), lg.en.get(key + '|Name') || attr(ci, 'Name'));
+    /* Manche Hersteller (etwa MDT) übersetzen nur den Produkttext, nicht den
+       Katalognamen. Die deutsche Seite kommt dann vom Produkt — derselbe Text,
+       den auch der Online-Katalog zeigt. */
+    const ciDe = lg.de.get(key + '|Name')
+      || (prod.text && typeof prod.text === 'object' ? prod.text.de : '');
+    const ciName = pair(ciDe, lg.en.get(key + '|Name') || attr(ci, 'Name'));
     out.push(entry(key, plain(ciName) ? ciName : (plain(prod.text) ? prod.text : app.name),
       attr(ci, 'OrderNumber') || prod.order || '', app, hwOf.get(h2pId) || prod.hw));
   }));

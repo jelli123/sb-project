@@ -133,7 +133,15 @@ public final class Commissioning {
         return m;
     }
 
-    /** Vergibt die Adresse anhand der Seriennummer - ohne Programmiertaster am Geraet. */
+    /**
+     * Vergibt die Adresse anhand der Seriennummer - ohne Programmiertaster am Geraet.
+     * <p>
+     * Anders als beim Weg ueber den Programmiermodus endet Calimeros Prozedur hier
+     * nach Schreiben und Zuruecklesen; der Neustart, den die ETS anschliessend
+     * ausloest, fehlt. Er wird darum hier nachgeholt, an die neue Adresse. Scheitert
+     * er, bleibt die Vergabe trotzdem gueltig - die Adresse steht im Geraet und ist
+     * zurueckgelesen - und die Meldung sagt, dass von Hand neu zu starten ist.
+     */
     public Map<String, Object> assignAddressViaSerial(SerialNumber serial, IndividualAddress newAddress)
             throws KNXException, InterruptedException {
         boolean ok = bus.procedures().writeAddress(serial, newAddress);
@@ -141,9 +149,24 @@ public final class Commissioning {
         m.put("ok", ok);
         m.put("address", newAddress.toString());
         m.put("serial", serial.toString());
-        m.put("message", ok
-                ? "Adresse " + newAddress + " an Seriennummer " + serial + " vergeben."
-                : "Adresse nicht vergeben - Geraet mit dieser Seriennummer antwortet nicht.");
+        if (!ok) {
+            m.put("message", "Adresse nicht vergeben - Geraet mit dieser Seriennummer antwortet nicht.");
+            return m;
+        }
+        String restartProblem = null;
+        try {
+            bus.withDestination(newAddress, d -> {
+                bus.client().restart(d);
+                return null;
+            });
+        } catch (KNXException e) {
+            restartProblem = e.getMessage();
+        }
+        m.put("restarted", restartProblem == null);
+        m.put("message", restartProblem == null
+                ? "Adresse " + newAddress + " an Seriennummer " + serial + " vergeben, Geraet neu gestartet."
+                : "Adresse " + newAddress + " an Seriennummer " + serial + " vergeben, der Neustart schlug aber fehl ("
+                        + restartProblem + ") - bitte das Geraet neu starten.");
         return m;
     }
 
