@@ -973,6 +973,7 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
 .bar-seg.linked { background: var(--ok); }
 .bar-seg.unlinked { background: var(--border2); }
 .bar-info { font-size: 11.5px; color: var(--faint); }
+#drag-hint { font-size: 12px; font-weight: 600; color: var(--danger); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 #status-msg { font-family: var(--mono); font-size: 11.5px; color: var(--ok); }
 

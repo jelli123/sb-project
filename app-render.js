@@ -274,26 +274,31 @@ function fnNode(fn, depth) {
 /* ---------- Ansicht 2: Topologie ---------- */
 /* Ein Gerät auf Linie, Segment oder ein anderes Gerät gezogen wandert dorthin.
    `segmentId` ist leer oder die Linien-Id für Segment 0.                      */
-/* Sagt beim Überfahren, warum ein Ziel nicht passt — ohne die Statuszeile bei
-   jedem dragover neu zu setzen.                                            */
-let lastHint = '';
-document.addEventListener('dragend', () => { lastHint = ''; });
+/* Sagt beim Überfahren, warum ein Ziel nicht passt — rot mitten in der Statusleiste,
+   ohne sie bei jedem dragover neu zu setzen. Nach dem Loslassen bleibt der Hinweis
+   noch kurz stehen, ein gültiges Ziel räumt ihn sofort weg.                  */
+let lastHint = '', hintTimer = 0;
 function dragHint(msg) {
+  clearTimeout(hintTimer);
   if (msg === lastHint) return;
   lastHint = msg;
-  A.status(msg);
+  $('#drag-hint').textContent = msg;
 }
+['dragend', 'drop'].forEach(t => document.addEventListener(t, () => {
+  if (lastHint) hintTimer = setTimeout(() => dragHint(''), 4000);
+}));
 function dropDevOnLine(item, lineId, segmentId) {
   if (item.type !== 'dev') return null;
   const d = KNX.deviceById(item.id);
   const target = segmentId || lineId;
-  if (!d || (d.lineId === lineId && (d.segmentId || d.lineId) === target)) return null;
+  if (!d || (d.lineId === lineId && (d.segmentId || d.lineId) === target)) { dragHint(''); return null; }
   // Ein TP-Gerät gehört nicht auf eine IP-Linie; eine IP-Schnittstelle darf auf beide
   const to = KNX.segmentInfo(target);
   if (!to || !KNX.deviceMedia(d).has(to.medium)) {
     dragHint(A.t('„{0}“ passt nicht auf {1} ({2})', d.name, to ? (to.seg ? to.seg.name : to.line.name) : '?', A.t(KNX.MEDIA[to && to.medium] || '?')));
     return null;
   }
+  dragHint('');
   return { cls: 'drop', run: () => T.moveDevice(item.id, lineId, segmentId) };
 }
 function backboneNode(bb) {
