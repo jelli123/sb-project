@@ -7,6 +7,8 @@ import tuwien.auto.calimero.DataUnitBuilder;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
 import tuwien.auto.calimero.KNXRemoteException;
+import tuwien.auto.calimero.KNXTimeoutException;
+import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.knxnetip.Discoverer;
 import tuwien.auto.calimero.knxnetip.servicetype.SearchResponse;
 import tuwien.auto.calimero.knxnetip.util.DeviceDIB;
@@ -60,6 +62,27 @@ public final class BusService implements AutoCloseable {
             return transportLayer();
         }
 
+        /** Antwortende der letzten Abfrage "wer ist im Programmiermodus" - auch der aus Calimeros Prozeduren. */
+        private volatile IndividualAddress[] inProgrammingMode = new IndividualAddress[0];
+
+        /**
+         * Merkt sich, wer im Programmiermodus geantwortet hat. Die Adressvergabe von Calimero
+         * fragt das selbst ab, gibt aber nur ja oder nein zurueck - so bleibt die alte Adresse
+         * des programmierten Geraets bekannt, ohne den Bus ein zweites Mal zu fragen.
+         */
+        @Override
+        public IndividualAddress[] readAddress(boolean oneAddressOnly)
+                throws KNXTimeoutException, KNXRemoteException, KNXLinkClosedException, InterruptedException {
+            inProgrammingMode = new IndividualAddress[0];
+            IndividualAddress[] found = super.readAddress(oneAddressOnly);
+            inProgrammingMode = found.clone();
+            return found;
+        }
+
+        IndividualAddress[] lastInProgrammingMode() {
+            return inProgrammingMode.clone();
+        }
+
         /**
          * A_PropertyValue_Write fuer Properties, deren Antwort anders aussieht als der Schreibwert.
          * PID_LOAD_STATE_CONTROL (PDT_CONTROL) nimmt 10 Oktette an und antwortet mit einem Oktett
@@ -105,6 +128,8 @@ public final class BusService implements AutoCloseable {
     /** Adresse der KNXnet/IP-Schnittstelle selbst - noetig, um das Programmieren der
      *  eigenen Schnittstelle zu erkennen. Die Oberflaeche liefert sie aus der Suche mit. */
     private volatile String interfaceAddress;
+    /** Seriennummer der Schnittstelle aus der Suche - erkennt die Vergabe per Seriennummer an sie. */
+    private volatile SerialNumber interfaceSerial;
     private volatile String lostReason;
 
     public BusService(Events events) {
@@ -130,6 +155,10 @@ public final class BusService implements AutoCloseable {
 
     public String interfaceAddress() {
         return interfaceAddress;
+    }
+
+    public SerialNumber interfaceSerial() {
+        return interfaceSerial;
     }
 
     public <T> T call(Callable<T> task, long timeoutSeconds) throws Exception {
@@ -262,7 +291,8 @@ public final class BusService implements AutoCloseable {
     /* ---------------- Verbinden ---------------- */
 
     public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost,
-                                                String deviceAddress) throws Exception {
+                                                String deviceAddress, String deviceSerial) throws Exception {
+        SerialNumber serial = deviceSerial == null || deviceSerial.isBlank() ? null : Knx.serialNumber(deviceSerial);
         return call(() -> {
             closeLink();
             InetSocketAddress server = new InetSocketAddress(InetAddress.getByName(host), port);
@@ -272,6 +302,7 @@ public final class BusService implements AutoCloseable {
             link = KNXNetworkLinkIP.newTunnelingLink(local, server, nat, new TPSettings());
             attach();
             interfaceAddress = deviceAddress == null || deviceAddress.isBlank() ? null : deviceAddress;
+            interfaceSerial = serial;
             lostReason = null;
 
             Map<String, Object> d = Json.obj();
@@ -305,6 +336,7 @@ public final class BusService implements AutoCloseable {
             link = KNXNetworkLinkIP.newRoutingLink(ni, group, settings);
             attach();
             interfaceAddress = null;
+            interfaceSerial = null;
             lostReason = null;
 
             Map<String, Object> d = Json.obj();
@@ -322,6 +354,7 @@ public final class BusService implements AutoCloseable {
             closeLink();
             description = Json.obj();
             interfaceAddress = null;
+            interfaceSerial = null;
             lostReason = null;
             return status();
         }, 20);

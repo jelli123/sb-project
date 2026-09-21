@@ -12,6 +12,7 @@ import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
 import de.sb.knx.json.Json;
 import tuwien.auto.calimero.IndividualAddress;
+import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
 
 import java.io.IOException;
@@ -109,7 +110,8 @@ public final class BusApi implements HttpHandler {
                     Json.integer(body, "port", 3671),
                     Json.bool(body, "nat", false),
                     Json.str(body, "localHost", null),
-                    Json.str(body, "deviceAddress", null));
+                    Json.str(body, "deviceAddress", null),
+                    Json.str(body, "deviceSerial", null));
         }
         events.log("info", "Verbunden: " + Json.write(status.get("connection")));
         Http.json(ex, 200, status);
@@ -187,6 +189,7 @@ public final class BusApi implements HttpHandler {
         String serial = Json.str(body, "serial", null);
 
         String iface = bus.interfaceAddress();
+        SerialNumber ifaceSerial = bus.interfaceSerial();
         boolean wasConnected = bus.connected();
 
         Map<String, Object> result;
@@ -211,7 +214,18 @@ public final class BusApi implements HttpHandler {
             Http.json(ex, 200, result);
             return;
         }
-        result.put("interfaceProgrammed", iface != null && iface.equals(addr.toString()));
+        boolean self = Boolean.TRUE.equals(result.get("ok")) && (serial != null
+                ? ifaceSerial != null && ifaceSerial.equals(Knx.serialNumber(serial))
+                : iface != null && (iface.equals(addr.toString()) || iface.equals(result.get("previousAddress"))));
+        result.put("interfaceProgrammed", self);
+        if (self && bus.connected()) {
+            // Die Schnittstelle startet mit der neuen Adresse neu. Nicht jede baut dabei den Tunnel
+            // sichtbar ab; bis Calimero den ausbleibenden Heartbeat bemerkt, saehe er gesund aus.
+            bus.abandon("Die Schnittstelle hat die Adresse " + addr + " bekommen und startet neu");
+            result.put("linkLost", true);
+            result.put("message", result.get("message") + " Das war die Schnittstelle selbst - "
+                    + "die Verbindung ist getrennt, bitte neu verbinden.");
+        }
         events.log(Boolean.TRUE.equals(result.get("ok")) ? "info" : "warn", String.valueOf(result.get("message")));
         Http.json(ex, 200, result);
     }

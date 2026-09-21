@@ -616,6 +616,7 @@ function reconnect() {
         if (i >= 0) {
           q('#bus-server').value = String(i);
           last.deviceAddress = bus.servers[i].address;
+          last.deviceSerial = bus.servers[i].serial;
         }
       } catch (e) {
         appendLog('warn', T18('Suche vor dem Neuverbinden fehlgeschlagen: {0}', e.message));
@@ -725,10 +726,10 @@ function connect() {
   } else {
     const s = bus.servers[+q('#bus-server').value];
     if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return; }
-    // Die Adresse der Schnittstelle merkt sich der Dienst, um das Programmieren
-    // der eigenen Schnittstelle zu erkennen.
+    // Adresse und Seriennummer der Schnittstelle merkt sich der Dienst, um das
+    // Programmieren der eigenen Schnittstelle zu erkennen.
     opts = { mode: 'tunneling', host: s.host, port: s.port, nat: q('#bus-nat').checked,
-             deviceAddress: s.address };
+             deviceAddress: s.address, deviceSerial: s.serial };
   }
   bus.lastConnect = opts;
   const target = opts.mode === 'routing' ? 'Routing' : opts.host;

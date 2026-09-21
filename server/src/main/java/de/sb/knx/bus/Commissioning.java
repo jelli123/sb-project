@@ -131,6 +131,9 @@ public final class Commissioning {
         Map<String, Object> m = Json.obj();
         m.put("ok", ok);
         m.put("address", newAddress.toString());
+        // Die Prozedur hat vorher gefragt, wer im Programmiermodus ist - das ist die alte Adresse.
+        IndividualAddress[] before = bus.client().lastInProgrammingMode();
+        if (ok && before.length == 1) m.put("previousAddress", before[0].toString());
         m.put("message", ok
                 ? "Adresse " + newAddress + " vergeben."
                 : "Adresse nicht vergeben - kein oder mehr als ein Geraet im Programmiermodus, "
