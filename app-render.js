@@ -272,21 +272,40 @@ function fnNode(fn, depth) {
 }
 
 /* ---------- Ansicht 2: Topologie ---------- */
-/* Ein Gerät auf Linie, Segment oder ein anderes Gerät gezogen wandert dorthin.
-   `segmentId` ist leer oder die Linien-Id für Segment 0.                      */
-/* Sagt beim Überfahren, warum ein Ziel nicht passt — rot mitten in der Statusleiste,
-   ohne sie bei jedem dragover neu zu setzen. Nach dem Loslassen bleibt der Hinweis
-   noch kurz stehen, ein gültiges Ziel räumt ihn sofort weg.                  */
-let lastHint = '', hintTimer = 0;
+/* Sagt beim Überfahren, warum ein Ziel nicht passt: als Tooltip am Zeiger und rot
+   mitten in der Statusleiste. Ein natives title erscheint beim Ziehen nicht.
+   Das Tooltip zeigt sich nur, solange die Zeile unter dem Zeiger ablehnt — der
+   dragover am Dokument läuft vor und nach dem der Zeile und räumt es sonst weg.
+   Die Statusleiste behält den Hinweis nach dem Loslassen noch kurz.           */
+let lastHint = '', hintTimer = 0, tipShown = false, tipX = 0, tipY = 0;
+const dragTip = document.createElement('div');
+dragTip.className = 'drag-tip';
+dragTip.hidden = true;
+document.body.appendChild(dragTip);
 function dragHint(msg) {
   clearTimeout(hintTimer);
+  tipShown = !!msg;
+  if (msg) {
+    dragTip.textContent = msg;
+    dragTip.hidden = false;
+    // Rechts unterhalb des Zeigers, am Fensterrand nach innen geklappt
+    const w = dragTip.offsetWidth, h = dragTip.offsetHeight;
+    dragTip.style.left = Math.max(4, Math.min(tipX + 14, innerWidth - w - 4)) + 'px';
+    dragTip.style.top = (tipY + 18 + h > innerHeight ? tipY - h - 8 : tipY + 18) + 'px';
+  }
   if (msg === lastHint) return;
   lastHint = msg;
   $('#drag-hint').textContent = msg;
 }
+document.addEventListener('dragover', e => { tipShown = false; tipX = e.clientX; tipY = e.clientY; }, true);
+document.addEventListener('dragover', () => { if (!tipShown) dragTip.hidden = true; });
 ['dragend', 'drop'].forEach(t => document.addEventListener(t, () => {
+  dragTip.hidden = true;
   if (lastHint) hintTimer = setTimeout(() => dragHint(''), 4000);
 }));
+
+/* Ein Gerät auf Linie, Segment oder ein anderes Gerät gezogen wandert dorthin.
+   `segmentId` ist leer oder die Linien-Id für Segment 0.                      */
 function dropDevOnLine(item, lineId, segmentId) {
   if (item.type !== 'dev') return null;
   const d = KNX.deviceById(item.id);
