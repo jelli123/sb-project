@@ -279,6 +279,8 @@ function dropDevOnLine(item, lineId, segmentId) {
   const d = KNX.deviceById(item.id);
   const target = segmentId || lineId;
   if (!d || (d.lineId === lineId && (d.segmentId || d.lineId) === target)) return null;
+  // Per Ziehen bleibt das Medium gleich — ein TP-Gerät gehört nicht auf eine IP-Linie
+  if (KNX.segmentInfo(KNX.segKeyOf(d))?.medium !== KNX.segmentInfo(target)?.medium) return null;
   return { cls: 'drop', run: () => T.moveDevice(item.id, lineId, segmentId) };
 }
 function backboneNode(bb) {

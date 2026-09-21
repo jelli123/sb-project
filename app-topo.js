@@ -299,6 +299,12 @@ function actEditDevice(id) {
 function moveDevice(id, lineId, segmentId) {
   const d = KNX.deviceById(id), line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
   if (!d || !line || !area) return;
+  const to = KNX.segmentInfo(segmentId || lineId), from = KNX.segmentInfo(KNX.segKeyOf(d));
+  if (!to || !from || to.medium !== from.medium) {
+    A.warn(T18('Das Medium passt nicht: Ziel {0}, Gerät {1}.', T18(KNX.MEDIA[to ? to.medium : line.medium] || '?'),
+      T18(KNX.MEDIA[from ? from.medium : ''] || '?')));
+    return;
+  }
   const before = d.addr;
   let addr = d.addr;
   if (d.lineId !== lineId && addr !== null) {
