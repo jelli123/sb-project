@@ -759,8 +759,14 @@ function collect(docs, prefer) {
   if (!out.length)
     apps.forEach((app, id) => out.push(entry(id, app.name, '', app, null)));
 
-  // Koppler und IP-Schnittstellen haben oft keine Objekte, aber Einstellungen
-  return out.filter(p => p.objCount || p.paramCount || p.hwOnly)
+  /* Koppler und IP-Schnittstellen haben oft keine Objekte — und manche auch
+     keine Parameter: Ein Gerät, das seine Einstellungen selbst mitbringt, über
+     ein eigenes Web-Dashboard etwa, überlässt der ETS nur physikalische
+     Adresse und Filtertabelle. Beides läuft über das Kopplerobjekt, nicht über
+     die Applikation, also steht im Applikationsprogramm nichts. Ohne die
+     beiden letzten Bedingungen fällt so ein Produkt hier heraus und die ganze
+     Datei sieht leer aus. */
+  return out.filter(p => p.objCount || p.paramCount || p.hwOnly || p.coupler || p.ip)
             .sort((a, b) => plain(a.name).localeCompare(plain(b.name), 'de'));
 }
 

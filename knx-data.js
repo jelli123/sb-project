@@ -717,7 +717,12 @@ const KNX = (() => {
         noAddress: !!c.noAddress,
         hwOnly: !!c.hwOnly
       };
-    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length || c.hwOnly);
+    /* Dieselbe Bedingung wie beim Einlesen der Produktdatei (knx-prod.js).
+       Wäre sie hier enger, verlöre ein Koppler ohne Objekte und Parameter beim
+       Laden des Projekts seinen Katalogeintrag — und die Geräte daran gleich
+       ihre Verknüpfung. */
+    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length
+                   || c.hwOnly || c.coupler || c.ip);
     const catIds = new Set(p.catalog.map(c => c.id));
     p.devices.forEach(d => {
       if (!catIds.has(d.catalogId)) { d.catalogId = null; d.params = {}; }
