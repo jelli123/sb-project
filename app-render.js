@@ -101,6 +101,8 @@ function buildTreeRow(o, index) {
     row.appendChild(m);
   }
   const acts = o.actions ? o.actions() : [];
+  // Was ein Doppelklick bearbeitet, bekommt auch einen Stift — sonst findet man es nicht
+  if (o.onEdit) acts.unshift(iconBtn(A.IC_PENCIL, o.editTitle || 'Bearbeiten', o.onEdit));
   if (acts.length) {
     const act = document.createElement('span');
     act.className = 'node-actions';
@@ -270,6 +272,15 @@ function fnNode(fn, depth) {
 }
 
 /* ---------- Ansicht 2: Topologie ---------- */
+/* Ein Gerät auf Linie, Segment oder ein anderes Gerät gezogen wandert dorthin.
+   `segmentId` ist leer oder die Linien-Id für Segment 0.                      */
+function dropDevOnLine(item, lineId, segmentId) {
+  if (item.type !== 'dev') return null;
+  const d = KNX.deviceById(item.id);
+  const target = segmentId || lineId;
+  if (!d || (d.lineId === lineId && (d.segmentId || d.lineId) === target)) return null;
+  return { cls: 'drop', run: () => T.moveDevice(item.id, lineId, segmentId) };
+}
 function backboneNode(bb) {
   const devs = KNX.devicesOnLine(bb.line.id);
   const areas = KNX.regularAreas().slice().sort((x, y) => x.addr - y.addr);
@@ -284,6 +295,7 @@ function backboneNode(bb) {
       iconBtn('+', 'Neuer Bereich', () => T.actNewArea())
     ],
     onSelect: () => { state.filter = { kind: 'line', id: bb.line.id }; A.select('line', bb.line.id); },
+    dropItem: item => dropDevOnLine(item, bb.line.id, null),
     onEdit: () => T.actEditLine(bb.line.id),
     children: () => {
       if (KNX.segmentsOf(bb.line).length) KNX.segmentKeys(bb.line).forEach(key => segmentNode(key, 1));
@@ -322,6 +334,7 @@ function lineNode(a, l, depth = 1) {
       iconBtn('+', 'Neues Gerät', () => T.actNewDevice({ lineId: l.id }))
     ],
     onSelect: () => { state.filter = { kind: 'line', id: l.id }; A.select('line', l.id); },
+    dropItem: item => dropDevOnLine(item, l.id, null),
     onEdit: () => T.actEditLine(l.id),
     children: () => segmented
       ? KNX.segmentKeys(l).forEach(key => segmentNode(key, depth + 1))
@@ -344,6 +357,7 @@ function segmentNode(key, depth) {
       iconBtn('+', 'Neues Gerät', () => T.actNewDevice({ lineId: s.line.id, segmentId: s.seg ? key : null }))
     ],
     onSelect: () => { state.filter = { kind: 'seg', id: key }; A.select('seg', key); },
+    dropItem: item => dropDevOnLine(item, s.line.id, s.seg ? key : null),
     onEdit: () => T.actEditSegment(key),
     children: () => devs.slice().sort(KNX.byPa).forEach(d => deviceNode(d, depth + 1))
   });
@@ -364,11 +378,12 @@ function deviceNode(d, depth, building) {
         ? iconBtn(A.IC.params, 'Parameter', () => T.actParams(d.id))
         : iconBtn('+', 'Neues Kommunikationsobjekt', () => T.actNewObj(d.id))
     ],
-    drag: building ? { type: 'dev', id: d.id } : null,
-    // Gerät auf Gerät: in denselben Raum
+    drag: { type: 'dev', id: d.id },
+    // Gerät auf Gerät: in denselben Raum bzw. auf dieselbe Linie
     dropItem: building ? (item => item.type === 'dev' && item.id !== d.id
       && KNX.deviceById(item.id)?.roomId !== d.roomId
-      ? { cls: 'drop', run: () => A.setDeviceRoom(item.id, d.roomId) } : null) : null,
+      ? { cls: 'drop', run: () => A.setDeviceRoom(item.id, d.roomId) } : null)
+      : (item => item.id === d.id ? null : dropDevOnLine(item, d.lineId, d.segmentId)),
     onSelect: () => { state.filter = { kind: 'dev', id: d.id }; A.select('dev', d.id); },
     onEdit: () => T.actEditDevice(d.id),
     children: () => d.objs.forEach(o => objNode(o, depth + 1))
@@ -404,14 +419,13 @@ function gaGroupNode(n, depth) {
     hasKids: n.children.length > 0 || n.groups.length > 0, collapsed: state.collapsed.has('grp:' + n.key),
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gruppe mit allen Adressen löschen', () => G.actDeleteGaGroup(n.key)),
-      iconBtn(A.IC_PENCIL, 'Benennen', () => T.actRenameGaGroup(n.key)),
       folder
         ? iconBtn('+', 'Neue Gruppenadresse', () => G.actNewGa(n.key))
         : iconBtn('+', A.t('Neue {0}', A.t((KNX.gaStyle().parts[n.level + 1] || {}).label)), () => G.actNewGaGroup(n.key))
     ],
     dropKey: folder ? n.key : null,
     onSelect: () => { state.filter = { kind: 'grp', id: n.key }; A.select('grp', n.key); },
-    onEdit: () => T.actRenameGaGroup(n.key),
+    onEdit: () => T.actRenameGaGroup(n.key), editTitle: 'Benennen',
     children: () => {
       n.children.forEach(c => gaGroupNode(c, depth + 1));
       n.groups.forEach(g => gaLeafNode(g, depth + 1));

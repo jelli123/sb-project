@@ -294,6 +294,29 @@ function actEditDevice(id) {
   });
 }
 
+/* Gerät per Ziehen auf eine andere Linie oder in ein anderes Segment. Die Teilnehmernummer
+   bleibt, wenn sie auf der neuen Linie frei ist — sonst die nächste freie, wie im Dialog. */
+function moveDevice(id, lineId, segmentId) {
+  const d = KNX.deviceById(id), line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
+  if (!d || !line || !area) return;
+  const before = d.addr;
+  let addr = d.addr;
+  if (d.lineId !== lineId && addr !== null) {
+    const keep = KNX.paJoin(area.addr, line.addr, KNX.paSplit(addr)[2]);
+    addr = KNX.paFree(keep, id) ? keep : KNX.freePa(lineId, id);
+    if (!KNX.paFree(addr, id)) { A.warn(T18('Auf dieser Linie ist keine Adresse mehr frei.')); return; }
+  }
+  d.lineId = lineId;
+  d.segmentId = segmentId && segmentId !== lineId ? segmentId : null;
+  d.addr = addr;
+  KNX.touch();
+  state.collapsed.delete(segmentId && segmentId !== lineId ? 'seg:' + segmentId : lineId);
+  A.commit();
+  A.status(addr === before
+    ? T18('„{0}“ verschoben', d.name)
+    : T18('„{0}“ verschoben: {1} → {2}', d.name, KNX.paStr(before), KNX.paStr(addr)));
+}
+
 function actDeleteDevice(id) {
   const d = KNX.deviceById(id);
   if (!d) return;
@@ -1416,7 +1439,7 @@ function actRenameGaGroup(key) {
 }
 
 window.KNXTopo = {
-  actNewDevice, actEditDevice, actDeleteDevice, actParams,
+  actNewDevice, actEditDevice, actDeleteDevice, moveDevice, actParams,
   actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending,
   actNewArea, actEditArea, actDeleteArea,
   actNewLine, actEditLine, actDeleteLine,

@@ -338,6 +338,8 @@ KNXI18n.add('en', {
     'To keep the addresses, select and move them first.',
   '{0} Adresse nach {1} verschoben': '{0} address moved to {1}',
   '{0} Adressen nach {1} verschoben': '{0} addresses moved to {1}',
+  '„{0}“ verschoben': '"{0}" moved',
+  '„{0}“ verschoben: {1} → {2}': '"{0}" moved: {1} → {2}',
   '{0} Adresse passt nicht mehr in {1} — dort ist nichts mehr frei.':
     '{0} address no longer fits into {1} — nothing is free there.',
   '{0} Adressen passen nicht mehr in {1} — dort ist nichts mehr frei.':
