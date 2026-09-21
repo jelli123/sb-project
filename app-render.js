@@ -274,13 +274,26 @@ function fnNode(fn, depth) {
 /* ---------- Ansicht 2: Topologie ---------- */
 /* Ein Gerät auf Linie, Segment oder ein anderes Gerät gezogen wandert dorthin.
    `segmentId` ist leer oder die Linien-Id für Segment 0.                      */
+/* Sagt beim Überfahren, warum ein Ziel nicht passt — ohne die Statuszeile bei
+   jedem dragover neu zu setzen.                                            */
+let lastHint = '';
+document.addEventListener('dragend', () => { lastHint = ''; });
+function dragHint(msg) {
+  if (msg === lastHint) return;
+  lastHint = msg;
+  A.status(msg);
+}
 function dropDevOnLine(item, lineId, segmentId) {
   if (item.type !== 'dev') return null;
   const d = KNX.deviceById(item.id);
   const target = segmentId || lineId;
   if (!d || (d.lineId === lineId && (d.segmentId || d.lineId) === target)) return null;
-  // Per Ziehen bleibt das Medium gleich — ein TP-Gerät gehört nicht auf eine IP-Linie
-  if (KNX.segmentInfo(KNX.segKeyOf(d))?.medium !== KNX.segmentInfo(target)?.medium) return null;
+  // Ein TP-Gerät gehört nicht auf eine IP-Linie; eine IP-Schnittstelle darf auf beide
+  const to = KNX.segmentInfo(target);
+  if (!to || !KNX.deviceMedia(d).has(to.medium)) {
+    dragHint(A.t('„{0}“ passt nicht auf {1} ({2})', d.name, to ? (to.seg ? to.seg.name : to.line.name) : '?', A.t(KNX.MEDIA[to && to.medium] || '?')));
+    return null;
+  }
   return { cls: 'drop', run: () => T.moveDevice(item.id, lineId, segmentId) };
 }
 function backboneNode(bb) {

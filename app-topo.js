@@ -299,17 +299,19 @@ function actEditDevice(id) {
 function moveDevice(id, lineId, segmentId) {
   const d = KNX.deviceById(id), line = KNX.lineById(lineId), area = KNX.areaOfLine(lineId);
   if (!d || !line || !area) return;
-  const to = KNX.segmentInfo(segmentId || lineId), from = KNX.segmentInfo(KNX.segKeyOf(d));
-  if (!to || !from || to.medium !== from.medium) {
+  const to = KNX.segmentInfo(segmentId || lineId);
+  const media = KNX.deviceMedia(d);
+  if (!to || !media.has(to.medium)) {
     A.warn(T18('Das Medium passt nicht: Ziel {0}, Gerät {1}.', T18(KNX.MEDIA[to ? to.medium : line.medium] || '?'),
-      T18(KNX.MEDIA[from ? from.medium : ''] || '?')));
+      [...media].map(m => T18(KNX.MEDIA[m])).join(' / ')));
     return;
   }
   const before = d.addr;
   let addr = d.addr;
   if (d.lineId !== lineId && addr !== null) {
+    // 0.0.0 ist keine Teilnehmeradresse — ein Koppler auf dem Backbone bekommt die nächste freie
     const keep = KNX.paJoin(area.addr, line.addr, KNX.paSplit(addr)[2]);
-    addr = KNX.paFree(keep, id) ? keep : KNX.freePa(lineId, id);
+    addr = keep !== 0 && KNX.paFree(keep, id) ? keep : KNX.freePa(lineId, id);
     if (!KNX.paFree(addr, id)) { A.warn(T18('Auf dieser Linie ist keine Adresse mehr frei.')); return; }
   }
   d.lineId = lineId;

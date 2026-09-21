@@ -341,6 +341,7 @@ KNXI18n.add('en', {
   '„{0}“ verschoben': '"{0}" moved',
   '„{0}“ verschoben: {1} → {2}': '"{0}" moved: {1} → {2}',
   'Das Medium passt nicht: Ziel {0}, Gerät {1}.': 'The medium does not match: target {0}, device {1}.',
+  '„{0}“ passt nicht auf {1} ({2})': '"{0}" does not fit on {1} ({2})',
   '{0} Adresse passt nicht mehr in {1} — dort ist nichts mehr frei.':
     '{0} address no longer fits into {1} — nothing is free there.',
   '{0} Adressen passen nicht mehr in {1} — dort ist nichts mehr frei.':

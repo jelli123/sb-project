@@ -1249,6 +1249,19 @@ const KNX = (() => {
     const line = ix.lines.get(key);
     return line ? { key, line, seg: null, num: 0, medium: line.medium, name: 'Segment 0' } : null;
   }
+  /* Medien, an denen ein Gerät hängen kann: das der Produktdatei und das seines
+     Segments, dazu IP, wenn es IP mitbringt. Schnittstellen und Router ohne
+     Angabe in der Produktdatei verbinden IP mit TP und dürfen auf beide.       */
+  function deviceMedia(dev) {
+    const item = dev.catalogId && catalogById(dev.catalogId);
+    const here = segmentInfo(segKeyOf(dev));
+    const out = new Set();
+    if (item && MEDIA[item.medium]) out.add(item.medium);
+    else if (deviceCanIp(dev)) out.add('tp');
+    if (here) out.add(here.medium);
+    if (deviceCanIp(dev)) out.add('ip');
+    return out;
+  }
   const segmentKeys = line => [line.id, ...segmentsOf(line).slice().sort((a, b) => a.num - b.num).map(s => s.id)];
   const segKeyOf = d => (d.segmentId && index().segs.has(d.segmentId) ? d.segmentId : d.lineId);
   function addSegment(lineId) {
@@ -2185,7 +2198,7 @@ const KNX = (() => {
     FN_CATS, FN_TYPES, fnType, fnRole, fnIcon,
     functionById, functionsAt, functionsOfGa, functionsUnder, functionDevices,
     addFunction, deleteFunction, attachGas, detachGa, functionFolder, createRoleGas, functionGroupKey,
-    IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, ipConfig,
+    IP_FIELDS, IP_DEFAULTS, isIpV4, deviceIsIp, deviceCanIp, deviceMedia, ipConfig,
     BACKBONE_MEDIA, backbone, isBackboneLine, regularAreas,
     isMainLine, segmentsOf, segmentInfo, segmentKeys, segKeyOf, devicesInSegment, addSegment, deleteSegment,
     tunnelCount, tunnelCountFixed, tunnelAddrs, ensureTunnelAddrs,
