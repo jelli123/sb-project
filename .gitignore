@@ -16,3 +16,6 @@ _*.knxprod
 *~
 .DS_Store
 Thumbs.db
+
+# Fertige Pakete aus release.sh
+release/

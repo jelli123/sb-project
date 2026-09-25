@@ -47,7 +47,9 @@
         <version>3.4.2</version>
         <configuration>
           <archive>
+            <!-- Traegt Implementation-Title/Version ein; sonst meldet /api/info null. -->
             <manifest>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
               <mainClass>de.sb.knx.Main</mainClass>
               <addClasspath>true</addClasspath>
               <classpathPrefix>lib/</classpathPrefix>
