@@ -8,8 +8,8 @@
  * auf unser Modell dazu. Das Ergebnis ist ein rohes Projekt, das wie jede
  * andere Datei durch KNX.migrate() geht — dort wird es begrenzt und geprüft.
  *
- * Mit Projektpasswort liegt P-xxxx als verschlüsseltes inneres ZIP vor.
- * Das wird (noch) nicht gelesen, sondern mit einer klaren Meldung abgelehnt. */
+ * Mit Projektpasswort liegt P-xxxx als verschlüsseltes inneres ZIP vor;
+ * entschlüsselt wird es mit knx-crypt.js. */
 'use strict';
 
 const KNXProj = (() => {
@@ -72,51 +72,70 @@ const kids = (el, ...names) => [...el.children].filter(c => names.includes(local
  * muss noch durch KNX.migrate(); `report` sammelt, was nicht oder nur
  * teilweise übernommen wurde — als deutscher Text mit Platzhaltern, damit die
  * Oberfläche ihn übersetzen kann.
+ *
+ * Ein geschütztes Projekt ohne `password` wirft einen Fehler mit
+ * `needPassword`, ein falsches Passwort einen mit `wrongPassword` — die
+ * Oberfläche fragt dann (erneut) nach.
  */
-async function read(file) {
+async function read(file, password) {
   if (typeof DecompressionStream === 'undefined')
     throw new Error('Dieser Browser kann ZIP-Inhalte nicht entpacken.');
 
   const buf = await file.arrayBuffer();
   const all = KNXProd.zip.entries(buf, LIM);
+  const budget = { left: LIM.total };
 
-  /* Ungeschützt steht das Projekt als Ordner im Archiv, geschützt als
-     verschlüsseltes P-xxxx.zip. */
-  const inst = all.filter(e => /^P-[0-9A-Za-z]+\/\d+\.xml$/.test(e.name))
-    .sort((a, b) => parseInt(a.name.split('/')[1], 10) - parseInt(b.name.split('/')[1], 10));
-  if (!inst.length) {
-    if (all.some(e => /^P-[0-9A-Za-z]+\.zip$/.test(e.name)))
-      throw new Error('Das Projekt ist mit einem Passwort geschützt. Bitte in der ETS ohne Projektpasswort exportieren.');
-    throw new Error('Keine Projektdaten gefunden — ist das wirklich eine .knxproj-Datei?');
+  /* Ungeschützt steht das Projekt als Ordner P-xxxx/ im Archiv, geschützt
+     als verschlüsseltes P-xxxx.zip mit denselben Dateien ohne Ordner. */
+  const byNumber = list => list.sort((a, b) => parseInt(a.name.replace(/^.*\//, ''), 10)
+                                              - parseInt(b.name.replace(/^.*\//, ''), 10));
+  let src = null;
+  const plain = byNumber(all.filter(e => /^P-[0-9A-Za-z]+\/\d+\.xml$/.test(e.name)));
+  if (plain.length) {
+    const folder = plain[0].name.split('/')[0];
+    src = { buf, inst: plain, info: all.find(e => e.name === folder + '/project.xml'), folder };
+  } else {
+    const locked = all.find(e => /^P-[0-9A-Za-z]+\.zip$/.test(e.name));
+    if (!locked) throw new Error('Keine Projektdaten gefunden — ist das wirklich eine .knxproj-Datei?');
+    if (!password) {
+      const err = new Error('Das Projekt ist mit einem Passwort geschützt.');
+      err.needPassword = true;
+      throw err;
+    }
+    // Eigener Puffer: gespeichert (Methode 0) wäre es sonst nur eine Sicht auf die Datei
+    const innerBuf = (await KNXProd.zip.read(buf, locked, budget, LIM)).slice().buffer;
+    const inner = KNXProd.zip.entries(innerBuf, LIM, { encrypted: true });
+    const inst = byNumber(inner.filter(e => /^(P-[0-9A-Za-z]+\/)?\d+\.xml$/.test(e.name)));
+    if (!inst.length) throw new Error('Im geschützten Teil stehen keine Projektdaten.');
+    src = { buf: innerBuf, inst, info: inner.find(e => /(^|\/)project\.xml$/.test(e.name)),
+            folder: locked.name.replace(/\.zip$/, ''), decrypt: KNXCrypt.decryptor(password) };
   }
-  const folder = inst[0].name.split('/')[0];
 
-  const xmlEntries = all.filter(e => /\.xml$/i.test(e.name));
+  const xmlEntries = all.filter(e => /\.xml$/i.test(e.name) && !e.name.startsWith(src.folder + '/'));
   if (xmlEntries.length > LIM.xml)
     throw new Error(`Das Archiv enthält ${xmlEntries.length} XML-Dateien — mehr als ${LIM.xml}.`);
 
   const parser = new DOMParser();
   const dec = new TextDecoder('utf-8');
-  const budget = { left: LIM.total };
-  const parse = async e => {
-    const doc = parser.parseFromString(dec.decode(await KNXProd.zip.read(buf, e, budget, LIM)), 'application/xml');
+  const toDoc = bytes => {
+    const doc = parser.parseFromString(dec.decode(bytes), 'application/xml');
     return doc.getElementsByTagName('parsererror').length ? null : doc;
   };
+  const parse = async e => toDoc(await KNXProd.zip.read(buf, e, budget, LIM));
+  const parseProject = async e => toDoc(await KNXProd.zip.read(src.buf, e, budget, LIM, src.decrypt));
 
   const report = [];
   const say = (msg, ...args) => report.push({ msg, args });
 
-  const projDoc = await parse(inst[0]);
+  const projDoc = await parseProject(src.inst[0]);
   if (!projDoc) throw new Error('Die Projektdaten sind kein lesbares XML.');
-  const infoEntry = all.find(e => e.name === folder + '/project.xml');
-  const infoDoc = infoEntry ? await parse(infoEntry) : null;
-  if (inst.length > 1)
-    say('Das Projekt hat {0} Installationen — übernommen wird nur die erste.', inst.length);
+  const infoDoc = src.info ? await parseProject(src.info) : null;
+  if (src.inst.length > 1)
+    say('Das Projekt hat {0} Installationen — übernommen wird nur die erste.', src.inst.length);
 
-  /* Produktdaten: alles außerhalb des Projektordners. */
+  /* Produktdaten: alles außerhalb des Projekts. */
   const docs = [];
   for (const e of xmlEntries) {
-    if (e.name.startsWith(folder + '/')) continue;
     const doc = await parse(e);
     if (doc) docs.push(doc);
   }

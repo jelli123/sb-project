@@ -35,8 +35,10 @@ function findEocd(view) {
   return -1;
 }
 
-/* Liest das Inhaltsverzeichnis; die Nutzdaten bleiben vorerst komprimiert. */
-function zipEntries(buf, lim = LIMITS.prod) {
+/* Liest das Inhaltsverzeichnis; die Nutzdaten bleiben vorerst komprimiert.
+   Verschlüsselte Einträge werden abgelehnt, außer `opts.encrypted` erlaubt
+   sie — dann entschlüsselt der Aufrufer (knx-proj.js) beim Lesen. */
+function zipEntries(buf, lim = LIMITS.prod, opts = {}) {
   const view = new DataView(buf);
   const eocd = findEocd(view);
   if (eocd < 0) throw new Error(lim === LIMITS.proj
@@ -69,13 +71,27 @@ function zipEntries(buf, lim = LIMITS.prod) {
     if (p + 46 + nameLen > buf.byteLength) throw new Error('Das Inhaltsverzeichnis ist abgeschnitten.');
     const name = dec.decode(new Uint8Array(buf, p + 46, nameLen));
 
-    if (flags & 0x01) throw new Error(`Eintrag „${name}“ ist verschlüsselt.`);
+    const enc = !!(flags & 0x01);
+    if (enc && !opts.encrypted) throw new Error(`Eintrag „${name}“ ist verschlüsselt.`);
+    /* WinZip-AES (Methode 99) nennt das eigentliche Verfahren im Zusatzfeld
+       0x9901: Version, „AE“, Schlüssellänge, Kompression. */
+    let aes = null;
+    if (p + 46 + nameLen + extraLen > buf.byteLength) throw new Error('Das Inhaltsverzeichnis ist abgeschnitten.');
+    for (let x = p + 46 + nameLen, end = x + extraLen; x + 4 <= end;) {
+      const id = view.getUint16(x, true), len = view.getUint16(x + 2, true);
+      if (id === 0x9901 && len >= 7 && x + 4 + len <= end)
+        aes = { v: view.getUint16(x + 4, true), strength: view.getUint8(x + 8), method: view.getUint16(x + 9, true) };
+      x += 4 + len;
+    }
+    if (method === 99 && !aes) throw new Error(`Eintrag „${name}“ ist unvollständig verschlüsselt.`);
     if (rawSize > lim.file) throw new Error(`Eintrag „${name}“ ist unerwartet groß.`);
     if (localAt + 30 > buf.byteLength) throw new Error(`Eintrag „${name}“ zeigt hinter das Dateiende.`);
     total += rawSize;
     if (total > lim.total) throw new Error('Archivinhalt ist unerwartet groß.');
 
-    out.push({ name, method, compSize, rawSize, localAt });
+    const crc = view.getUint32(p + 16, true);
+    out.push({ name, method, compSize, rawSize, localAt, crc,
+               ...(enc ? { enc, aes, flags, time: view.getUint16(p + 12, true) } : {}) });
     p += 46 + nameLen + extraLen + commLen;
   }
   /* Die Schleife bricht bei einem kaputten Verzeichnis einfach ab. Ohne diese
@@ -117,7 +133,7 @@ async function inflate(bytes, limit, name) {
  * Einträge zusammen schon herausgekommen ist — sonst ließe sich die Grenze je
  * Eintrag mit vielen kleinen Einträgen umgehen.
  */
-async function zipRead(buf, e, budget, lim = LIMITS.prod) {
+async function zipRead(buf, e, budget, lim = LIMITS.prod, decrypt = null) {
   const view = new DataView(buf);
   if (view.getUint32(e.localAt, true) !== SIG_LOC)
     throw new Error(`Beschädigter Eintrag „${e.name}“.`);
@@ -128,9 +144,15 @@ async function zipRead(buf, e, budget, lim = LIMITS.prod) {
     throw new Error(`Eintrag „${e.name}“ reicht über das Dateiende hinaus.`);
 
   const limit = Math.min(lim.file, budget ? budget.left : lim.file);
+  let data = new Uint8Array(buf, at, e.compSize);
+  if (e.enc) {
+    if (!decrypt) throw new Error(`Eintrag „${e.name}“ ist verschlüsselt.`);
+    data = await decrypt(e, data);
+  }
+  const method = e.aes ? e.aes.method : e.method;
   let out;
-  if (e.method === 0) out = new Uint8Array(buf, at, e.compSize);
-  else if (e.method === 8) out = await inflate(new Uint8Array(buf, at, e.compSize), limit, e.name);
+  if (method === 0) out = data;
+  else if (method === 8) out = await inflate(data, limit, e.name);
   else throw new Error(`Eintrag „${e.name}“ nutzt ein unbekanntes Kompressionsverfahren.`);
 
   if (out.length > limit) throw new Error(`Eintrag „${e.name}“ ist unerwartet groß.`);
@@ -138,8 +160,29 @@ async function zipRead(buf, e, budget, lim = LIMITS.prod) {
      sie ab, ist die Datei beschädigt oder macht falsche Angaben. */
   if (out.length !== e.rawSize)
     throw new Error(`Eintrag „${e.name}“ ist anders groß als angekündigt.`);
+  /* Bei ZipCrypto prüft der Kopf nur ein Byte des Passworts; erst die
+     Prüfsumme zeigt sicher, ob richtig entschlüsselt wurde. AE-2 lässt sie
+     leer und sichert stattdessen per HMAC. */
+  if (e.enc && !(e.aes && e.aes.v === 2) && crc32(out) !== e.crc)
+    throw new Error(`Eintrag „${e.name}“ ließ sich nicht entschlüsseln — Passwort falsch?`);
   if (budget) budget.left -= out.length;
   return out;
+}
+
+/* CRC-32 (ZIP): Prüfsumme der entpackten Daten, Tabelle auch für ZipCrypto. */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
 }
 
 /* ---------- XML-Hilfen ---------- *
@@ -997,7 +1040,7 @@ async function read(file, prefer) {
 
 /* Für den Import eines ETS-Projekts (knx-proj.js): dasselbe Archiv- und
    Produktformat, nur mit Projektdaten daneben. */
-const zip = { entries: zipEntries, read: zipRead };
+const zip = { entries: zipEntries, read: zipRead, crc32, CRC_TABLE };
 const xml = { tags, attr, localName, toDpt, objectName, plain };
 
 return { read, BINARY, LIMITS, zip, xml, collect, expand, compact };

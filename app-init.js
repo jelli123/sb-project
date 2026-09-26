@@ -375,18 +375,35 @@ function takeProject(p) {
   window.KNXOnRender();
 }
 
+/* Das Projektpasswort wird nur für diesen einen Lesevorgang gebraucht und
+   nirgends gespeichert. */
+function askPassword(file, wrong) {
+  A.openModal(T18('Passwort für „{0}“', file.name), `
+    <p>${T18('Das ETS-Projekt ist mit einem Projektpasswort geschützt.')}</p>
+    <label class="field"><span>${T18('Projektpasswort')}</span>
+      <input class="input" id="m-pw" type="password" maxlength="200" autocomplete="off">
+    </label>
+    ${wrong ? `<p class="hint warn">${T18('Das Passwort war falsch. Bitte erneut eingeben.')}</p>` : ''}
+  `, () => {
+    const pw = $('#m-pw').value;
+    if (!pw) { $('#m-pw').focus(); return false; }
+    A.nextModal(() => importEts(file, pw));
+  });
+}
+
 /* ETS-Projekt: erst lesen und zeigen, was ankommt und was nicht — ersetzt
    wird das aktuelle Projekt erst nach dem Bestätigen. */
-async function importEts(file) {
+async function importEts(file, password) {
   A.status(T18('Lese {0} …', file.name));
   let p, report;
   try {
-    const r = await KNXProj.read(file);
+    const r = await KNXProj.read(file, password);
     report = r.report;
     p = KNX.migrate(r.project);
     if (!p) throw new Error('Kein KNX-Projekt');
   } catch (err) {
     A.status('');
+    if (err && (err.needPassword || err.wrongPassword)) { askPassword(file, !!err.wrongPassword); return; }
     A.warn(T18('ETS-Projekt nicht lesbar: {0}', err && err.message ? err.message : err));
     return;
   }
