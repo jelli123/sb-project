@@ -191,11 +191,14 @@ function build(doc, infoDoc, products, say) {
     if (!catIdOf.has(p)) {
       const id = nid('c');
       catIdOf.set(p, id);
+      // In den Katalog kommt die speicherbare Form; migrate() faltet Module wieder aus
+      const k = KNXProd.compact(p);
       catalog.push({
-        id, name: p.name, order: p.order, manufacturer: p.manufacturer, appName: p.appName,
-        types: p.types, params: p.params, objs: p.objs, dyn: p.dyn, prog: p.prog,
-        mask: p.mask, ip: p.ip, medium: p.medium, ma: p.ma, coupler: p.coupler,
-        powerSupply: p.powerSupply, choke: p.choke, noAddress: p.noAddress, hwOnly: p.hwOnly
+        id, name: k.name, order: k.order, manufacturer: k.manufacturer, appName: k.appName,
+        types: k.types, params: k.params, objs: k.objs, dyn: k.dyn, prog: k.prog,
+        ...(k.mods ? { mods: k.mods, inst: k.inst } : {}),
+        mask: k.mask, ip: k.ip, medium: k.medium, ma: k.ma, coupler: k.coupler,
+        powerSupply: k.powerSupply, choke: k.choke, noAddress: k.noAddress, hwOnly: k.hwOnly
       });
     }
     return catIdOf.get(p);

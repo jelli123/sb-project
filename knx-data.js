@@ -416,6 +416,12 @@ const KNX = (() => {
 
   const nid = pfx => pfx + (project.seq++);
 
+  /* Module eines Produkts (siehe KNXProd.expand): Vorlagen und Instanzen.
+     Beides kommt aus der Produktdatei; hier wird nur die Form geprüft. */
+  const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const modules = c => (isMap(c.mods) && isMap(c.inst)) ? { mods: c.mods, inst: c.inst } : {};
+  const expandItem = c => (typeof KNXProd !== 'undefined' ? KNXProd.expand(c) : c);
+
   /* ---------- Migration ---------- *
    * Fehlende oder unbrauchbare Felder werden ergänzt bzw. gekappt, niemals
    * wird ein Projekt deswegen verworfen. Jede stille Änderung an Nutzdaten
@@ -707,6 +713,7 @@ const KNX = (() => {
         dyn: Array.isArray(c.dyn) ? c.dyn : [],
         // Programmierdaten aus der Produktdatei; alte Kataloge haben sie nicht.
         prog: (c.prog && typeof c.prog === 'object') ? c.prog : null,
+        ...modules(c),
         mask: normName(c.mask, ''),
         ip: !!c.ip,
         medium: normName(c.medium, ''),
@@ -717,11 +724,12 @@ const KNX = (() => {
         noAddress: !!c.noAddress,
         hwOnly: !!c.hwOnly
       };
+    }).map(expandItem)
     /* Dieselbe Bedingung wie beim Einlesen der Produktdatei (knx-prod.js).
        Wäre sie hier enger, verlöre ein Koppler ohne Objekte und Parameter beim
        Laden des Projekts seinen Katalogeintrag — und die Geräte daran gleich
        ihre Verknüpfung. */
-    }).filter(c => Object.keys(c.objs).length || Object.keys(c.params).length
+    .filter(c => Object.keys(c.objs).length || Object.keys(c.params).length
                    || c.hwOnly || c.coupler || c.ip);
     const catIds = new Set(p.catalog.map(c => c.id));
     p.devices.forEach(d => {
@@ -1474,9 +1482,19 @@ const KNX = (() => {
     return p && p.d != null ? String(p.d) : '';
   }
 
-  /* `test` kann mehrere zulässige Werte durch Leerzeichen getrennt nennen. */
+  /* `test` kann mehrere zulässige Werte durch Leerzeichen getrennt nennen,
+     jeden auch als Vergleich („<254“, „!=4“, „>=1“). Einer genügt. */
   const testHits = (test, val) =>
-    String(test).trim().split(/\s+/).some(x => x === val);
+    String(test).trim().split(/\s+/).some(x => {
+      const m = /^(<=|>=|!=|<|>|=)?(.*)$/.exec(x);
+      const op = m[1] || '', ref = m[2];
+      if (!op || op === '=') return ref === val;
+      const a = Number(val), b = Number(ref);
+      const numeric = val !== '' && ref !== '' && !isNaN(a) && !isNaN(b);
+      if (op === '!=') return numeric ? a !== b : ref !== val;
+      if (!numeric) return false;
+      return op === '<' ? a < b : op === '>' ? a > b : op === '<=' ? a <= b : a >= b;
+    });
 
   /* Löst auf, welche Parameter und Objekte bei der gegebenen Parametrierung
      sichtbar sind — dieselbe Mechanik wie die Produktansicht der ETS.      */
@@ -1498,13 +1516,13 @@ const KNX = (() => {
     const walk = (nodes, path) => {
       for (const n of nodes || []) {
         if (n.c !== undefined) {
+          /* Wie in der ETS gelten alle passenden Zweige, nicht nur der erste —
+             Produkte stapeln „7 8“, „7 8 9“ und „!=254“ unter einer Auswahl.
+             Der Vorgabezweig greift nur, wenn keiner passt. */
           const val = paramValue(item, values, n.c);
-          let hit = null;
-          for (const w of n.w || []) {
-            if (w.t != null && w.t !== '' && testHits(w.t, val)) { hit = w; break; }
-          }
-          if (!hit) hit = (n.w || []).find(w => w.d);
-          if (hit) walk(hit.k, path);
+          const hits = (n.w || []).filter(w => w.t != null && w.t !== '' && testHits(w.t, val));
+          if (!hits.length) hits.push(...(n.w || []).filter(w => w.d).slice(0, 1));
+          hits.forEach(w => walk(w.k, path));
         } else if (n.p) {
           if (seenParam.has(n.p)) continue;
           seenParam.add(n.p);
@@ -1604,7 +1622,9 @@ const KNX = (() => {
     const key = c => (c.order || '') + '\u0000' + plainName(c.name);
     const known = new Map(project.catalog.map(c => [key(c), c]));
     const added = [];
-    items.forEach(it => {
+    items.forEach(item => {
+      // Module stehen kompakt im Katalog und werden erst im Speicher ausgefaltet
+      const it = typeof KNXProd !== 'undefined' ? KNXProd.compact(item) : item;
       const c = {
         id: nid('c'),
         name: normName(it.name, 'Produkt'),
@@ -1616,6 +1636,7 @@ const KNX = (() => {
         objs: it.objs || {},
         dyn: it.dyn || [],
         prog: (it.prog && typeof it.prog === 'object') ? it.prog : null,
+        ...modules(it),
         mask: normName(it.mask, ''),
         ip: !!it.ip,
         medium: normName(it.medium, ''),
@@ -1626,10 +1647,12 @@ const KNX = (() => {
         noAddress: !!it.noAddress,
         hwOnly: !!it.hwOnly
       };
+      expandItem(c);
       const old = known.get(key(c));
       if (old) {
         c.id = old.id;
-        Object.assign(old, c);
+        project.catalog[project.catalog.indexOf(old)] = c;
+        known.set(key(c), c);
       } else {
         project.catalog.push(c);
         known.set(key(c), c);
@@ -2203,7 +2226,8 @@ const KNX = (() => {
     isMainLine, segmentsOf, segmentInfo, segmentKeys, segKeyOf, devicesInSegment, addSegment, deleteSegment,
     tunnelCount, tunnelCountFixed, tunnelAddrs, ensureTunnelAddrs,
     project: () => project,
-    setProject: p => { project = p; dirty = true; invalidate(); },
+    // Auch Rückgängig kommt hierher, mit Produkten in gespeicherter Form
+    setProject: p => { project = p; (p.catalog || []).forEach(expandItem); dirty = true; invalidate(); },
     newProject, seedProject, migrate, save, load,
     saveError: () => lastSaveError,
     migrationNotes: () => notes.slice(),

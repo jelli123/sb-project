@@ -185,6 +185,17 @@ function dptFromSize(size) {
 const PLACEHOLDER = /^(x+|-+|\.+|dummy|reserved|reserve|leer|empty)$/i;
 const isPlaceholder = s => !s || PLACEHOLDER.test(String(s).trim());
 
+/* Textvorlagen der ETS: {{ChNo}} ist ein Modulargument, {{0: Button 1}} der
+   Text eines Beschreibungsparameters mit Vorgabe. Den Parameterwert gibt es
+   erst am Gerät, stehen bleibt darum die Vorgabe. */
+function fill(s, src) {
+  const names = (src && src.names) || {};
+  return String(s == null ? '' : s)
+    .replace(/\{\{\s*([A-Za-z_]\w*)\s*\}\}/g, (m, n) => (n in names ? names[n] : m))
+    .replace(/\{\{\s*\d+\s*:\s*([^{}]*?)\s*\}\}/g, '$1')
+    .replace(/\s*:?\s*\{\{\s*\d+\s*\}\}/g, '');
+}
+
 function objectName(text, fn) {
   const t = isPlaceholder(text) ? '' : String(text).trim();
   const f = isPlaceholder(fn) ? '' : String(fn).trim();
@@ -288,15 +299,17 @@ function readSteps(el) {
 }
 
 /* Wo ein Parameter im Gerät landet: Speichersegment oder Property. Unions
-   teilen sich einen Ort, jedes Mitglied liegt versetzt darin.              */
-function paramLocation(p, cut) {
+   teilen sich einen Ort, jedes Mitglied liegt versetzt darin. In einem
+   Modul verschiebt `baseOf` den Ort um das Argument aus BaseOffset.       */
+function paramLocation(p, cut, baseOf = () => 0) {
   const parent = p.parentElement;
   const inUnion = parent && localName(parent) === 'Union';
   const host = inUnion ? parent : p;
   const place = [...host.children].find(c => ['Memory', 'Property'].includes(localName(c)));
   if (!place) return null;
   const rel = inUnion ? num(p, 'Offset') * 8 + num(p, 'BitOffset') : 0;
-  const at = num(place, 'Offset') * 8 + num(place, 'BitOffset') + rel;
+  const start = (num(place, 'Offset') + baseOf(place)) * 8 + num(place, 'BitOffset');
+  const at = start + rel;
   let where;
   if (localName(place) === 'Memory') {
     where = 's:' + cut(attr(place, 'CodeSegment'));
@@ -309,7 +322,7 @@ function paramLocation(p, cut) {
   const l = { w: where, o: at };
   if (inUnion) {
     l.u = 1;
-    l.uk = where + '@' + (num(place, 'Offset') * 8 + num(place, 'BitOffset'));
+    l.uk = where + '@' + start;
     if (attr(p, 'DefaultUnionParameter') === 'true') l.du = 1;
   }
   return l;
@@ -440,11 +453,25 @@ function readMask(mv, opt) {
 /* ---------- knxprod ---------- */
 
 /* Liest ein Applikationsprogramm in ein kompaktes, speicherbares Modell.
-   Ids werden um das Programmpräfix gekürzt — das spart rund die Hälfte.   */
+   Ids werden um das Programmpräfix gekürzt — das spart rund die Hälfte.
+ *
+ * Module: Ein ModuleDef ist eine Vorlage, jedes <Module> im Dynamic-Teil
+ * eine Instanz davon mit eigenen Argumenten. Gespeichert wird die Vorlage
+ * einmal (`mods`) und je Instanz nur ihre Argumente (`inst`) — ausgefaltet
+ * wären es bei einem MDT-Taster mit 72 Instanzen über 7 MB je Produkt.
+ * Ausgefaltet wird erst im Speicher, siehe expand().                      */
 function readApp(ap, lang, langs) {
   const appId = attr(ap, 'Id');
   const cut = s => String(s || '').startsWith(appId + '_') ? s.slice(appId.length + 1) : s;
-  const tr = (el, name) => lang.get(attr(el, 'Id') + '|' + name) || attr(el, name);
+  const tr = (el, name) => fill(lang.get(attr(el, 'Id') + '|' + name) || attr(el, name));
+  const unsupported = new Set();
+
+  const inModuleDefs = el => {
+    for (let p = el.parentElement; p && p !== ap; p = p.parentElement)
+      if (localName(p) === 'ModuleDefs') return true;
+    return false;
+  };
+  const child = (el, name) => [...el.children].find(c => localName(c) === name);
 
   /* Parametertypen: Auswahlliste, Zahl, Text oder reine Überschrift.
      `n` ist die Breite im Gerät in Bit, `e` die Kodierung beim Download. */
@@ -489,40 +516,6 @@ function readApp(ap, lang, langs) {
     types[id] = e;
   });
 
-  /* Parameterdefinitionen inklusive der in Unions verpackten. Die Lage im
-     Gerät wird für alle Parameter gebraucht — auch für solche ohne Referenz,
-     deren fester Wert trotzdem geschrieben werden muss.                    */
-  const defs = {};
-  const loc = {};
-  tags(ap, 'Parameter').forEach(p => {
-    const id = cut(attr(p, 'Id'));
-    defs[id] = {
-      t: tr(p, 'Text'),
-      pt: cut(attr(p, 'ParameterType')),
-      d: attr(p, 'Value'),
-      ro: attr(p, 'Access') === 'Read' || attr(p, 'Access') === 'None'
-    };
-    const l = paramLocation(p, cut);
-    if (l) loc[id] = { ...l, t: defs[id].pt, d: defs[id].d };
-  });
-  const params = {};
-  tags(ap, 'ParameterRef').forEach(pr => {
-    const pid = cut(attr(pr, 'RefId'));
-    const base = defs[pid];
-    if (!base) return;
-    const text = lang.get(attr(pr, 'Id') + '|Text') || attr(pr, 'Text') || base.t;
-    // Access am Ref schlaegt den des Parameters
-    const acc = attr(pr, 'Access');
-    params[cut(attr(pr, 'Id'))] = {
-      t: text, pt: base.pt, p: pid,
-      d: attr(pr, 'Value') || base.d,
-      ro: acc ? (acc === 'Read' || acc === 'None') : base.ro
-    };
-  });
-
-  /* Kommunikationsobjekte: die Referenzen tragen die eigentliche Bedeutung,
-     fehlende Angaben erben sie von der Objekttabelle.                      */
-  const base = new Map();
   const flagsOf = (o, dflt) => ({
     c: flagOn(o, 'CommunicationFlag', dflt.c), r: flagOn(o, 'ReadFlag', dflt.r),
     w: flagOn(o, 'WriteFlag', dflt.w), t: flagOn(o, 'TransmitFlag', dflt.t),
@@ -530,50 +523,102 @@ function readApp(ap, lang, langs) {
   });
   const flagStr = f => (f.c ? 'c' : '') + (f.r ? 'r' : '') + (f.w ? 'w' : '') +
     (f.t ? 't' : '') + (f.u ? 'u' : '');
-  tags(ap, 'ComObject').forEach(o => base.set(attr(o, 'Id'), {
-    num: parseInt(attr(o, 'Number'), 10) || 0,
-    text: tr(o, 'Text'), fn: tr(o, 'FunctionText'),
-    dpt: attr(o, 'DatapointType'), size: attr(o, 'ObjectSize'),
-    prio: PRIORITY[attr(o, 'Priority')] || 'L',
-    flags: flagsOf(o, { c: true, r: false, w: false, t: false, u: false })
-  }));
 
-  /* Die Objekttabelle im Gerät kennt nur Nummern. Für Objekte, die die
-     Parametrierung ausblendet, gelten die Angaben der Objektdefinition. */
-  const co = {};
-  base.forEach(b => { co[b.num] = { f: flagStr(b.flags), z: sizeCode(b.size), pr: b.prio }; });
+  /* Liest Parameter, Objekte und ihre Referenzen aus einem Static-Teil. In
+     einer Modulvorlage bleiben Orte und Nummern relativ; `b` nennt das
+     Argument, um das die Instanz sie verschiebt. */
+  function readStatic(all) {
+    /* Parameterdefinitionen inklusive der in Unions verpackten. Die Lage im
+       Gerät wird für alle Parameter gebraucht — auch für solche ohne Referenz,
+       deren fester Wert trotzdem geschrieben werden muss.                    */
+    const defs = {};
+    const loc = {};
+    all('Parameter').forEach(p => {
+      const id = cut(attr(p, 'Id'));
+      defs[id] = {
+        t: tr(p, 'Text'),
+        pt: cut(attr(p, 'ParameterType')),
+        d: attr(p, 'Value'),
+        ro: attr(p, 'Access') === 'Read' || attr(p, 'Access') === 'None'
+      };
+      let b = '';
+      const l = paramLocation(p, cut, place => { b = cut(attr(place, 'BaseOffset')); return 0; });
+      if (l) loc[id] = { ...l, t: defs[id].pt, d: defs[id].d, ...(b ? { b } : {}) };
+    });
+    const params = {};
+    all('ParameterRef').forEach(pr => {
+      const pid = cut(attr(pr, 'RefId'));
+      const base = defs[pid];
+      if (!base) return;
+      const text = fill(lang.get(attr(pr, 'Id') + '|Text') || attr(pr, 'Text')) || base.t;
+      // Access am Ref schlaegt den des Parameters
+      const acc = attr(pr, 'Access');
+      params[cut(attr(pr, 'Id'))] = {
+        t: text, pt: base.pt, p: pid,
+        d: attr(pr, 'Value') || base.d,
+        ro: acc ? (acc === 'Read' || acc === 'None') : base.ro
+      };
+    });
 
-  const objs = {};
-  const addObj = (id, el, b) => {
-    const text = el ? (tr(el, 'Text') || b.text) : b.text;
-    const fn = el ? (tr(el, 'FunctionText') || b.fn) : b.fn;
-    const dptRaw = (el && attr(el, 'DatapointType')) || b.dpt;
-    const size = (el && attr(el, 'ObjectSize')) || b.size;
-    // Flags und Größe an der Referenz schlagen die der Objektdefinition
-    const flags = el ? flagsOf(el, b.flags) : b.flags;
-    objs[id] = {
-      num: b.num,
-      name: objectName(text, fn),
-      dpt: toDpt(dptRaw) || dptFromSize(size),
-      f: flagStr(flags),
-      z: sizeCode(size),
-      pr: (el && PRIORITY[attr(el, 'Priority')]) || b.prio
+    /* Kommunikationsobjekte: die Referenzen tragen die eigentliche Bedeutung,
+       fehlende Angaben erben sie von der Objekttabelle.                      */
+    const base = new Map();
+    all('ComObject').forEach(o => base.set(cut(attr(o, 'Id')), {
+      num: parseInt(attr(o, 'Number'), 10) || 0,
+      nb: cut(attr(o, 'BaseNumber')),
+      text: tr(o, 'Text'), fn: tr(o, 'FunctionText'),
+      dpt: attr(o, 'DatapointType'), size: attr(o, 'ObjectSize'),
+      prio: PRIORITY[attr(o, 'Priority')] || 'L',
+      flags: flagsOf(o, { c: true, r: false, w: false, t: false, u: false })
+    }));
+
+    /* Die Objekttabelle im Gerät kennt nur Nummern. Für Objekte, die die
+       Parametrierung ausblendet, gelten die Angaben der Objektdefinition. */
+    const co = {};
+    base.forEach(b => {
+      const e = { f: flagStr(b.flags), z: sizeCode(b.size), pr: b.prio };
+      if (b.nb) co[b.num + '@' + b.nb] = { ...e, n: b.num, b: b.nb };
+      else co[b.num] = e;
+    });
+
+    const objs = {};
+    const addObj = (id, el, b) => {
+      const text = el ? (tr(el, 'Text') || b.text) : b.text;
+      const fn = el ? (tr(el, 'FunctionText') || b.fn) : b.fn;
+      const dptRaw = (el && attr(el, 'DatapointType')) || b.dpt;
+      const size = (el && attr(el, 'ObjectSize')) || b.size;
+      // Flags und Größe an der Referenz schlagen die der Objektdefinition
+      const flags = el ? flagsOf(el, b.flags) : b.flags;
+      objs[id] = {
+        num: b.num,
+        name: objectName(text, fn),
+        dpt: toDpt(dptRaw) || dptFromSize(size),
+        f: flagStr(flags),
+        z: sizeCode(size),
+        pr: (el && PRIORITY[attr(el, 'Priority')]) || b.prio,
+        ...(b.nb ? { b: b.nb } : {})
+      };
     };
-  };
-  const covered = new Set();
-  tags(ap, 'ComObjectRef').forEach(r => {
-    const b = base.get(attr(r, 'RefId'));
-    if (!b) return;
-    covered.add(attr(r, 'RefId'));
-    addObj(cut(attr(r, 'Id')), r, b);
-  });
-  // Nur Objekte ohne jede Referenz kommen über ihre eigene Id dazu
-  base.forEach((b, id) => { if (!covered.has(id)) addObj(cut(id), null, b); });
+    const covered = new Set();
+    all('ComObjectRef').forEach(r => {
+      const b = base.get(cut(attr(r, 'RefId')));
+      if (!b) return;
+      covered.add(cut(attr(r, 'RefId')));
+      addObj(cut(attr(r, 'Id')), r, b);
+    });
+    // Nur Objekte ohne jede Referenz kommen über ihre eigene Id dazu
+    base.forEach((b, id) => { if (!covered.has(id)) addObj(id, null, b); });
+    return { params, objs, loc, co };
+  }
 
-  /* Sichtbarkeitsbaum: Blöcke, Bedingungen, Parameter- und Objektverweise. */
-  const node = el => {
-    const n = el.localName || el.nodeName.split(':').pop();
-    const kids = () => [...el.children].map(node).filter(Boolean);
+  const main = readStatic(name => tags(ap, name).filter(el => !inModuleDefs(el)));
+
+  /* Sichtbarkeitsbaum: Blöcke, Bedingungen, Parameter- und Objektverweise.
+     Ein <Module> wird zum Verweis {m} auf seine Instanz. Repeat hängt an
+     einem Parameterwert und bleibt vorerst weg (siehe unsupported). */
+  const node = (el, params) => {
+    const n = localName(el);
+    const kids = () => [...el.children].map(c => node(c, params)).filter(Boolean);
     switch (n) {
       case 'choose': return { c: cut(attr(el, 'ParamRefId')), w: kids() };
       case 'when':   return { t: attr(el, 'test'), d: attr(el, 'default') === 'true', k: kids() };
@@ -586,9 +631,11 @@ function readApp(ap, lang, langs) {
         const pref = params[cut(attr(el, 'ParamRefId'))];
         const label = [lang.get(attr(el, 'Id') + '|Text'), attr(el, 'Text'),
                        pref && pref.t, attr(el, 'Name')]
-          .map(s => String(s || '').trim()).find(Boolean) || '';
+          .map(s => fill(s).trim()).find(Boolean) || '';
         return { b: label, k: kids() };
       }
+      case 'Module': return inst[cut(attr(el, 'Id'))] ? { m: cut(attr(el, 'Id')) } : null;
+      case 'Repeat': unsupported.add('Repeat'); return null;
       case 'Dynamic': return { k: kids() };
       default: {
         const k = kids();
@@ -596,8 +643,39 @@ function readApp(ap, lang, langs) {
       }
     }
   };
-  const dynEl = tags(ap, 'Dynamic')[0];
-  const dyn = dynEl ? (node(dynEl).k || []) : [];
+
+  /* Modulvorlagen und ihre Instanzen. */
+  const mods = {}, inst = {};
+  tags(ap, 'ModuleDef').forEach(md => {
+    const local = cut(attr(md, 'Id'));
+    const stat = child(md, 'Static');
+    const m = readStatic(name => (stat ? tags(stat, name) : []));
+    const d = child(md, 'Dynamic');
+    mods[local] = { ...m, dyn: d ? (node(d, m.params).k || []) : [] };
+  });
+  if (tags(ap, 'SubModuleDefs').length) unsupported.add('SubModuleDefs');
+  const dynEl = child(ap, 'Dynamic');
+  (dynEl ? tags(dynEl, 'Module') : []).forEach(m => {
+    const local = cut(attr(m, 'RefId'));
+    const id = cut(attr(m, 'Id'));
+    const def = tags(ap, 'ModuleDef').find(x => cut(attr(x, 'Id')) === local);
+    if (!mods[local] || !def || !id.startsWith(local + '_')) return;
+    const argName = new Map(tags(def, 'Argument').map(a => [cut(attr(a, 'Id')), attr(a, 'Name')]));
+    const v = {}, n = {};
+    let open = false;
+    [...m.children].forEach(a => {
+      const k = localName(a);
+      if (k !== 'NumericArg' && k !== 'TextArg') return;
+      // Argumente aus einem Allocator (Repeat) stehen erst beim Parametrieren fest
+      if (!a.hasAttribute('Value')) { open = true; return; }
+      const ref = cut(attr(a, 'RefId'));
+      if (k === 'NumericArg') v[ref] = parseInt(attr(a, 'Value'), 10) || 0;
+      if (argName.has(ref)) n[argName.get(ref)] = attr(a, 'Value');
+    });
+    if (open) { unsupported.add('Allocator'); return; }
+    inst[id] = { m: local, v, n };
+  });
+  const dyn = dynEl ? (node(dynEl, main.params).k || []) : [];
 
   /* Objekttyp 11 ist das IP-Parameterobjekt — solche Geräte haben in der ETS
      ein eigenes Eigenschaftsfenster für Adresse, Maske und Multicast, das
@@ -605,13 +683,104 @@ function readApp(ap, lang, langs) {
   const ip = tags(ap, 'Property').some(p => attr(p, 'ObjectType') === '11');
 
   const prog = readProgramming(ap, cut);
-  prog.dl.loc = loc;
-  prog.dl.co = co;
-  return { name: pair(langs.de.get(appId + '|Name'),
-                      langs.en.get(appId + '|Name') || attr(ap, 'Name')),
-           mask: attr(ap, 'MaskVersion'),
-           types, params, objs, dyn, ip, prog };
+  prog.dl.loc = main.loc;
+  prog.dl.co = main.co;
+  // Was hier nicht aufgelöst wird, sperrt den Download wie ein unbekannter Ladeschritt
+  unsupported.forEach(u => { if (!prog.unsupported.includes(u)) prog.unsupported.push(u); });
+  const out = { name: pair(langs.de.get(appId + '|Name'),
+                           langs.en.get(appId + '|Name') || attr(ap, 'Name')),
+                mask: attr(ap, 'MaskVersion'),
+                types, params: main.params, objs: main.objs, dyn, ip, prog };
+  if (Object.keys(inst).length) { out.mods = mods; out.inst = inst; }
+  return out;
 }
+
+/* ---------- Module ausfalten ---------- *
+ * Macht aus Vorlage und Argumenten die Parameter, Objekte, Speicherorte und
+ * den Sichtbarkeitsbaum jeder Instanz — so, als stünden sie im Programm
+ * selbst. Alles, was Produkte liest, sieht danach nur noch ausgefaltete
+ * Daten. Gespeichert wird trotzdem kompakt: toJSON liefert die Vorlage.
+ * Mehrfaches Ausfalten schadet nicht.                                      */
+const EXPANDED = typeof Symbol === 'function' ? Symbol('expanded') : '__expanded';
+
+function expand(item) {
+  if (!item || typeof item !== 'object' || item[EXPANDED]) return item;
+  const mods = item.mods, inst = item.inst;
+  if (!mods || typeof mods !== 'object' || !inst || typeof inst !== 'object') return item;
+  const compact = { params: item.params, objs: item.objs, dyn: item.dyn, prog: item.prog };
+  const params = { ...(item.params || {}) }, objs = { ...(item.objs || {}) };
+  const dl = (item.prog && item.prog.dl) || null;
+  const loc = { ...((dl && dl.loc) || {}) }, co = { ...((dl && dl.co) || {}) };
+  const views = {};                        // Instanz → ausgefalteter Baum
+
+  Object.keys(inst).forEach(id => {
+    const i = inst[id], md = i && mods[i.m];
+    if (!md || !id.startsWith(i.m + '_')) return;
+    const v = i.v || {}, n = i.n || {};
+    const map = x => (typeof x === 'string' && x.startsWith(i.m + '_') ? id + x.slice(i.m.length) : x);
+    const text = s => fill(s, { names: n });
+    const arg = ref => (ref ? (+v[ref] || 0) : 0);
+    Object.keys(md.params || {}).forEach(k => {
+      const p = md.params[k];
+      params[map(k)] = { ...p, t: text(p.t), p: map(p.p) };
+    });
+    Object.keys(md.objs || {}).forEach(k => {
+      const o = { ...md.objs[k] };
+      o.num += arg(o.b);
+      o.name = text(o.name);
+      delete o.b;
+      objs[map(k)] = o;
+    });
+    Object.keys(md.loc || {}).forEach(k => {
+      const l = { ...md.loc[k] };
+      const shift = arg(l.b) * 8;
+      l.o += shift;
+      if (l.uk) l.uk = l.uk.replace(/@(\d+)$/, (m, at) => '@' + (+at + shift));
+      delete l.b;
+      loc[map(k)] = l;
+    });
+    Object.keys(md.co || {}).forEach(k => {
+      const c = { ...md.co[k] };
+      const nr = c.b ? c.n + arg(c.b) : +k;
+      delete c.n; delete c.b;
+      co[nr] = c;
+    });
+    const walk = nodes => (nodes || []).map(x => {
+      const y = { ...x };
+      if (y.c !== undefined) y.c = map(y.c);
+      if (y.p) y.p = map(y.p);
+      if (y.o) y.o = map(y.o);
+      if (y.b !== undefined) y.b = text(y.b);
+      if (y.w) y.w = walk(y.w);
+      if (y.k) y.k = walk(y.k);
+      return y;
+    });
+    views[id] = walk(md.dyn);
+  });
+
+  // Im Baum des Programms steht an Stelle jeder Instanz ihr Inhalt
+  const place = nodes => (nodes || []).map(x => {
+    if (x.m !== undefined) return { k: views[x.m] || [] };
+    const y = { ...x };
+    if (y.w) y.w = place(y.w);
+    if (y.k) y.k = place(y.k);
+    return y;
+  });
+
+  item.params = params;
+  item.objs = objs;
+  item.dyn = place(item.dyn);
+  if (dl) item.prog = { ...item.prog, dl: { ...dl, loc, co } };
+  Object.defineProperty(item, EXPANDED, { value: true, configurable: true });
+  Object.defineProperty(item, 'toJSON', {
+    value() { return { ...this, ...compact }; },
+    configurable: true
+  });
+  return item;
+}
+
+/* Die speicherbare Form eines (ausgefalteten) Produkts. */
+const compact = item => (item && typeof item.toJSON === 'function') ? item.toJSON() : item;
 
 /* Sammelt Produkte über Katalog → Produkt → Hardware2Program → Programm.
    Fehlt der Katalog, wird direkt über die Hardware gegangen.              */
@@ -720,23 +889,28 @@ function collect(docs, prefer) {
   /* `refs` sagt, woher der Eintrag stammt — ein Gerät im ETS-Projekt findet
      sein Produkt über genau diese Ids wieder. Im Katalog des Projekts werden
      sie nicht gespeichert. */
-  const entry = (key, name, order, app, hw, refs = {}) => ({
-    key, name, order, manufacturer: manuOf(key), appName: app.name,
-    productRef: refs.product || '', h2p: refs.h2p || '', appId: refs.app || '',
-    types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
-    prog: app.prog,
-    mask: app.mask,
-    medium: media.get(app.mask) || '',
-    ma: (hw && hw.ma) || 0,
-    coupler: !!(hw && hw.coupler),
-    ip: app.ip || !!(hw && hw.ipEnabled),
-    powerSupply: !!(hw && hw.powerSupply),
-    choke: !!(hw && hw.choke),
-    noAddress: !!(hw && hw.noAddress),
-    hwOnly: app === NO_APP,
-    objCount: Object.keys(app.objs).length,
-    paramCount: Object.keys(app.params).length
-  });
+  const entry = (key, name, order, app, hw, refs = {}) => {
+    const e = expand({
+      key, name, order, manufacturer: manuOf(key), appName: app.name,
+      productRef: refs.product || '', h2p: refs.h2p || '', appId: refs.app || '',
+      types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
+      prog: app.prog,
+      ...(app.mods ? { mods: app.mods, inst: app.inst } : {}),
+      mask: app.mask,
+      medium: media.get(app.mask) || '',
+      ma: (hw && hw.ma) || 0,
+      coupler: !!(hw && hw.coupler),
+      ip: app.ip || !!(hw && hw.ipEnabled),
+      powerSupply: !!(hw && hw.powerSupply),
+      choke: !!(hw && hw.choke),
+      noAddress: !!(hw && hw.noAddress),
+      hwOnly: app === NO_APP
+    });
+    // Gezählt wird ausgefaltet — so viele Objekte hat das Gerät wirklich
+    e.objCount = Object.keys(e.objs).length;
+    e.paramCount = Object.keys(e.params).length;
+    return e;
+  };
 
   /* Drosseln, Netzteile und passives Zubehör haben keine Applikation, gehören
      aber für Busstrom und Topologie trotzdem in den Katalog. */
@@ -824,5 +998,5 @@ async function read(file, prefer) {
 const zip = { entries: zipEntries, read: zipRead };
 const xml = { tags, attr, localName, toDpt, objectName, plain };
 
-return { read, BINARY, LIMITS, zip, xml, collect };
+return { read, BINARY, LIMITS, zip, xml, collect, expand, compact };
 })();
