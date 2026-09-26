@@ -1325,6 +1325,9 @@ textarea.input.note {
 @media (prefers-reduced-motion: reduce) {
   .ovl-activity.running::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
   .btn[data-busy="1"]::before, .ovl-activity.running .act-text::before { animation-duration: 2s; }
+  /* Dialoge und Meldungen blenden nur noch ein, statt heranzugleiten */
+  @keyframes pop { from { opacity: 0; } to { opacity: 1; } }
+  #toast { transition: opacity 0.18s; }
 }
 .ovl-table-wrap { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 
