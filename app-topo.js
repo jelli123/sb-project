@@ -860,6 +860,9 @@ function actParams(devId) {
              placeholder="${esc(dev.name)}" maxlength="${f.max || 60}"></label>`;
   };
 
+  /* Was eine Zuweisung der Produktdatei festlegt, zeigt den wirksamen Wert
+     und lässt sich nicht ändern — wie in der ETS. Gesetzt von body(). */
+  let assigned = {};
   const field = ref => {
     const p = item.params[ref];
     const type = item.types[p.pt] || { k: 'text' };
@@ -871,8 +874,9 @@ function actParams(devId) {
     // Feste Einwert-Auswahl ohne Schreibrecht ist ein Hinweistext, kein Feld
     if (p.ro && type.k === 'enum' && (type.v || []).length <= 1)
       return `<p class="prm-note">${esc(label)}</p>`;
-    const val = KNX.paramValue(item, draft, ref);
-    const dis = p.ro ? ' disabled' : '';
+    const fixed = Object.prototype.hasOwnProperty.call(assigned, ref);
+    const val = fixed ? String(assigned[ref]) : KNX.paramValue(item, draft, ref);
+    const dis = p.ro || fixed ? ' disabled' : '';
     if (type.k === 'enum') {
       const opts = (type.v || []).map(([v, t]) =>
         `<option value="${esc(v)}"${String(v) === val ? ' selected' : ''}>${esc(t || v)}</option>`).join('');
@@ -909,6 +913,7 @@ function actParams(devId) {
 
   const body = () => {
     const r = item ? KNX.resolveProduct(item, draft) : { groups: [], objs: [] };
+    assigned = r.assigned || {};
     const n = r.groups.reduce((s, g) => s + g.params.filter(editable).length, 0);
     const ipGroup = hasIp ? `
       <section class="prm-group" data-name="ip netzwerk network adresse address ${esc(KNX.IP_FIELDS.map(f => (f.label + ' ' + T18(f.label)).toLowerCase()).join(' '))}">

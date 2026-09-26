@@ -1530,6 +1530,14 @@ const KNX = (() => {
        nicht zeigt, sind interne Schalter und gelten immer. */
     const inTree = paramsInTree(item);
     let known = new Set();
+
+    /* Zuweisungen (Assign): Im aktiven Zweig bekommt ein Parameter den Wert
+       eines anderen oder einen festen. Der gilt für spätere Auswahlen und für
+       den Download; eingestellt werden kann er dann nicht. Gesammelt wird im
+       Durchlauf (`pending`), wirksam im nächsten (`assigned`). */
+    let assigned = {}, pending;
+    const eff = ref => (Object.prototype.hasOwnProperty.call(assigned, ref)
+      ? assigned[ref] : paramValue(item, values, ref));
     const walk = (nodes, path) => {
       for (const n of nodes || []) {
         if (n.c !== undefined) {
@@ -1537,7 +1545,7 @@ const KNX = (() => {
           /* Wie in der ETS gelten alle passenden Zweige, nicht nur der erste —
              Produkte stapeln „7 8“, „7 8 9“ und „!=254“ unter einer Auswahl.
              Der Vorgabezweig greift nur, wenn keiner passt. */
-          const val = paramValue(item, values, n.c);
+          const val = eff(n.c);
           const hits = (n.w || []).filter(w => w.t != null && w.t !== '' && testHits(w.t, val));
           if (!hits.length) hits.push(...(n.w || []).filter(w => w.d).slice(0, 1));
           hits.forEach(w => walk(w.k, path));
@@ -1548,6 +1556,8 @@ const KNX = (() => {
           if (p) group(path).params.push(n.p);
         } else if (n.o) {
           if (!seenObj.has(n.o) && item.objs[n.o]) { seenObj.add(n.o); objs.push(n.o); }
+        } else if (n.a !== undefined) {
+          if (item.params[n.a]) pending[n.a] = n.s !== undefined ? eff(n.s) : String(n.v);
         } else if (n.b !== undefined) {
           walk(n.k, path.concat(n.b));
         } else if (n.k) {
@@ -1557,15 +1567,23 @@ const KNX = (() => {
     };
     const run = () => {
       groups = []; byPath = new Map(); objs = []; seenObj = new Set(); seenParam = new Set();
+      pending = {};
       walk(item.dyn, []);
     };
+    const state = () => [...seenParam].sort().join(' ') + '|' + JSON.stringify(pending);
 
     if (item.dyn && item.dyn.length) {
-      // Jeder Durchlauf kann nur Parameter dazugewinnen; stehen sie fest, ist Schluss
+      /* Wiederholen, bis aktive Parameter und Zuweisungen feststehen. Mit
+         Zuweisungen kann ein Durchlauf auch etwas verlieren, deshalb wird
+         der ganze Zustand verglichen. */
+      let last = '';
       for (let i = 0; i < 20; i++) {
         run();
-        if (seenParam.size === known.size) break;
+        const now = state();
+        if (now === last) break;
+        last = now;
         known = seenParam;
+        assigned = pending;
       }
     } else {
       groups = []; byPath = new Map(); objs = [];
@@ -1599,7 +1617,9 @@ const KNX = (() => {
       g.label = m ? `${ch <= 26 ? String.fromCharCode(64 + ch) : ch}: ${m[2]}`
         : text ? `${text} ${ch}` : `Kanal ${ch}`;
     });
-    return { groups: groups.filter(g => g.params.length), objs };
+    // Wirksame Werte: eingestellte, überschrieben von den Zuweisungen
+    return { groups: groups.filter(g => g.params.length), objs,
+             values: { ...(values || {}), ...assigned }, assigned };
   }
 
   /* Kommunikationsobjekte eines Geräts aus Produkt und Parametrierung neu

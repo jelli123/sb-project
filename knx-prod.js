@@ -678,6 +678,13 @@ function readApp(ap, lang, langs) {
         return { b: label, k: kids() };
       }
       case 'Module': return inst[cut(attr(el, 'Id'))] ? { m: cut(attr(el, 'Id')) } : null;
+      // Zuweisung: im aktiven Zweig bekommt das Ziel den Wert der Quelle oder einen festen
+      case 'Assign': {
+        const a = { a: cut(attr(el, 'TargetParamRefRef')) };
+        if (el.hasAttribute('SourceParamRefRef')) a.s = cut(attr(el, 'SourceParamRefRef'));
+        else a.v = attr(el, 'Value');
+        return a.a ? a : null;
+      }
       case 'Repeat': unsupported.add('Repeat'); return null;
       case 'Dynamic': return { k: kids() };
       default: {
@@ -795,6 +802,8 @@ function expand(item) {
       if (y.c !== undefined) y.c = map(y.c);
       if (y.p) y.p = map(y.p);
       if (y.o) y.o = map(y.o);
+      if (y.a) y.a = map(y.a);
+      if (y.s) y.s = map(y.s);
       if (y.b !== undefined) y.b = text(y.b);
       if (y.w) y.w = walk(y.w);
       if (y.k) y.k = walk(y.k);

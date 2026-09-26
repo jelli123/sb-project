@@ -128,11 +128,16 @@ function segmentImages(dl) {
 }
 
 /* Sichtbare Parameter-Referenzen bei der aktuellen Parametrierung. */
-function visibleRefs(item, values, resolve) {
-  if (!resolve) return null;
+/* Sichtbare Referenzen und wirksame Werte. Wirksam heißt: eingestellt,
+   überschrieben von den Zuweisungen (Assign) der aktiven Zweige — so lädt
+   die ETS auch versteckte Parameter mit dem Wert, den die Produktdatei
+   ihnen gibt, statt mit der Vorgabe. */
+function resolveValues(item, values, resolve) {
+  if (!resolve) return { visible: null, values };
+  const r = resolve(item, values);
   const set = new Set();
-  resolve(item, values).groups.forEach(g => g.params.forEach(r => set.add(r)));
-  return set;
+  r.groups.forEach(g => g.params.forEach(ref => set.add(ref)));
+  return { visible: set, values: r.values || values };
 }
 
 /* Wert eines Parameters: bevorzugt über eine sichtbare Referenz, sonst über
@@ -700,7 +705,7 @@ function plan(project, dev, item, opts = {}) {
   const ctx = { item, prog, dl, dev, errors, warn, segs: segmentImages(dl), props: new Map(),
                 values: dev.params || {} };
   const resolve = opts.resolve || (typeof KNX !== 'undefined' ? KNX.resolveProduct : null);
-  ctx.visible = visibleRefs(item, ctx.values, resolve);
+  Object.assign(ctx, resolveValues(item, ctx.values, resolve));
 
   const summary = result.summary;
   summary.mask = prog.mask;
