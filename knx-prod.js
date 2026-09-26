@@ -717,7 +717,9 @@ function expand(item) {
     const i = inst[id], md = i && mods[i.m];
     if (!md || !id.startsWith(i.m + '_')) return;
     const v = i.v || {}, n = i.n || {};
-    const map = x => (typeof x === 'string' && x.startsWith(i.m + '_') ? id + x.slice(i.m.length) : x);
+    /* Ids wie im ETS-Projekt: Modul, Instanz, Wiederholung. Ohne Repeat
+       gibt es genau eine, MI-1 (MD-1_P-3 → MD-1_M-15_MI-1_P-3). */
+    const map = x => (typeof x === 'string' && x.startsWith(i.m + '_') ? id + '_MI-1' + x.slice(i.m.length) : x);
     const text = s => fill(s, { names: n });
     const arg = ref => (ref ? (+v[ref] || 0) : 0);
     Object.keys(md.params || {}).forEach(k => {

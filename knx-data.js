@@ -1496,14 +1496,25 @@ const KNX = (() => {
       return op === '<' ? a < b : op === '>' ? a > b : op === '<=' ? a <= b : a >= b;
     });
 
+  /* Alle Parameter, die irgendwo im Sichtbarkeitsbaum stehen — je Produkt
+     einmal ermittelt. */
+  const treeParams = new WeakMap();
+  function paramsInTree(item) {
+    let set = treeParams.get(item);
+    if (!set) {
+      set = new Set();
+      (function f(nodes) {
+        (nodes || []).forEach(n => { if (n.p) set.add(n.p); f(n.k); f(n.w); });
+      })(item.dyn);
+      treeParams.set(item, set);
+    }
+    return set;
+  }
+
   /* Löst auf, welche Parameter und Objekte bei der gegebenen Parametrierung
      sichtbar sind — dieselbe Mechanik wie die Produktansicht der ETS.      */
   function resolveProduct(item, values) {
-    const groups = [];
-    const byPath = new Map();
-    const objs = [];
-    const seenObj = new Set();
-    const seenParam = new Set();
+    let groups, byPath, objs, seenObj, seenParam;
 
     const group = path => {
       const label = path.map(s => String(s || '').trim())
@@ -1513,9 +1524,16 @@ const KNX = (() => {
       return g;
     };
 
+    /* Eine Auswahl wirkt nur, wenn ihr Parameter selbst aktiv ist, also im
+       sichtbaren Baum steht — so die ETS. Steht er erst weiter hinten, zählt
+       er aus dem vorigen Durchlauf (`known`). Parameter, die der Baum gar
+       nicht zeigt, sind interne Schalter und gelten immer. */
+    const inTree = paramsInTree(item);
+    let known = new Set();
     const walk = (nodes, path) => {
       for (const n of nodes || []) {
         if (n.c !== undefined) {
+          if (inTree.has(n.c) && !seenParam.has(n.c) && !known.has(n.c)) continue;
           /* Wie in der ETS gelten alle passenden Zweige, nicht nur der erste —
              Produkte stapeln „7 8“, „7 8 9“ und „!=254“ unter einer Auswahl.
              Der Vorgabezweig greift nur, wenn keiner passt. */
@@ -1537,10 +1555,20 @@ const KNX = (() => {
         }
       }
     };
+    const run = () => {
+      groups = []; byPath = new Map(); objs = []; seenObj = new Set(); seenParam = new Set();
+      walk(item.dyn, []);
+    };
 
     if (item.dyn && item.dyn.length) {
-      walk(item.dyn, []);
+      // Jeder Durchlauf kann nur Parameter dazugewinnen; stehen sie fest, ist Schluss
+      for (let i = 0; i < 20; i++) {
+        run();
+        if (seenParam.size === known.size) break;
+        known = seenParam;
+      }
     } else {
+      groups = []; byPath = new Map(); objs = [];
       // Ohne Sichtbarkeitsangaben alles zeigen, aber je Objektnummer nur einmal
       const byNum = new Set();
       Object.keys(item.objs || {}).forEach(k => {
