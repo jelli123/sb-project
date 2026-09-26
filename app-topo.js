@@ -1016,6 +1016,9 @@ function objForm(o) {
         <input class="input" id="m-name" maxlength="60" value="${esc(o.name)}" placeholder="${T18('z. B. A1 Schalten')}">
       </label>
     </div>
+    <label class="field"><span>${T18('Beschreibung')}</span>
+      <input class="input" id="m-desc" maxlength="200" value="${esc(o.desc || '')}" placeholder="${T18('z. B. Taster Flur links')}">
+    </label>
     <label class="field"><span>${T18('Datenpunkttyp')}</span>
       <select class="select" id="m-dpt">${G.dptOptions(o.dpt)}</select>
     </label>
@@ -1037,7 +1040,7 @@ function actNewObj(devId) {
     const name = $('#m-name').value.trim();
     if (!name) { showErr(T18('Bitte einen Namen vergeben.')); return false; }
     const o = { id: KNX.uid('o'), num: $('#m-num').valueAsNumber || 0, name,
-                dpt: $('#m-dpt').value, flags: readFlags(), gas: [] };
+                desc: $('#m-desc').value.trim(), dpt: $('#m-dpt').value, flags: readFlags(), gas: [] };
     d.objs.push(o);
     KNX.touch();
     state.sel = { kind: 'obj', id: o.id };
@@ -1060,7 +1063,7 @@ function actEditObj(objId) {
       $('#m-err').insertAdjacentHTML('beforeend', '<input type="hidden" id="m-force">');
       return false;
     }
-    Object.assign(o, { num: $('#m-num').valueAsNumber || 0, name, dpt, flags: readFlags() });
+    Object.assign(o, { num: $('#m-num').valueAsNumber || 0, name, desc: $('#m-desc').value.trim(), dpt, flags: readFlags() });
     KNX.touch();
     A.commit();
   });

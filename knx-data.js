@@ -284,6 +284,8 @@ const KNX = (() => {
     { key: 'u', short: 'A', de: 'Aktualisieren', desc: 'Wert wird durch Lesen aktualisiert' }
   ];
   const flagStr = f => KO_FLAGS.map(x => f && f[x.key] ? x.short : '–').join('');
+  /* Anzeige eines Objekts: Name, dahinter die Beschreibung des Nutzers. */
+  const objLabel = o => (o.desc ? o.name + ' · ' + o.desc : o.name);
 
   const MEDIA = { tp: 'TP (Twisted Pair)', ip: 'IP', rf: 'RF (Funk)', pl: 'PL (Powerline)' };
 
@@ -679,6 +681,7 @@ const KNX = (() => {
           ref: o.ref || null,
           num: clamp(o.num, 0, 65535, i),
           name: normName(o.name, 'Objekt'),
+          desc: normDesc(o.desc),
           dpt: dptById(o.dpt).id,
           flags: normFlags(o.flags),
           stale: !!o.stale,
@@ -801,6 +804,9 @@ const KNX = (() => {
     const t = String(v == null ? '' : v).trim().slice(0, NAME_MAX);
     return t || dflt;
   };
+  /* Beschreibung eines Objekts (Spalte „Beschreibung“ der ETS): freier Text,
+     immer einsprachig. */
+  const normDesc = v => (typeof v === 'string' ? v.trim().slice(0, NAME_MAX) : '');
   /* Der deutsche Text eines möglichen Paares — für Schlüssel und Sortierung. */
   const plainName = v => (v && typeof v === 'object') ? (v.de || v.en || '') : String(v || '');
   /* Seriennummer: 6 Byte, in der Anzeige ohne Trenner und in Grossbuchstaben. */
@@ -1642,6 +1648,8 @@ const KNX = (() => {
         ref,
         num: src.num,
         name: src.name || ('Objekt ' + src.num),
+        // Die Beschreibung ist Sache des Nutzers und überlebt das Neuableiten
+        desc: old ? old.desc || '' : '',
         dpt: dptById(src.dpt).id,
         flags: flagsFrom(src.f),
         gas: old ? old.gas : []
@@ -1781,7 +1789,7 @@ const KNX = (() => {
       // Mehrere Sender sind bei Bedienstellen gewollt, bei Rückmeldungen ein Konflikt
       if (senders.length > 1 && senders.every(l => l.obj.flags.r))
         add('error', 'ga', g.id, 'Mehrere rückmeldende Objekte senden auf diese Adresse: ' +
-          senders.map(l => paStr(l.dev.addr) + ' ' + l.obj.name).join(', ') +
+          senders.map(l => paStr(l.dev.addr) + ' ' + objLabel(l.obj)).join(', ') +
           ' — die Werte überschreiben sich gegenseitig.');
       else if (senders.length > 1)
         add('info', 'ga', g.id, senders.length + ' sendende Objekte — bei Bedienstellen in Ordnung, ' +
@@ -1856,9 +1864,9 @@ const KNX = (() => {
       }
       d.objs.forEach(o => {
         if (o.flags.t && !o.gas.length)
-          add('warn', 'device', d.id, `Objekt „${o.name}“ sendet, hat aber keine Adresse.`);
+          add('warn', 'device', d.id, `Objekt „${objLabel(o)}“ sendet, hat aber keine Adresse.`);
         if (o.stale)
-          add('warn', 'device', d.id, `Objekt „${o.name}“ ist durch die Parametrierung nicht mehr ` +
+          add('warn', 'device', d.id, `Objekt „${objLabel(o)}“ ist durch die Parametrierung nicht mehr ` +
             'vorgesehen, trägt aber noch Adressen.');
       });
     });
@@ -2265,7 +2273,7 @@ const KNX = (() => {
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa, hasPa, byPa,
     NOTE_MAX, normNote, normSerial,
-    NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr,
+    NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr, objLabel,
     FN_CATS, FN_TYPES, fnType, fnRole, fnIcon,
     functionById, functionsAt, functionsOfGa, functionsUnder, functionDevices,
     addFunction, deleteFunction, attachGas, detachGa, functionFolder, createRoleGas, functionGroupKey,

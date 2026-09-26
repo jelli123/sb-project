@@ -433,7 +433,7 @@ function objNode(o, depth) {
   emit({
     depth, key: o.id, ref: { kind: 'obj', id: o.id },
     icon: A.IC.obj, iconClass: 'obj',
-    label: o.name, title: `Objekt ${o.num} · ${o.dpt} · Flags ${KNX.flagStr(o.flags)}`,
+    label: KNX.objLabel(o), title: `Objekt ${o.num} · ${o.dpt} · Flags ${KNX.flagStr(o.flags)}`,
     addr: send ? KNX.addrStr(send) : '',
     meta: o.gas.length > 1 ? '+' + (o.gas.length - 1) : '',
     hasKids: false, collapsed: false,
@@ -726,7 +726,7 @@ function gaRow(ga) {
   else {
     const send = links.find(l => l.sending);
     const title = links.map(l => (l.sending ? '↑ ' : '↓ ') + KNX.paStr(l.dev.addr) +
-      '  ' + l.dev.name + ' · ' + l.obj.name).join('\n');
+      '  ' + l.dev.name + ' · ' + KNX.objLabel(l.obj)).join('\n');
     tdO.innerHTML = send
       ? `<span class="room-chip send" title="${esc(title)}">↑ ${KNX.paStr(send.dev.addr)}` +
         (links.length > 1 ? ` ·${links.length}` : '') + '</span>'
@@ -805,7 +805,7 @@ function devRow(d) {
   const linked = d.objs.filter(o => o.gas.length).length;
   tdO.innerHTML = d.objs.length
     ? '<span class="room-chip' + (linked < d.objs.length ? ' more' : '') + '" title="' +
-      esc(d.objs.map(o => o.num + '  ' + o.name + '  ' + KNX.flagStr(o.flags)).join('\n')) + '">' +
+      esc(d.objs.map(o => o.num + '  ' + KNX.objLabel(o) + '  ' + KNX.flagStr(o.flags)).join('\n')) + '">' +
       linked + '/' + d.objs.length + '\u00A0KO</span>'
     : '<span class="room-chip empty">—</span>';
 
@@ -1144,7 +1144,7 @@ function detailGa(ga) {
           <li class="jump" data-kind="obj" data-id="${l.obj.id}">
             <span class="dir ${l.sending ? 'send' : 'recv'}" title="${l.sending ? A.t('sendendes Objekt') : A.t('hörendes Objekt')}">${l.sending ? '↑' : '↓'}</span>
             <span class="addr">${KNX.paStr(l.dev.addr)}</span>
-            <span class="grow">${esc(l.dev.name)} · ${esc(l.obj.name)}</span>
+            <span class="grow">${esc(l.dev.name)} · ${esc(KNX.objLabel(l.obj))}</span>
             <span class="dpt-tag${l.obj.dpt === ga.dpt ? '' : ' bad'}">${l.obj.dpt}</span>
             <span class="flags">${KNX.flagStr(l.obj.flags)}</span>
           </li>`).join('') + '</ul>'
@@ -1273,7 +1273,7 @@ function detailDev(d) {
           return `<li class="jump${o.stale ? ' stale' : ''}" data-kind="obj" data-id="${o.id}"
             ${o.stale ? `title="${A.t('Durch die aktuelle Parametrierung nicht mehr vorgesehen')}"` : ''}>
             <span class="onum">${o.num}</span>
-            <span class="grow">${esc(o.name)}</span>
+            <span class="grow">${esc(KNX.objLabel(o))}</span>
             ${send ? '<span class="addr">' + KNX.addrStr(send) + '</span>'
                    : '<span class="room-chip empty">—</span>'}
             <span class="dpt-tag">${o.dpt}</span>
@@ -1292,7 +1292,7 @@ function detailObj(dev, o) {
     <div class="detail-head">
       <span class="lvl-ic obj big">${A.IC.obj}</span>
       <div>
-        <h2 data-pt-id="detail-obj-title">${esc(o.name)}</h2>
+        <h2 data-pt-id="detail-obj-title">${esc(KNX.objLabel(o))}</h2>
         <p class="detail-sub">${A.t('Objekt {0} von {1}', o.num, esc(dev.name))} · ${KNX.paStr(dev.addr)}</p>
       </div>
     </div>

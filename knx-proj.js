@@ -343,7 +343,7 @@ function build(doc, infoDoc, products, say) {
       const own = objectName(attr(oEl, 'Text'), attr(oEl, 'FunctionText'));
       const desc = text(attr(oEl, 'Description'));
       if (own) o.name = own;
-      if (desc && desc !== o.name) o.name = o.name + ' · ' + desc;
+      if (desc && desc !== o.name) o.desc = desc;
       o.dpt = toDpt(attr(oEl, 'DatapointType')) || o.dpt;
       Object.keys(FLAG_ATTR).forEach(k => {
         const v = attr(oEl, FLAG_ATTR[k]);

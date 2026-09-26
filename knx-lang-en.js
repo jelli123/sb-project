@@ -771,6 +771,7 @@ KNXI18n.add('en', {
   '{0} Kommunikationsobjekte': '{0} communication objects',
   'Einstellungen übernommen': 'Settings applied',
   'z. B. A1 Schalten': 'e.g. A1 switch',
+  'z. B. Taster Flur links': 'e.g. hall push button left',
   'Die Objektliste kommt aus der Produktdatei — sie folgt der Parametrierung. Über „Parameter …“ anpassen.':
     'The object list comes from the product file — it follows the parameters. Adjust it via "Parameters …".',
   'Neues Objekt — {0}': 'New object — {0}',

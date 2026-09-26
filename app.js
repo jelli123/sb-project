@@ -483,7 +483,7 @@ function visibleDevices() {
   let ds = KNX.project().devices.filter(d => devPassesFilter(d, state.filter));
   if (state.search)
     ds = ds.filter(d => matchesSearch(d.name + ' ' + d.product + ' ' + KNX.paStr(d.addr))
-      || d.objs.some(o => matchesSearch(o.name)));
+      || d.objs.some(o => matchesSearch(KNX.objLabel(o))));
   const { key, dir } = state.sort;
   ds.sort((a, b) => {
     let r = 0;
