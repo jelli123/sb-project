@@ -1974,7 +1974,7 @@ const KNX = (() => {
         if (!p.supplies.length) {
           add('warn', kind, key,
             `Keine Spannungsversorgung auf ${where} eingeplant — ` +
-            `${p.loads.length} Teilnehmer brauchen ${p.need} mA.`);
+            `${p.loads.length} ${p.loads.length === 1 ? 'Teilnehmer braucht' : 'Teilnehmer brauchen'} ${p.need} mA.`);
         } else if (p.need > p.have) {
           add('error', kind, key,
             `Busstrom reicht nicht auf ${where}: ${p.need} mA Bedarf, ${p.have} mA eingespeist ` +

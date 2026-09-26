@@ -361,7 +361,9 @@ function build(doc, infoDoc, products, say) {
     if (!c) return null;
     const ip = v => KNX.isIpV4(attr(c, v)) ? attr(c, v) : '';
     const manual = attr(c, 'Assign') === 'Fixed';
-    return { ...KNX.IP_DEFAULTS, name: name.slice(0, 30), mode: manual ? 'manual' : 'dhcp',
+    // Die Routing-Multicast-Adresse gilt projektweit und steht am Backbone
+    const { mcast, ...dflt } = KNX.IP_DEFAULTS;
+    return { ...dflt, name: name.slice(0, 30), mode: manual ? 'manual' : 'dhcp',
              addr: manual ? ip('IPAddress') : '', mask: ip('SubnetMask') || KNX.IP_DEFAULTS.mask,
              gw: manual ? ip('DefaultGateway') : '' };
   }
