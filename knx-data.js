@@ -421,6 +421,10 @@ const KNX = (() => {
   /* Module eines Produkts (siehe KNXProd.expand): Vorlagen und Instanzen.
      Beides kommt aus der Produktdatei; hier wird nur die Form geprüft. */
   const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const PARAM_KEY = /^[A-Za-z0-9_.-]{1,200}$/;
+  // Würden beim Kopieren in ein Objekt dessen Prototyp treffen
+  const UNSAFE_KEY = new Set(['__proto__', 'constructor', 'prototype']);
+  const PARAMS_MAX = 200000, PARAM_VALUE_MAX = 2000;
   const modules = c => (isMap(c.mods) && isMap(c.inst)) ? { mods: c.mods, inst: c.inst } : {};
   const expandItem = c => (typeof KNXProd !== 'undefined' ? KNXProd.expand(c) : c);
 
@@ -655,6 +659,41 @@ const KNX = (() => {
 
     // Geräte und Kommunikationsobjekte
     const seenDev = new Set(), usedPa = new Set();
+    const dropped = { params: 0, ip: 0 };
+    /* Parameterwerte: Referenz-Id → Wert als Text. Die Ids kommen aus der
+       Produktdatei (P-12_R-12, MD-1_M-15_MI-1_P-3_R-3); anderes fällt weg. */
+    const normParams = v => {
+      const out = {};
+      if (!isMap(v)) return out;
+      let n = 0;
+      Object.keys(v).forEach(k => {
+        const x = v[k];
+        const ok = PARAM_KEY.test(k) && !UNSAFE_KEY.has(k) && n < PARAMS_MAX &&
+          (typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x)));
+        if (!ok) { dropped.params++; return; }
+        out[k] = String(x).slice(0, PARAM_VALUE_MAX);
+        n++;
+      });
+      return out;
+    };
+    /* IP-Einstellungen nach IP_FIELDS; ungültige Adressen fallen auf die Vorgabe. */
+    const normIp = v => {
+      if (v == null) return null;
+      if (!isMap(v)) { dropped.ip++; return null; }
+      const ip4 = (x, dflt) => (x === '' || x == null ? dflt : isIpV4(x) ? x : (bad = true, dflt));
+      let bad = false;
+      const out = {
+        name: typeof v.name === 'string' ? v.name.slice(0, 30) : '',
+        mode: v.mode === 'manual' ? 'manual' : 'dhcp',
+        addr: ip4(v.addr, ''), mask: ip4(v.mask, IP_DEFAULTS.mask), gw: ip4(v.gw, ''),
+        tunnels: clamp(v.tunnels, 0, 8, IP_DEFAULTS.tunnels)
+      };
+      if (isIpV4(v.mcast)) out.mcast = v.mcast;
+      if (Array.isArray(v.tunnelAddrs))
+        out.tunnelAddrs = [...new Set(v.tunnelAddrs.filter(r => Number.isInteger(r) && r > 0 && r <= 0xFFFF))].slice(0, 8);
+      if (bad || (v.mode != null && v.mode !== out.mode) || (v.tunnels != null && +v.tunnels !== out.tunnels)) dropped.ip++;
+      return out;
+    };
     p.devices = (Array.isArray(p.devices) ? p.devices : []).map(d => {
       const seenObj = new Set();
       let pa = d.addr === null ? null : Number.isInteger(d.addr) ? d.addr : 0;
@@ -671,8 +710,8 @@ const KNX = (() => {
         catalogId: d.catalogId || null,
         note: normNote(d.note),
         serial: normSerial(d.serial),
-        params: (d.params && typeof d.params === 'object') ? d.params : {},
-        ip: (d.ip && typeof d.ip === 'object') ? d.ip : null,
+        params: normParams(d.params),
+        ip: normIp(d.ip),
         ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
         supply: clamp(d.supply, 0, 5000, 0),
         segmentId: segIds.has(d.segmentId) && segLine.get(d.segmentId) === d.lineId ? d.segmentId : null,
@@ -690,6 +729,8 @@ const KNX = (() => {
       };
     });
     p.devices.filter(d => d.addr < 0).forEach(d => { d.addr = freePaOn(p, d.lineId, usedPa); });
+    if (dropped.params) note(`${dropped.params} unbrauchbare Parameterwerte verworfen.`);
+    if (dropped.ip) note(`IP-Einstellungen von ${dropped.ip} ${dropped.ip === 1 ? 'Gerät' : 'Geräten'} bereinigt.`);
 
     // Produktkatalog
     const seenCat = new Set();
