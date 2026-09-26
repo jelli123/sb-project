@@ -345,29 +345,83 @@ $('#btn-export').addEventListener('click', () => {
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
 $('#import-file').addEventListener('change', e => {
   const file = e.target.files[0];
+  e.target.value = '';
   if (!file) return;
+  if (/\.knxproj$/i.test(file.name)) { importEts(file); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const p = KNX.migrate(JSON.parse(reader.result));
       if (!p) throw new Error('Kein KNX-Projekt');
-      p.isSample = false;
-      state.sel = null; state.filter = null; state.checked.clear();
-      KNX.setProject(p);
-      if (!KNX.save()) A.warn(KNX.saveError());
-      A.resetHistory();
-      A.persistUI();
-      syncProjectMeta();
-      window.KNXOnRender();
+      takeProject(p);
       A.toast(T18('Projekt importiert.'));
       showMigrationNotes();
     } catch (err) {
       A.warn(T18('Datei konnte nicht gelesen werden (unerwartetes Format).'));
     }
-    e.target.value = '';
   };
   reader.readAsText(file);
 });
+
+function takeProject(p) {
+  p.isSample = false;
+  state.sel = null; state.filter = null; state.checked.clear();
+  state.collapsed.clear();
+  KNX.setProject(p);
+  if (!KNX.save()) A.warn(KNX.saveError());
+  A.resetHistory();
+  A.persistUI();
+  syncProjectMeta();
+  window.KNXOnRender();
+}
+
+/* ETS-Projekt: erst lesen und zeigen, was ankommt und was nicht — ersetzt
+   wird das aktuelle Projekt erst nach dem Bestätigen. */
+async function importEts(file) {
+  A.status(T18('Lese {0} …', file.name));
+  let p, report;
+  try {
+    const r = await KNXProj.read(file);
+    report = r.report;
+    p = KNX.migrate(r.project);
+    if (!p) throw new Error('Kein KNX-Projekt');
+  } catch (err) {
+    A.status('');
+    A.warn(T18('ETS-Projekt nicht lesbar: {0}', err && err.message ? err.message : err));
+    return;
+  }
+  A.status('');
+  const notes = KNX.migrationNotes();
+  const objs = p.devices.reduce((n, d) => n + d.objs.length, 0);
+  const links = p.devices.reduce((n, d) => n + d.objs.reduce((m, o) => m + o.gas.length, 0), 0);
+  let nodes = -1;
+  KNX.walk(p.tree, () => { nodes++; });
+  const row = (label, n) => `<li class="ok"><b>${n}</b><span>${label}</span></li>`;
+  A.openModal(T18('ETS-Projekt „{0}“ importieren', p.name), `
+    <ul class="issue-list">
+      ${row(T18('Gebäudeteile und Räume'), nodes)}
+      ${row(T18('Bereiche und Linien'), p.areas.filter(a => !a.backbone).length + ' / '
+        + p.areas.reduce((n, a) => n + a.lines.length, 0))}
+      ${row(T18('Geräte'), p.devices.length)}
+      ${row(T18('Kommunikationsobjekte, davon verknüpft'), objs + ' / ' + p.devices.reduce((n, d) =>
+        n + d.objs.filter(o => o.gas.length).length, 0))}
+      ${row(T18('Gruppenadressen'), p.groups.length)}
+      ${row(T18('Verknüpfungen'), links)}
+      ${row(T18('Funktionen'), p.functions.length)}
+      ${row(T18('Produkte im Katalog'), p.catalog.length)}
+    </ul>
+    ${report.length || notes.length ? `
+      <p>${T18('Nicht alles ließ sich übernehmen:')}</p>
+      <ul class="issue-list">
+        ${report.map(x => `<li class="warn">${esc(T18(x.msg, ...x.args))}</li>`).join('')}
+        ${notes.map(x => `<li class="info">${esc(x)}</li>`).join('')}
+      </ul>` : ''}
+    <p class="hint">${T18('Das aktuelle Projekt („<b>{0}</b>“) wird ersetzt. Vorher per <b>Export</b> sichern?', esc(KNX.project().name))}</p>
+  `, () => {
+    takeProject(p);
+    A.toast(T18('ETS-Projekt importiert.'));
+  });
+}
 
 /* ---------- Neues Projekt ---------- */
 $('#btn-new').addEventListener('click', () => {

@@ -39,7 +39,7 @@ KNXI18n.add('en', {
   'Export': 'Export',
   'Import': 'Import',
   'Projekt als JSON-Datei speichern': 'Save the project as a JSON file',
-  'Projekt aus JSON-Datei laden': 'Load a project from a JSON file',
+  'Projekt aus JSON-Datei oder ETS-Projekt (.knxproj) laden': 'Load a project from a JSON file or an ETS project (.knxproj)',
   'Projekte': 'Projects',
   'Projekte auf diesem Rechner verwalten': 'Manage the projects on this computer',
   'Inbetriebnahme': 'Commissioning',
@@ -123,6 +123,47 @@ KNXI18n.add('en', {
   'Projekt importiert.': 'Project imported.',
   'Datei konnte nicht gelesen werden (unerwartetes Format).':
     'The file could not be read (unexpected format).',
+  'Lese {0} …': 'Reading {0} …',
+  'ETS-Projekt nicht lesbar: {0}': 'ETS project not readable: {0}',
+  'ETS-Projekt „{0}“ importieren': 'Import ETS project "{0}"',
+  'ETS-Projekt importiert.': 'ETS project imported.',
+  'Gebäudeteile und Räume': 'Building parts and rooms',
+  'Bereiche und Linien': 'Areas and lines',
+  'Kommunikationsobjekte, davon verknüpft': 'Group objects, of which linked',
+  'Verknüpfungen': 'Links',
+  'Produkte im Katalog': 'Products in the catalogue',
+  'Nicht alles ließ sich übernehmen:': 'Not everything could be taken over:',
+  'Das Projekt hat {0} Installationen — übernommen wird nur die erste.':
+    'The project has {0} installations — only the first one is imported.',
+  '{0} herstellereigene Programmdateien übergangen — sie laufen nur in der ETS unter Windows.':
+    '{0} manufacturer program files skipped — they only run in ETS on Windows.',
+  '{0} Gruppenadressen ohne gültige oder mit doppelter Adresse übergangen.':
+    '{0} group addresses skipped because their address is invalid or duplicate.',
+  '{0} Namen von Adressbereichen passen nicht zum Adressstil und wurden nicht übernommen.':
+    '{0} address range names do not fit the address style and were not imported.',
+  'Bereich „{0}“ hat keine gültige Adresse und wurde übergangen.':
+    'Area "{0}" has no valid address and was skipped.',
+  'Linie „{0}“ hat keine gültige Adresse und wurde übergangen.':
+    'Line "{0}" has no valid address and was skipped.',
+  'Segment auf Linie „{0}“ ohne gültige Nummer — seine Geräte hängen jetzt an der Linie.':
+    'Segment on line "{0}" has no valid number — its devices are now on the line itself.',
+  '{0} Gebäudeteile mit unbekanntem Typ als Raum übernommen.':
+    '{0} building parts of unknown type imported as rooms.',
+  '{0} Geräte hängen in der ETS an einem Gebäudeteil, der hier keine Geräte aufnimmt — sie sind keinem Raum zugeordnet.':
+    '{0} devices sit in ETS in a building part that cannot hold devices here — they are not assigned to a room.',
+  '{0} Geräte ohne Produktdaten im Archiv — sie sind als leere Geräte übernommen.':
+    '{0} devices have no product data in the archive — they were imported as empty devices.',
+  '{0} Parameterwerte gehören zu keinem bekannten Parameter und wurden nicht übernommen.':
+    '{0} parameter values belong to no known parameter and were not imported.',
+  '{0} verknüpfte Objekte sind nach der hiesigen Auswertung der Parameter unsichtbar — sie stehen als überzählig da.':
+    '{0} linked objects are hidden by the parameters as evaluated here — they are shown as surplus.',
+  '{0} Verknüpfungen zeigen auf keine vorhandene Gruppenadresse.':
+    '{0} links point to no existing group address.',
+  '{0} Geräte mit ungültiger physikalischer Adresse — neu vergeben.':
+    '{0} devices had an invalid individual address — reassigned.',
+  'Gewerke gibt es hier nicht — sie wurden nicht übernommen.':
+    'Trades do not exist here — they were not imported.',
+  'KNX-Secure-Schlüssel wurden nicht übernommen.': 'KNX Secure keys were not imported.',
   'Neues Projekt starten': 'Start a new project',
   'Das aktuelle Projekt („<b>{0}</b>“) wird ersetzt. Vorher per <b>Export</b> sichern?':
     'The current project ("<b>{0}</b>") will be replaced. Save it with <b>Export</b> first?',

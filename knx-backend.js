@@ -13,7 +13,7 @@ window.KNXBackend = null;
 (() => {
 
 const SCRIPTS = [
-  'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-download.js',
+  'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-proj.js', 'knx-download.js',
   'app.js', 'app-ga.js', 'app-fn.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
 ];
 

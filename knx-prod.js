@@ -15,12 +15,14 @@ const KNXProd = (() => {
    Entpacken wirklich herauskommt.
    Gemessen an 21 echten Produktdateien (ABB, Bosch, Gira, Helios, Jung, MDT):
    höchstens 18 Einträge, 8 XML-Dateien, 8,6 MB im größten Eintrag, 23 MB
-   entpackt, Namen bis 75 Zeichen. Die Grenzen lassen davon ein Mehrfaches zu. */
-const MAX_FILE = 64 * 1024 * 1024;
-const MAX_TOTAL = 256 * 1024 * 1024;
-const MAX_ENTRIES = 2000;
-const MAX_NAME = 512;
-const MAX_XML_DOCS = 256;
+   entpackt, Namen bis 75 Zeichen. Die Grenzen lassen davon ein Mehrfaches zu.
+   Eine .knxproj bringt die Produktdaten aller verbauten Geräte mit, je
+   Hersteller Katalog, Hardware und Applikationen — sie darf darum mehr
+   Einträge haben; die Grenze je Eintrag bleibt dieselbe. */
+const LIMITS = {
+  prod: { file: 64 * 1024 * 1024, total: 256 * 1024 * 1024, entries: 2000, name: 512, xml: 256 },
+  proj: { file: 64 * 1024 * 1024, total: 512 * 1024 * 1024, entries: 20000, name: 512, xml: 4000 }
+};
 
 /* ---------- ZIP ---------- */
 const SIG_EOCD = 0x06054b50, SIG_CEN = 0x02014b50, SIG_LOC = 0x04034b50;
@@ -34,17 +36,19 @@ function findEocd(view) {
 }
 
 /* Liest das Inhaltsverzeichnis; die Nutzdaten bleiben vorerst komprimiert. */
-function zipEntries(buf) {
+function zipEntries(buf, lim = LIMITS.prod) {
   const view = new DataView(buf);
   const eocd = findEocd(view);
-  if (eocd < 0) throw new Error('Keine ZIP-Struktur gefunden — ist das wirklich eine .knxprod-Datei?');
+  if (eocd < 0) throw new Error(lim === LIMITS.proj
+    ? 'Keine ZIP-Struktur gefunden — ist das wirklich eine .knxproj-Datei?'
+    : 'Keine ZIP-Struktur gefunden — ist das wirklich eine .knxprod-Datei?');
 
   const count = view.getUint16(eocd + 10, true);
   let p = view.getUint32(eocd + 16, true);
   if (view.getUint32(eocd + 12, true) === 0xFFFFFFFF || p === 0xFFFFFFFF)
     throw new Error('ZIP64-Archive werden nicht unterstützt.');
-  if (count > MAX_ENTRIES)
-    throw new Error(`Das Archiv nennt ${count} Einträge — mehr als ${MAX_ENTRIES}.`);
+  if (count > lim.entries)
+    throw new Error(`Das Archiv nennt ${count} Einträge — mehr als ${lim.entries}.`);
 
   const dec = new TextDecoder('utf-8');
   const out = [];
@@ -61,15 +65,15 @@ function zipEntries(buf) {
     const localAt = view.getUint32(p + 42, true);
     // Alle Längen stammen aus der Datei — ohne diese Prüfung wirft die Sicht
     // darauf einen nackten RangeError statt einer lesbaren Meldung.
-    if (nameLen > MAX_NAME) throw new Error('Ein Eintragsname im Archiv ist unerwartet lang.');
+    if (nameLen > lim.name) throw new Error('Ein Eintragsname im Archiv ist unerwartet lang.');
     if (p + 46 + nameLen > buf.byteLength) throw new Error('Das Inhaltsverzeichnis ist abgeschnitten.');
     const name = dec.decode(new Uint8Array(buf, p + 46, nameLen));
 
     if (flags & 0x01) throw new Error(`Eintrag „${name}“ ist verschlüsselt.`);
-    if (rawSize > MAX_FILE) throw new Error(`Eintrag „${name}“ ist unerwartet groß.`);
+    if (rawSize > lim.file) throw new Error(`Eintrag „${name}“ ist unerwartet groß.`);
     if (localAt + 30 > buf.byteLength) throw new Error(`Eintrag „${name}“ zeigt hinter das Dateiende.`);
     total += rawSize;
-    if (total > MAX_TOTAL) throw new Error('Archivinhalt ist unerwartet groß.');
+    if (total > lim.total) throw new Error('Archivinhalt ist unerwartet groß.');
 
     out.push({ name, method, compSize, rawSize, localAt });
     p += 46 + nameLen + extraLen + commLen;
@@ -113,7 +117,7 @@ async function inflate(bytes, limit, name) {
  * Einträge zusammen schon herausgekommen ist — sonst ließe sich die Grenze je
  * Eintrag mit vielen kleinen Einträgen umgehen.
  */
-async function zipRead(buf, e, budget) {
+async function zipRead(buf, e, budget, lim = LIMITS.prod) {
   const view = new DataView(buf);
   if (view.getUint32(e.localAt, true) !== SIG_LOC)
     throw new Error(`Beschädigter Eintrag „${e.name}“.`);
@@ -123,7 +127,7 @@ async function zipRead(buf, e, budget) {
   if (at + e.compSize > buf.byteLength)
     throw new Error(`Eintrag „${e.name}“ reicht über das Dateiende hinaus.`);
 
-  const limit = Math.min(MAX_FILE, budget ? budget.left : MAX_FILE);
+  const limit = Math.min(lim.file, budget ? budget.left : lim.file);
   let out;
   if (e.method === 0) out = new Uint8Array(buf, at, e.compSize);
   else if (e.method === 8) out = await inflate(new Uint8Array(buf, at, e.compSize), limit, e.name);
@@ -713,8 +717,12 @@ function collect(docs, prefer) {
     const m = String(id).match(/^(M-[0-9A-Fa-f]+)/);
     return m ? (manufacturers.get(m[1]) || m[1]) : '';
   };
-  const entry = (key, name, order, app, hw) => ({
+  /* `refs` sagt, woher der Eintrag stammt — ein Gerät im ETS-Projekt findet
+     sein Produkt über genau diese Ids wieder. Im Katalog des Projekts werden
+     sie nicht gespeichert. */
+  const entry = (key, name, order, app, hw, refs = {}) => ({
     key, name, order, manufacturer: manuOf(key), appName: app.name,
+    productRef: refs.product || '', h2p: refs.h2p || '', appId: refs.app || '',
     types: app.types, params: app.params, objs: app.objs, dyn: app.dyn,
     prog: app.prog,
     mask: app.mask,
@@ -752,12 +760,13 @@ function collect(docs, prefer) {
       || (prod.text && typeof prod.text === 'object' ? prod.text.de : '');
     const ciName = pair(ciDe, lg.en.get(key + '|Name') || attr(ci, 'Name'));
     out.push(entry(key, plain(ciName) ? ciName : (plain(prod.text) ? prod.text : app.name),
-      attr(ci, 'OrderNumber') || prod.order || '', app, hwOf.get(h2pId) || prod.hw));
+      attr(ci, 'OrderNumber') || prod.order || '', app, hwOf.get(h2pId) || prod.hw,
+      { product: attr(ci, 'ProductRefId'), h2p: h2pId, app: appId || '' }));
   }));
 
   // Ohne Katalogeinträge bleibt der Weg über die Programme selbst
   if (!out.length)
-    apps.forEach((app, id) => out.push(entry(id, app.name, '', app, null)));
+    apps.forEach((app, id) => out.push(entry(id, app.name, '', app, null, { app: id })));
 
   /* Koppler und IP-Schnittstellen haben oft keine Objekte — und manche auch
      keine Parameter: Ein Gerät, das seine Einstellungen selbst mitbringt, über
@@ -784,8 +793,8 @@ async function read(file, prefer) {
   const buf = await file.arrayBuffer();
   const all = zipEntries(buf);
   const entries = all.filter(e => /\.xml$/i.test(e.name));
-  if (entries.length > MAX_XML_DOCS)
-    throw new Error(`Das Archiv enthält ${entries.length} XML-Dateien — mehr als ${MAX_XML_DOCS}.`);
+  if (entries.length > LIMITS.prod.xml)
+    throw new Error(`Das Archiv enthält ${entries.length} XML-Dateien — mehr als ${LIMITS.prod.xml}.`);
   const binaries = all.filter(e => BINARY.test(e.name))
     .map(e => ({ name: e.name, bytes: e.rawSize }));
   const extras = all.filter(e => !/\.xml$/i.test(e.name) && !BINARY.test(e.name) && e.rawSize > 0)
@@ -797,7 +806,7 @@ async function read(file, prefer) {
   const docs = [];
   /* Gemeinsames Restbudget: die Grenze je Eintrag allein liesse sich mit
      vielen kleinen Einträgen umgehen. */
-  const budget = { left: MAX_TOTAL };
+  const budget = { left: LIMITS.prod.total };
   for (const e of entries) {
     const doc = parser.parseFromString(dec.decode(await zipRead(buf, e, budget)), 'application/xml');
     if (!doc.getElementsByTagName('parsererror').length) docs.push(doc);
@@ -810,5 +819,10 @@ async function read(file, prefer) {
   return { products, binaries, extras };
 }
 
-return { read, BINARY };
+/* Für den Import eines ETS-Projekts (knx-proj.js): dasselbe Archiv- und
+   Produktformat, nur mit Projektdaten daneben. */
+const zip = { entries: zipEntries, read: zipRead };
+const xml = { tags, attr, localName, toDpt, objectName, plain };
+
+return { read, BINARY, LIMITS, zip, xml, collect };
 })();
