@@ -685,7 +685,8 @@ function readApp(ap, lang, langs) {
         else a.v = attr(el, 'Value');
         return a.a ? a : null;
       }
-      case 'Repeat': unsupported.add('Repeat'); return null;
+      // Wiederholung: so viele Instanzen der enthaltenen Module, wie der Parameter sagt
+      case 'Repeat': return { r: cut(attr(el, 'ParameterRefId')), k: kids() };
       case 'Dynamic': return { k: kids() };
       default: {
         const k = kids();
@@ -705,25 +706,63 @@ function readApp(ap, lang, langs) {
   });
   if (tags(ap, 'SubModuleDefs').length) unsupported.add('SubModuleDefs');
   const dynEl = child(ap, 'Dynamic');
+
+  /* Allokatoren vergeben Argumente fortlaufend: Wiederholung k bekommt
+     Start + (k−1)·Allocates. Teilen sich mehrere Module einen Allokator,
+     zählt das nächste dort weiter, wo das vorige mit seinem Höchststand
+     aufhört (Dokumentreihenfolge) — angenommen, in keiner Produktdatei
+     bisher gesehen. */
+  const allocators = new Map();
+  tags(ap, 'Allocator').forEach(l => allocators.set(cut(attr(l, 'Id')),
+    { next: num(l, 'Start'), max: attr(l, 'maxInclusive') === '' ? Infinity : num(l, 'maxInclusive') }));
+  const inRepeat = el => {
+    for (let p = el.parentElement; p && p !== dynEl; p = p.parentElement)
+      if (localName(p) === 'Repeat') return p;
+    return null;
+  };
+  const MAX_REPEAT = 256;
+
   (dynEl ? tags(dynEl, 'Module') : []).forEach(m => {
     const local = cut(attr(m, 'RefId'));
     const id = cut(attr(m, 'Id'));
     const def = tags(ap, 'ModuleDef').find(x => cut(attr(x, 'Id')) === local);
     if (!mods[local] || !def || !id.startsWith(local + '_')) return;
-    const argName = new Map(tags(def, 'Argument').map(a => [cut(attr(a, 'Id')), attr(a, 'Name')]));
-    const v = {}, n = {};
-    let open = false;
-    [...m.children].forEach(a => {
-      const k = localName(a);
+    const args = new Map(tags(def, 'Argument').map(a => [cut(attr(a, 'Id')),
+      { name: attr(a, 'Name'), step: num(a, 'Allocates') || 1 }]));
+
+    /* Wie oft: höchstens so oft, wie der Zählparameter zulässt und jeder
+       beteiligte Allokator hergibt. */
+    const rp = inRepeat(m);
+    let times = 1;
+    if (rp) {
+      const cp = main.params[cut(attr(rp, 'ParameterRefId'))];
+      const ct = cp && types[cp.pt];
+      times = ct && ct.k === 'num' && ct.max > 0 ? Math.min(ct.max, MAX_REPEAT) : MAX_REPEAT;
+    }
+    const v = {}, n = {}, a = {};
+    let broken = false;
+    const pending = [];
+    [...m.children].forEach(x => {
+      const k = localName(x);
       if (k !== 'NumericArg' && k !== 'TextArg') return;
-      // Argumente aus einem Allocator (Repeat) stehen erst beim Parametrieren fest
-      if (!a.hasAttribute('Value')) { open = true; return; }
-      const ref = cut(attr(a, 'RefId'));
-      if (k === 'NumericArg') v[ref] = parseInt(attr(a, 'Value'), 10) || 0;
-      if (argName.has(ref)) n[argName.get(ref)] = attr(a, 'Value');
+      const ref = cut(attr(x, 'RefId'));
+      const info = args.get(ref) || { name: '', step: 1 };
+      if (x.hasAttribute('Value')) {
+        if (k === 'NumericArg') v[ref] = parseInt(attr(x, 'Value'), 10) || 0;
+        if (info.name) n[info.name] = attr(x, 'Value');
+        return;
+      }
+      const l = allocators.get(cut(attr(x, 'AllocatorRefId')));
+      if (!l) { broken = true; return; }
+      times = Math.min(times, Math.max(0, Math.floor((l.max - l.next) / info.step)));
+      pending.push([ref, l, info]);
     });
-    if (open) { unsupported.add('Allocator'); return; }
-    inst[id] = { m: local, v, n };
+    if (broken) { unsupported.add('Allocator'); return; }
+    pending.forEach(([ref, l, info]) => {
+      a[ref] = [l.next, info.step, info.name];
+      l.next += times * info.step;
+    });
+    inst[id] = { m: local, v, n, ...(pending.length || rp ? { a, x: times } : {}) };
   });
   const dyn = dynEl ? (node(dynEl, main.params).k || []) : [];
 
@@ -766,55 +805,77 @@ function expand(item) {
   Object.keys(inst).forEach(id => {
     const i = inst[id], md = i && mods[i.m];
     if (!md || !id.startsWith(i.m + '_')) return;
-    const v = i.v || {}, n = i.n || {};
-    /* Ids wie im ETS-Projekt: Modul, Instanz, Wiederholung. Ohne Repeat
-       gibt es genau eine, MI-1 (MD-1_P-3 → MD-1_M-15_MI-1_P-3). */
-    const map = x => (typeof x === 'string' && x.startsWith(i.m + '_') ? id + '_MI-1' + x.slice(i.m.length) : x);
-    const text = s => fill(s, { names: n });
-    const arg = ref => (ref ? (+v[ref] || 0) : 0);
-    Object.keys(md.params || {}).forEach(k => {
-      const p = md.params[k];
-      params[map(k)] = { ...p, t: text(p.t), p: map(p.p) };
-    });
-    Object.keys(md.objs || {}).forEach(k => {
-      const o = { ...md.objs[k] };
-      o.num += arg(o.b);
-      o.name = text(o.name);
-      delete o.b;
-      objs[map(k)] = o;
-    });
-    Object.keys(md.loc || {}).forEach(k => {
-      const l = { ...md.loc[k] };
-      const shift = arg(l.b) * 8;
-      l.o += shift;
-      if (l.uk) l.uk = l.uk.replace(/@(\d+)$/, (m, at) => '@' + (+at + shift));
-      delete l.b;
-      loc[map(k)] = l;
-    });
-    Object.keys(md.co || {}).forEach(k => {
-      const c = { ...md.co[k] };
-      const nr = c.b ? c.n + arg(c.b) : +k;
-      delete c.n; delete c.b;
-      co[nr] = c;
-    });
-    const walk = nodes => (nodes || []).map(x => {
-      const y = { ...x };
-      if (y.c !== undefined) y.c = map(y.c);
-      if (y.p) y.p = map(y.p);
-      if (y.o) y.o = map(y.o);
-      if (y.a) y.a = map(y.a);
-      if (y.s) y.s = map(y.s);
-      if (y.b !== undefined) y.b = text(y.b);
-      if (y.w) y.w = walk(y.w);
-      if (y.k) y.k = walk(y.k);
-      return y;
-    });
-    views[id] = walk(md.dyn);
+    views[id] = [];
+    const times = Number.isInteger(i.x) ? Math.max(0, Math.min(i.x, 256)) : 1;
+    for (let rep = 1; rep <= times; rep++) {
+      // Allokierte Argumente: Start + (k−1)·Schritt
+      const v = { ...(i.v || {}) }, n = { ...(i.n || {}) };
+      Object.keys(i.a || {}).forEach(ref => {
+        if (!Array.isArray(i.a[ref])) return;
+        const [start, step, name] = i.a[ref];
+        v[ref] = (+start || 0) + (rep - 1) * (+step || 0);
+        if (name) n[name] = String(v[ref]);
+      });
+      /* Ids wie im ETS-Projekt: Modul, Instanz, Wiederholung. Ohne Repeat
+         gibt es genau eine, MI-1 (MD-1_P-3 → MD-1_M-15_MI-1_P-3). */
+      const map = x => (typeof x === 'string' && x.startsWith(i.m + '_') ? id + '_MI-' + rep + x.slice(i.m.length) : x);
+      const text = s => fill(s, { names: n });
+      const arg = ref => (ref ? (+v[ref] || 0) : 0);
+      Object.keys(md.params || {}).forEach(k => {
+        const p = md.params[k];
+        params[map(k)] = { ...p, t: text(p.t), p: map(p.p) };
+      });
+      Object.keys(md.objs || {}).forEach(k => {
+        const o = { ...md.objs[k] };
+        o.num += arg(o.b);
+        o.name = text(o.name);
+        delete o.b;
+        objs[map(k)] = o;
+      });
+      Object.keys(md.loc || {}).forEach(k => {
+        const l = { ...md.loc[k] };
+        const shift = arg(l.b) * 8;
+        l.o += shift;
+        if (l.uk) l.uk = l.uk.replace(/@(\d+)$/, (m, at) => '@' + (+at + shift));
+        delete l.b;
+        loc[map(k)] = l;
+      });
+      Object.keys(md.co || {}).forEach(k => {
+        const c = { ...md.co[k] };
+        const nr = c.b ? c.n + arg(c.b) : +k;
+        delete c.n; delete c.b;
+        co[nr] = c;
+      });
+      const walk = nodes => (nodes || []).map(x => {
+        const y = { ...x };
+        if (y.c !== undefined) y.c = map(y.c);
+        if (y.p) y.p = map(y.p);
+        if (y.o) y.o = map(y.o);
+        if (y.a) y.a = map(y.a);
+        if (y.s) y.s = map(y.s);
+        if (y.b !== undefined) y.b = text(y.b);
+        if (y.w) y.w = walk(y.w);
+        if (y.k) y.k = walk(y.k);
+        return y;
+      });
+      views[id].push(walk(md.dyn));
+    }
   });
 
-  // Im Baum des Programms steht an Stelle jeder Instanz ihr Inhalt
+  /* Im Baum des Programms steht an Stelle jeder Instanz ihr Inhalt. Eine Wiederholung wird zu {r, rep}: rep[k] ist der Inhalt der k+1-ten
+     Wiederholung; resolveProduct nimmt so viele, wie der Parameter sagt. */
   const place = nodes => (nodes || []).map(x => {
-    if (x.m !== undefined) return { k: views[x.m] || [] };
+    if (x.m !== undefined) return { k: (views[x.m] || [])[0] || [] };
+    if (x.r !== undefined) {
+      const kids = x.k || [];
+      const n = Math.max(0, ...kids.map(c => (c.m !== undefined ? (views[c.m] || []).length : 1)));
+      const rep = [];
+      for (let k = 0; k < n; k++)
+        rep.push(kids.flatMap(c => (c.m !== undefined
+          ? ((views[c.m] || [])[k] ? [{ k: views[c.m][k] }] : [])
+          : (k === 0 ? place([c]) : []))));
+      return { r: x.r, rep };
+    }
     const y = { ...x };
     if (y.w) y.w = place(y.w);
     if (y.k) y.k = place(y.k);

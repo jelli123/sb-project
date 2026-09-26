@@ -1510,7 +1510,7 @@ const KNX = (() => {
     if (!set) {
       set = new Set();
       (function f(nodes) {
-        (nodes || []).forEach(n => { if (n.p) set.add(n.p); f(n.k); f(n.w); });
+        (nodes || []).forEach(n => { if (n.p) set.add(n.p); f(n.k); f(n.w); (n.rep || []).forEach(f); });
       })(item.dyn);
       treeParams.set(item, set);
     }
@@ -1564,6 +1564,11 @@ const KNX = (() => {
           if (!seenObj.has(n.o) && item.objs[n.o]) { seenObj.add(n.o); objs.push(n.o); }
         } else if (n.a !== undefined) {
           if (item.params[n.a]) pending[n.a] = n.s !== undefined ? eff(n.s) : String(n.v);
+        } else if (n.r !== undefined) {
+          // Wiederholung: so viele Instanzen, wie der Zählparameter gerade sagt
+          if (inTree.has(n.r) && !seenParam.has(n.r) && !known.has(n.r)) continue;
+          const times = Math.max(0, Math.min(parseInt(eff(n.r), 10) || 0, (n.rep || []).length));
+          for (let i = 0; i < times; i++) walk(n.rep[i], path);
         } else if (n.b !== undefined) {
           walk(n.k, path.concat(n.b));
         } else if (n.k) {
