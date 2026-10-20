@@ -41,8 +41,8 @@ mkdir -p "$STAGE/server/lib" "$STAGE/web" "$STAGE/lizenzen" "$STAGE/beispiel"
 cp "$JAR" "$STAGE/server/"
 cp "$ROOT"/server/target/lib/*.jar "$STAGE/server/lib/"
 
-# Oberflaeche: index.html, alle Skripte und das Stylesheet aus dem Hauptordner.
-cp "$ROOT/index.html" "$ROOT/styles.css" "$STAGE/web/"
+# Oberflaeche: index.html, alle Skripte, Stylesheet und Logo aus dem Hauptordner.
+cp "$ROOT/index.html" "$ROOT/styles.css" "$ROOT/selfbus-logo.png" "$STAGE/web/"
 for f in "$ROOT"/*.js; do cp "$f" "$STAGE/web/"; done
 
 # Musterprojekt zum Importieren; ohne Umlaute im Namen, damit es auf jedem

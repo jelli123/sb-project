@@ -1029,7 +1029,8 @@ function devRow(d) {
     + esc(d.name) + (d.product ? ' <span class="ga-note">' + esc(d.product) + '</span>' : '');
 
   const tdL = document.createElement('td');
-  tdL.innerHTML = '<span class="dpt-tag">' + esc(KNX.lineLabel(d.lineId)) + '</span>';
+  const lineLabel = esc(KNX.lineLabel(d.lineId));
+  tdL.innerHTML = '<span class="dpt-tag line-tag" title="' + lineLabel + '">' + lineLabel + '</span>';
 
   const tdR = document.createElement('td');
   tdR.className = 'cell-rooms';

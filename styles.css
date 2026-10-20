@@ -1,49 +1,53 @@
 /* ============================================================
    KNX-Struktur — Tech/Utility im ETS-Stil
-   Neutrals, Haarlinien, mono-Adressen, ein Akzent
+   Neutrals, Haarlinien, mono-Adressen, ein Akzent: das Rubinrot
+   des Selfbus-Logos (#750000)
    ============================================================ */
 
 :root {
-  --bg:        oklch(97% 0.005 240);
+  --bg:        oklch(97% 0.004 25);
   --surface:   oklch(100% 0 0);
-  --surface2:  oklch(98.5% 0.004 240);
-  --fg:        oklch(22% 0.02 240);
-  --muted:     oklch(50% 0.015 240);
-  --faint:     oklch(66% 0.01 240);
-  --border:    oklch(90% 0.008 240);
-  --border2:   oklch(84% 0.01 240);
-  --accent:    oklch(47% 0.16 245);
-  --accent-weak: oklch(94% 0.03 245);
+  --surface2:  oklch(98.5% 0.003 25);
+  --fg:        oklch(22% 0.012 25);
+  --muted:     oklch(50% 0.01 25);
+  --faint:     oklch(66% 0.007 25);
+  --border:    oklch(90% 0.006 25);
+  --border2:   oklch(84% 0.007 25);
+  --accent:    oklch(45% 0.165 27);
+  --accent-weak: oklch(95.5% 0.022 20);
   --ok:        oklch(55% 0.13 150);
   --ok-weak:   oklch(93% 0.05 150);
-  --danger:    oklch(48% 0.17 25);
+  /* Zum Orange hin geschoben, damit Loeschen sich vom roten Akzent abhebt. */
+  --danger:    oklch(55% 0.19 40);
   --warn:      oklch(55% 0.12 70);
 
   /* Abgeleitete Farben. Vorher standen diese Werte verstreut im Blatt; als
      Token lassen sie sich fuer den Dunkelmodus an einer Stelle umlegen. */
   --on-accent:       oklch(98% 0 0);     /* Text auf Akzentflaechen */
   --on-status:       oklch(100% 0 0);    /* Text auf Melde-Punkten */
-  --accent-hover:    oklch(43% 0.16 245);
-  --accent-border:   oklch(84% 0.05 245);
+  --accent-hover:    oklch(39% 0.15 27);
+  --accent-border:   oklch(85% 0.06 22);
   --ok-border:       oklch(84% 0.055 150);
-  --danger-weak:     oklch(96.5% 0.02 25);
-  --danger-tint:     oklch(98% 0.02 25);
-  --danger-border:   oklch(85% 0.05 25);
+  --danger-weak:     oklch(96.5% 0.025 45);
+  --danger-tint:     oklch(98% 0.02 45);
+  --danger-border:   oklch(85% 0.06 45);
   --warn-weak:       oklch(96.5% 0.025 70);
   --warn-border:     oklch(85% 0.05 70);
-  --sel:             oklch(96% 0.02 240);
-  --sel-hover:       oklch(94% 0.025 240);
-  --backdrop:        oklch(20% 0.02 240 / 0.4);
+  --sel:             oklch(96.5% 0.012 25);
+  --sel-hover:       oklch(94.5% 0.016 25);
+  --backdrop:        oklch(20% 0.015 25 / 0.4);
   --hover-filter:    brightness(0.97);
 
   /* Topbar und Toast sind auch im Hellmodus dunkel und brauchen darum eigene
-     Werte - sie duerfen nicht an --fg haengen, das im Dunkelmodus hell wird. */
-  --bar-bg:          oklch(22% 0.02 240);
-  --bar-fg:          oklch(96% 0.005 240);
-  --bar-fg2:         oklch(88% 0.01 240);
-  --bar-muted:       oklch(80% 0.01 240);
-  --bar-faint:       oklch(73% 0.01 240);
-  --bar-accent-hover: oklch(55% 0.16 245);
+     Werte - sie duerfen nicht an --fg haengen, das im Dunkelmodus hell wird.
+     Die Topbar traegt das Logo-Rot, darauf steht das Logo invers in Weiss. */
+  --bar-bg:          oklch(35.3% 0.145 29);
+  --bar-fg:          oklch(98% 0.005 25);
+  --bar-fg2:         oklch(91% 0.025 25);
+  --bar-muted:       oklch(86% 0.035 25);
+  --bar-faint:       oklch(80% 0.045 25);
+  --bar-accent-hover: oklch(93% 0.02 25);
+  --toast-bg:        oklch(24% 0.012 25);
 
   /* Symbolfarben des Baums und der Funktionen */
   --ic-room:    oklch(55% 0.10 150);
@@ -64,7 +68,7 @@
 
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'Cascadia Mono', ui-monospace, Consolas, Menlo, monospace;
-  --shadow: 0 2px 6px oklch(20% 0.02 240 / 0.08), 0 12px 32px oklch(20% 0.02 240 / 0.14);
+  --shadow: 0 2px 6px oklch(20% 0.015 25 / 0.08), 0 12px 32px oklch(20% 0.015 25 / 0.14);
   --radius: 6px;
   --topbar-h: 54px;
   --statusbar-h: 30px;
@@ -80,46 +84,47 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg:        oklch(17.5% 0.012 240);
-  --surface:   oklch(21.5% 0.013 240);
-  --surface2:  oklch(25% 0.014 240);
-  --fg:        oklch(93% 0.008 240);
-  --muted:     oklch(71% 0.014 240);
-  --faint:     oklch(56% 0.012 240);
-  --border:    oklch(30% 0.014 240);
-  --border2:   oklch(38% 0.016 240);
-  --accent:    oklch(68% 0.14 245);
-  --accent-weak: oklch(30% 0.055 245);
+  --bg:        oklch(17.5% 0.007 25);
+  --surface:   oklch(21.5% 0.008 25);
+  --surface2:  oklch(25% 0.009 25);
+  --fg:        oklch(93% 0.005 25);
+  --muted:     oklch(71% 0.009 25);
+  --faint:     oklch(56% 0.008 25);
+  --border:    oklch(30% 0.009 25);
+  --border2:   oklch(38% 0.01 25);
+  --accent:    oklch(70% 0.15 22);
+  --accent-weak: oklch(30% 0.06 22);
   --ok:        oklch(72% 0.14 150);
   --ok-weak:   oklch(28% 0.05 150);
-  --danger:    oklch(70% 0.16 25);
+  --danger:    oklch(70% 0.17 38);
   --warn:      oklch(78% 0.13 70);
 
   /* Der Akzent ist jetzt hell - Text darauf muss dunkel werden. */
-  --on-accent:       oklch(18% 0.02 245);
+  --on-accent:       oklch(18% 0.03 25);
   --on-status:       oklch(16% 0.015 240);
-  --accent-hover:    oklch(74% 0.14 245);
-  --accent-border:   oklch(42% 0.07 245);
+  --accent-hover:    oklch(76% 0.13 22);
+  --accent-border:   oklch(44% 0.09 22);
   --ok-border:       oklch(40% 0.07 150);
-  --danger-weak:     oklch(28% 0.055 25);
-  --danger-tint:     oklch(25% 0.045 25);
-  --danger-border:   oklch(42% 0.08 25);
+  --danger-weak:     oklch(28% 0.055 45);
+  --danger-tint:     oklch(25% 0.045 45);
+  --danger-border:   oklch(44% 0.09 45);
   --warn-weak:       oklch(29% 0.05 70);
   --warn-border:     oklch(42% 0.07 70);
-  --sel:             oklch(29% 0.032 245);
-  --sel-hover:       oklch(33% 0.038 245);
-  --backdrop:        oklch(8% 0.01 240 / 0.62);
+  --sel:             oklch(28% 0.022 25);
+  --sel-hover:       oklch(32% 0.026 25);
+  --backdrop:        oklch(8% 0.008 25 / 0.62);
   /* Aufhellen statt Abdunkeln, sonst verschwindet die Zeile beim Ueberfahren. */
   --hover-filter:    brightness(1.18);
   --shadow: 0 2px 6px oklch(0% 0 0 / 0.45), 0 12px 32px oklch(0% 0 0 / 0.6);
 
   /* Etwas heller als der Seitengrund, damit die Leiste Leiste bleibt. */
-  --bar-bg:          oklch(25% 0.016 240);
-  --bar-fg:          oklch(94% 0.006 240);
-  --bar-fg2:         oklch(85% 0.01 240);
-  --bar-muted:       oklch(76% 0.012 240);
-  --bar-faint:       oklch(68% 0.012 240);
-  --bar-accent-hover: oklch(74% 0.14 245);
+  --bar-bg:          oklch(31% 0.12 28);
+  --bar-fg:          oklch(96% 0.008 25);
+  --bar-fg2:         oklch(88% 0.025 25);
+  --bar-muted:       oklch(82% 0.035 25);
+  --bar-faint:       oklch(76% 0.04 25);
+  --bar-accent-hover: oklch(90% 0.025 25);
+  --toast-bg:        oklch(30% 0.01 25);
 
   --ic-room:    oklch(72% 0.12 150);
   --ic-part:    oklch(70% 0.12 245);
@@ -251,17 +256,7 @@ select:focus-visible,
   padding-right: 14px;
   border-right: 1px solid oklch(100% 0 0 / 0.15);
 }
-#topbar .logo {
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  background: var(--accent);
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  font-size: 9px;
-  color: var(--on-accent);
-  letter-spacing: -0.3px;
-}
+#topbar .logo { display: block; height: 34px; width: auto; }
 #topbar .brand-text b { display: block; font-size: 13.5px; font-weight: 650; line-height: 1.2; }
 #topbar .brand-text span { font-size: 11px; color: var(--bar-faint); }
 
@@ -350,8 +345,11 @@ select:focus-visible,
   place-items: center;
   line-height: 0;
 }
-#topbar .btn-primary { background: var(--accent); border-color: oklch(100% 0 0 / 0.25); color: var(--on-accent); }
+/* Auf der roten Leiste kehrt der Hauptknopf sich um: weiss mit rotem Text. */
+#topbar .btn-primary { background: var(--bar-fg); border-color: var(--bar-fg); color: var(--bar-bg); }
 #topbar .btn-primary:hover { background: var(--bar-accent-hover); }
+/* Der rote Fokusrahmen ginge auf der roten Leiste unter. */
+#topbar :focus-visible { outline-color: var(--bar-fg); }
 
 /* ---------- Drei Spalten mit ziehbaren Trennstegen ---------- */
 #main {
@@ -656,7 +654,8 @@ table.ga thead .col-addr { width: 88px; }
 table.ga thead .col-dpt { width: 76px; }
 table.ga thead .col-objs { width: 132px; }
 table.ga thead .col-rooms { width: 144px; }
-table.ga thead .col-line { width: 128px; }
+table.ga thead .col-line { width: 160px; }
+table.ga thead .col-kos { width: 104px; }
 
 table.ga tbody tr { cursor: pointer; height: 34px; }
 table.ga tbody td {
@@ -703,6 +702,8 @@ table.ga tbody .cell-act .icon-btn { width: 24px; height: 24px; }
   white-space: nowrap;
 }
 .room-chip.more { color: var(--accent); border-color: var(--accent-border); background: var(--accent-weak); }
+/* Lange Liniennamen enden mit Auslassung statt am Zellrand abgeschnitten. */
+.dpt-tag.line-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .room-chip.empty { border-style: dashed; color: var(--faint); }
 .room-chip.send { color: var(--ok); border-color: var(--ok-border); background: var(--ok-weak); font-family: var(--mono); }
 
@@ -1159,7 +1160,7 @@ textarea.input.note {
   bottom: calc(var(--statusbar-h) + 14px);
   left: 50%;
   transform: translate(-50%, 10px);
-  background: var(--bar-bg);
+  background: var(--toast-bg);
   color: var(--bar-fg);
   font-size: 13px;
   padding: 9px 16px;
