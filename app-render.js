@@ -956,8 +956,11 @@ function progSection(item) {
 
   const blocked = [];
   if (p.plugin) blocked.push(A.t('Die Produktdatei verweist auf ein herstellereigenes Programm. Solche Programme laufen nur unter Windows in der ETS und werden hier übergangen.'));
-  if (p.unsupported.length) blocked.push(A.t('Unbekannte Ladeschritte: {0}.', p.unsupported.join(', ')));
-  if (!p.dl) blocked.push(A.t('Das Produkt wurde mit einer älteren Version eingelesen. Für den Download die .knxprod bitte erneut in den Katalog laden.'));
+  // Was beim Einlesen noch unbekannt war, kann der Download inzwischen — dann fehlen nur die Daten dazu
+  const unknown = p.unsupported.filter(n => !(typeof KNXProd !== 'undefined' && KNXProd.supported(n)));
+  if (unknown.length) blocked.push(A.t('Unbekannte Ladeschritte: {0}.', unknown.join(', ')));
+  if (!p.dl || unknown.length < p.unsupported.length)
+    blocked.push(A.t('Das Produkt wurde mit einer älteren Version eingelesen. Für den Download die .knxprod bitte erneut in den Katalog laden.'));
   else if (!p.procedures.length && !(p.dl.mk && p.dl.mk.procs.length))
     blocked.push(A.t('Weder Produktdatei noch Maskendefinition enthalten eine Ladeprozedur.'));
 

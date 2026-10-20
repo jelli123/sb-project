@@ -118,11 +118,13 @@ function encode(type, raw, opt) {
    markiert Oktette, die laut Maske nicht geschrieben werden dürfen. */
 function segmentImages(dl) {
   const out = {};
-  Object.entries(dl.segs || {}).forEach(([id, [addr, size, data, mask]]) => {
+  Object.entries(dl.segs || {}).forEach(([id, [addr, size, data, mask, lsm]]) => {
     const img = new Uint8Array(size);
     img.set(fromB64(data).slice(0, size));
     const m = mask ? fromB64(mask) : null;
     out[id] = { id, addr, size, img, mask: m, hasData: !!data };
+    // Relatives Segment: `addr` ist der Versatz im Block der Load State Machine
+    if (Number.isInteger(lsm) && lsm > 0) out[id].lsm = lsm;
   });
   return out;
 }
@@ -314,8 +316,78 @@ function patchObjectTable(ctx, tab, model, mask) {
   return patched;
 }
 
+/* ---------- System B: Tabellen im relativen Speicher ---------- *
+ * Adress- und Objekttabelle nach Realisierungstyp 7, die Assoziationstabelle
+ * nach Typ 6 (03/05/01 4.16.8, 4.17.5, 4.18.6): je 2 Oktette Länge, dann die
+ * Einträge. Die Assoziationen stehen mit 2 Oktetten TSAP und 2 Oktetten ASAP
+ * (Format 1), sendende vorn nach ASAP — so liest sie der Referenzstack, mit
+ * dem die ETS System-B-Geräte lädt (thelsing/knx). Wo die Tabellen im Gerät
+ * liegen, sagt es erst nach der Zuteilung über PID_TABLE_REFERENCE.        */
+const be16 = v => [(v >> 8) & 0xFF, v & 0xFF];
+const be32 = v => [(v >>> 24) & 0xFF, (v >>> 16) & 0xFF, (v >>> 8) & 0xFF, v & 0xFF];
+
+/* Objektdeskriptor (Tabelle 87): Bit 15 Aktualisieren, 14 Übertragen, 13 Lesen
+   bei Initialisierung, 12 Schreiben, 11 Lesen, 10 Kommunikation, 9–8 Priorität,
+   7–0 Typcode der Wertgröße (Tabelle 88). */
+function descriptorB(flags, ri, pr, z) {
+  const f = flags || {};
+  return ((f.u ? 1 : 0) << 15) | ((f.t ? 1 : 0) << 14) | ((ri ? 1 : 0) << 13) | ((f.w ? 1 : 0) << 12)
+    | ((f.r ? 1 : 0) << 11) | ((f.c ? 1 : 0) << 10) | ((PRIO_BITS[pr] != null ? PRIO_BITS[pr] : 3) << 8) | (z & 0xFF);
+}
+const flagsFrom = f => ({ c: /c/.test(f || ''), r: /r/.test(f || ''), w: /w/.test(f || ''),
+                          t: /t/.test(f || ''), u: /u/.test(f || '') });
+
+function systemBTables(ctx, prog, model) {
+  const { errors, warn } = ctx;
+  const at = prog.addrTab, as = prog.assocTab;
+  if (at && at.max && model.addrs.length > at.max)
+    throw new Error(`${model.addrs.length} Gruppenadressen, das Gerät fasst ${at.max}.`);
+  const addr = [...be16(model.addrs.length), ...model.addrs.flatMap(be16)];
+
+  const assoc = associations(model.objs, model.addrs, 0, as && as.max, false);
+  if (as && as.max && assoc.length > as.max)
+    throw new Error(`${assoc.length} Zuordnungen, das Gerät fasst ${as.max}.`);
+  const asc = [...be16(assoc.length), ...assoc.flatMap(([t, a]) => [...be16(t), ...be16(a)])];
+
+  /* Die Objekttabelle umfasst alle Objekte der Applikation bis zur höchsten
+     Nummer: sichtbare mit den Flags des Projekts, ausgeblendete mit denen ihrer
+     Objektdefinition, Lücken mit 0. ASAP und Objektnummer zählen ab 1. */
+  const co = (ctx.dl && ctx.dl.co) || {};
+  const byNum = new Map(model.objs.map(o => [o.num, o]));
+  const nums = Object.keys(co).map(Number).filter(n => Number.isInteger(n) && n >= 0)
+    .concat(model.objs.map(o => o.num));
+  const count = Math.max(0, ...nums);
+  if (byNum.has(0) || Object.prototype.hasOwnProperty.call(co, '0'))
+    warn('Die Applikation hat ein Objekt 0 — System B zählt Objekte ab 1, es bleibt außen vor.');
+  const go = [...be16(count)];
+  for (let n = 1; n <= count; n++) {
+    const o = byNum.get(n);
+    let d = 0;
+    if (o) {
+      const src = o.src || {};
+      const z = Number.isInteger(src.z) && src.z >= 0 ? src.z : (co[n] ? co[n].z : -1);
+      if (!(z >= 0)) errors.push(`Objekt ${n} „${o.name}“: Größe unbekannt — die Objekttabelle lässt sich nicht bilden.`);
+      d = descriptorB(o.flags, src.ri || (co[n] && co[n].ri), src.pr || (co[n] && co[n].pr), z);
+    } else if (co[n]) {
+      const c = co[n];
+      d = c.z >= 0 ? descriptorB(flagsFrom(c.f), c.ri, c.pr, c.z) : 0;
+    }
+    go.push(...be16(d));
+  }
+  // Nach Objekttyp: 1 Adresstabelle, 2 Assoziationstabelle, 9 Objekttabelle
+  return {
+    images: { 1: Uint8Array.from(addr), 2: Uint8Array.from(asc), 9: Uint8Array.from(go) },
+    summary: { addrs: model.addrs.length, assocs: assoc.length, objects: count }
+  };
+}
+
 function writeTables(ctx, prog, model, pa, mask) {
   const at = prog.addrTab, as = prog.assocTab, ct = prog.comTab;
+  if (ctx.systemB) {
+    const t = systemBTables(ctx, prog, model);
+    ctx.rel = t.images;
+    return t.summary;
+  }
   if (!at && !as) return {};
   const out = { addrs: model.addrs.length, assocs: 0 };
 
@@ -435,18 +507,36 @@ function pickProcedure(prog, kind) {
   return m ? { steps: m.k, merged: prog.style === 'MergedProcedure' } : null;
 }
 
-/* Ein Schritt, der eine Load State Machine anspricht. */
-function lsmTarget(a, propertyMapped) {
+/* Objektliste der Maske (Index → Objekttyp) aus knx_master.xml. Ältere
+   Kataloge haben sie nicht; für System B gilt dann die Liste aller System-B-
+   Masken (07B0h, 17B0h, 27B0h, 57B0h). */
+const SYSTEM_B_IO = { 0: 0, 1: 1, 2: 2, 3: 9, 4: 3, 5: 4 };
+function maskObjects(mk) {
+  if (mk && mk.io && Object.keys(mk.io).length) return mk.io;
+  return mk && mk.mm === 'SystemB' ? SYSTEM_B_IO : null;
+}
+const objectTypeAt = (mk, index) => {
+  const io = maskObjects(mk);
+  return io && io[index] != null ? +io[index] : null;
+};
+
+/* Ein Schritt, der eine Load State Machine anspricht. LsmIdx ist der Index
+   des Objekts (InterfaceObjectRef seiner LoadControl-Ressource). Angesprochen
+   wird es über seinen Typ: das Gerät nennt selbst, wo es liegt. */
+function lsmTarget(a, propertyMapped, mk) {
   if (a.ObjType != null && a.ObjType !== '')
     return { mode: 'prop', ot: num(a.ObjType), occ: num(a.Occurrence) };
   if (a.ObjIdx != null && a.ObjIdx !== '')
     return { mode: 'prop', oi: num(a.ObjIdx) };
   const lsm = num(a.LsmIdx);
-  return propertyMapped ? { mode: 'prop', ot: lsm, occ: 0, lsm } : { mode: 'mem', lsm };
+  if (!propertyMapped) return { mode: 'mem', lsm };
+  const ot = objectTypeAt(mk, lsm);
+  return { mode: 'prop', ot: ot != null ? ot : lsm, occ: 0, lsm };
 }
 
-const LSM_NAMES = { 1: 'Adresstabelle', 2: 'Assoziationstabelle', 3: 'Applikation', 4: 'PEI-Programm', 6: 'Filtertabelle' };
-const targetName = t => LSM_NAMES[t.lsm != null ? t.lsm : t.ot] || (t.oi != null ? 'Objekt ' + t.oi : 'Objekttyp ' + t.ot);
+const OT_NAMES = { 1: 'Adresstabelle', 2: 'Assoziationstabelle', 3: 'Applikation', 4: 'PEI-Programm',
+                   6: 'Filtertabelle', 9: 'Objekttabelle', 17: 'Security-Objekt' };
+const targetName = t => OT_NAMES[t.ot != null ? t.ot : t.lsm] || (t.oi != null ? 'Objekt ' + t.oi : 'Objekttyp ' + t.ot);
 
 /* Ladeereignis bzw. zusätzliche Ladesteuerung nach 03/05/02 3.31.2 und 3.31.3:
    Speicher: 11 Oktette an 0104h, erstes Oktett = LSM-Nummer | Ereignis.
@@ -477,6 +567,7 @@ function imageAt(ctx, addr, size, space) {
   const out = new Uint8Array(size);
   let covered = 0;
   Object.values(ctx.segs).forEach(seg => {
+    if (seg.lsm) return;                          // relative Segmente haben keine feste Adresse
     const from = Math.max(addr, seg.addr), to = Math.min(addr + size, seg.addr + seg.size);
     for (let a = from; a < to; a++) { out[a - addr] = seg.img[a - seg.addr]; covered++; }
   });
@@ -533,13 +624,64 @@ function propImage(ctx, a) {
 const objRef = a => (a.ObjIdx != null && a.ObjIdx !== '')
   ? { oi: num(a.ObjIdx) } : { ot: num(a.ObjType), occ: num(a.Occurrence) };
 
+/* CRC16-CCITT wie im Memory Control Block: Polynom 1021h, Start FFFFh,
+   nicht gespiegelt (03/05/01 4.2.27.1.2). */
+function crc16(bytes) {
+  let c = 0xFFFF;
+  for (const b of bytes) {
+    c ^= b << 8;
+    for (let i = 0; i < 8; i++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF;
+  }
+  return c;
+}
+
+/* Inhalt, der in das Objekt mit Index `oi` relativ geschrieben wird: eine
+   der System-B-Tabellen oder die relativen Segmente seiner Load State Machine. */
+function relImage(ctx, oi) {
+  const ot = objectTypeAt(ctx.dl.mk, oi);
+  if (ctx.rel && ot != null && ctx.rel[ot]) return ctx.rel[ot];
+  const segs = Object.values(ctx.segs).filter(g => g.lsm === oi);
+  if (!segs.length) return null;
+  const end = segs.reduce((m, g) => Math.max(m, g.addr + g.size), 0);
+  const img = new Uint8Array(end);
+  segs.forEach(g => img.set(g.img, g.addr));
+  return img;
+}
+
+/* Parameterreferenz aus einer Ladeprozedur: dort steht die volle Id mit dem
+   Programmpräfix, im Projekt die gekürzte — die längste bekannte Endung gilt. */
+function paramRefOf(item, full) {
+  const parts = String(full || '').split('_');
+  for (let i = 0; i < parts.length; i++) {
+    const k = parts.slice(i).join('_');
+    if (item.params && item.params[k]) return k;
+  }
+  return null;
+}
+
+const testHits = (test, val) => (typeof KNX !== 'undefined' && KNX.testHits
+  ? KNX.testHits(test, val) : String(test).trim().split(/\s+/).includes(String(val)));
+
+const imageKey = a => (a.ObjIdx != null && a.ObjIdx !== '')
+  ? `i:${num(a.ObjIdx)}:${num(a.PropId)}` : `t:${num(a.ObjType)}:${num(a.Occurrence)}:${num(a.PropId)}`;
+
 function translate(ctx, steps, out) {
+  steps.forEach(s => {
+    const a = s.a || {};
+    // AppliesTo: „full“ beim vollständigen, „par“ beim teilweisen Laden
+    if (a.AppliesTo && !String(a.AppliesTo).split(/[\s,]+/).includes(ctx.full ? 'full' : 'par')) return;
+    const before = out.length;
+    translateOne(ctx, s, a, out);
+    // LdCtrlMapError: Fehler der eingeschlossenen Schritte gelten nicht als Abbruch
+    if (ctx.tolerate) for (let i = before; i < out.length; i++) out[i].tolerate = true;
+  });
+}
+
+function translateOne(ctx, s, a, out) {
   const { dl, prog, errors } = ctx;
   const propertyMapped = dl.mk && dl.mk.feat && dl.mk.feat.PropertyMappedLsms === '1';
   const appId = [...u16(dl.manu), ...u16(prog.appNumber), prog.appVersion & 0xFF];
-
-  steps.forEach(s => {
-    const a = s.a || {};
+  {
     switch (s.n) {
       case 'LdCtrlConnect': case 'LdCtrlDisconnect':
       case 'LdCtrlSetControlVariable': case 'LdCtrlDeclarePropDesc': case 'LdCtrlLoadImageMem':
@@ -551,19 +693,80 @@ function translate(ctx, steps, out) {
         return;
       }
       case 'LdCtrlCompareProp':
+        // Ist der Wert vorher ins Abbild gelesen worden, gilt das Abbild — die Vorgabe ist dann Platzhalter
         out.push({ op: 'compareProp', ...objRef(a), pid: num(a.PropId),
           start: num(a.StartIndex) || 1, count: num(a.Count) || 1, data: a.InlineData || '',
+          ...(ctx.images.has(imageKey(a)) ? { image: true } : {}),
           label: `Gerät prüfen (Property ${a.PropId})` });
         return;
+      case 'choose': {
+        // Verzweigung in der Ladeprozedur: zählt der Wert des Parameters, wie im Sichtbarkeitsbaum
+        const ref = paramRefOf(ctx.item, a.ParamRefId);
+        if (!ref) { errors.push(`Ladeprozedur verzweigt über einen unbekannten Parameter (${a.ParamRefId}).`); return; }
+        const has = Object.prototype.hasOwnProperty.call(ctx.values || {}, ref);
+        const val = String(has ? ctx.values[ref] : (ctx.item.params[ref].d != null ? ctx.item.params[ref].d : ''));
+        const whens = (s.k || []).filter(w => w.n === 'when');
+        let hits = whens.filter(w => w.a && w.a.test != null && w.a.test !== '' && testHits(w.a.test, val));
+        if (!hits.length) hits = whens.filter(w => w.a && w.a.default === 'true').slice(0, 1);
+        hits.forEach(w => translate(ctx, w.k || [], out));
+        return;
+      }
+      case 'LdCtrlRelSegment': {
+        // Data Relative Allocation (03/05/02 3.31.3.4): 03h 0Bh, Größe (4 Oktette), Mode, Fill
+        const t = lsmTarget(a, propertyMapped, dl.mk);
+        const lsm = num(a.LsmIdx);
+        const img = relImage(ctx, lsm);
+        // Bei den Tabellen steht in knx_master.xml nur die Mindestgröße — zugeteilt wird, was sie brauchen
+        const size = Math.max(num(a.Size), img ? img.length : 0);
+        const mode = num(a.Mode) & 1, fill = num(a.Fill) & 0xFF;
+        ctx.alloc[lsm] = { size, mode, fill };
+        out.push(lsmStep(t, 3, [0x0B, ...be32(size), mode, fill, 0, 0],
+          `${targetName(t)}: ${size} Byte zuteilen`, [2]));
+        return;
+      }
+      case 'LdCtrlWriteRelMem': {
+        // Schreiben relativ zum zugeteilten Block; dessen Lage meldet PID_TABLE_REFERENCE
+        const oi = num(a.ObjIdx), off = num(a.Offset), size = num(a.Size);
+        const img = relImage(ctx, oi);
+        const name = targetName({ ot: objectTypeAt(dl.mk, oi), oi });
+        if (!img) { errors.push(`Für ${name} (Objekt ${oi}) liegen keine Daten vor.`); return; }
+        const part = img.slice(off, Math.min(img.length, off + size));
+        if (!part.length) return;
+        if (off === 0) ctx.written[oi] = part;
+        out.push({ op: 'writeRelMem', oi, offset: off, data: hex(part), verify: a.Verify === 'true',
+                   label: `${name}: ${part.length} Byte schreiben` });
+        return;
+      }
+      case 'LdCtrlMapError':
+        // Abgebildet auf 0 heißt: dieser Fehler bricht nicht ab; zurück auf sich selbst hebt das auf
+        ctx.tolerate = String(a.MappedError) === '0' && String(a.OriginalError) !== '0';
+        return;
+      case 'LdCtrlLoadImageProp': {
+        // Den Wert aus dem Gerät ins Abbild lesen — PID 7 vor dem Neuzuteilen, PID 27 (Prüfsumme) danach
+        ctx.images.add(imageKey(a));
+        const step = { op: 'loadImageProp', ...objRef(a), pid: num(a.PropId),
+                       start: num(a.StartIndex) || 1, count: num(a.Count) || 1, label: `Property ${a.PropId} lesen` };
+        const oi = a.ObjIdx != null && a.ObjIdx !== '' ? num(a.ObjIdx) : null;
+        const alloc = oi != null ? ctx.alloc[oi] : null, data = oi != null ? ctx.written[oi] : null;
+        if (num(a.PropId) === 27 && alloc && data) {
+          // Memory Control Block: Segmentgröße und CRC16-CCITT über den zugeteilten Block (4.2.27)
+          let block = null;
+          if (data.length >= alloc.size) block = data.slice(0, alloc.size);
+          else if (alloc.mode) { block = new Uint8Array(alloc.size).fill(alloc.fill); block.set(data); }
+          if (block) Object.assign(step, { expectSize: alloc.size, expectCrc: crc16(block) });
+        }
+        out.push(step);
+        return;
+      }
       case 'LdCtrlUnload': case 'LdCtrlLoad': case 'LdCtrlLoadCompleted': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         const ev = { LdCtrlUnload: 4, LdCtrlLoad: 1, LdCtrlLoadCompleted: 2 }[s.n];
         const verb = { 4: 'entladen', 1: 'Laden beginnen', 2: 'Laden abschließen' }[ev];
         out.push(lsmStep(t, ev, null, `${targetName(t)}: ${verb}`, { 4: [0], 1: [2], 2: [1] }[ev]));
         return;
       }
       case 'LdCtrlAbsSegment': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         const addr = num(a.Address), size = num(a.Size);
         out.push(lsmStep(t, 3, [num(a.SegType), ...u16(addr), ...u16(size),
           num(a.Access) & 0xFF, num(a.MemType) & 0xFF, num(a.SegFlags) & 0xFF, 0],
@@ -575,31 +778,31 @@ function translate(ctx, steps, out) {
         return;
       }
       case 'LdCtrlTaskSegment': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         out.push(lsmStep(t, 3, [2, ...u16(num(a.Address)), num(prog.pei) & 0xFF, ...appId],
           `${targetName(t)}: Kennung setzen`, [2]));
         return;
       }
       case 'LdCtrlTaskPtr': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         out.push(lsmStep(t, 3, [3, ...u16(num(a.InitAddress)), ...u16(num(a.SaveAddress)),
           ...u16(num(a.SerialAddress)), 0, 0], `${targetName(t)}: Einsprünge setzen`, [2]));
         return;
       }
       case 'LdCtrlTaskCtrl1': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         out.push(lsmStep(t, 3, [4, ...u16(num(a.Address)), num(a.Count) & 0xFF, 0, 0, 0, 0, 0],
           `${targetName(t)}: Interface-Objekte anmelden`, [2]));
         return;
       }
       case 'LdCtrlTaskCtrl2': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         out.push(lsmStep(t, 3, [5, ...u16(num(a.CallbackAddress)), ...u16(num(a.Address)),
           ...u16(num(a.Seg0)), ...u16(num(a.Seg1))], `${targetName(t)}: Objektzeiger setzen`, [2]));
         return;
       }
       case 'LdCtrlMaxLength': {
-        const t = lsmTarget(a, propertyMapped);
+        const t = lsmTarget(a, propertyMapped, dl.mk);
         out.push(lsmStep(t, 3, [0x0A, ...u16(num(a.Size)), 0, 0, 0, 0, 0, 0],
           `${targetName(t)}: Größe festlegen`, [2]));
         return;
@@ -621,8 +824,14 @@ function translate(ctx, steps, out) {
             : `${size} Byte ab ${addr.toString(16).toUpperCase()}h schreiben` });
         return;
       }
-      case 'LdCtrlWriteProp': case 'LdCtrlLoadImageProp': {
+      case 'LdCtrlWriteProp': {
         const img = propImage(ctx, a);
+        /* PID_PROGRAM_VERSION des Applikationsobjekts: die Vorgabe aus Nullen ist ein
+           Platzhalter für Hersteller, Applikationsnummer und -version (03/05/01 4.2.13). */
+        if (img && num(a.PropId) === 13 && !img.mask && img.data.length === 5 && img.data.every(b => b === 0)
+            && a.ObjIdx != null && a.ObjIdx !== '' && objectTypeAt(dl.mk, num(a.ObjIdx)) === 3) {
+          img.data = Uint8Array.from(appId);
+        }
         if (!img) {
           ctx.warn(`Property ${a.PropId} hat weder Vorgabe noch Parameter — übersprungen.`);
           return;
@@ -650,7 +859,7 @@ function translate(ctx, steps, out) {
       default:
         errors.push(`Ladeschritt ${s.n} wird nicht unterstützt.`);
     }
-  });
+  }
 }
 
 /* ---------- KNX Secure ---------- *
@@ -863,9 +1072,19 @@ function plan(project, dev, item, opts = {}) {
   const kind = opts.kind || 'all';
 
   const ctx = { item, prog, dl, dev, errors, warn, segs: segmentImages(dl), props: new Map(),
-                values: dev.params || {} };
+                values: dev.params || {},
+                // System B: Tabellen und Applikation im relativen Speicher, siehe systemBTables
+                systemB: !!findStep((dl.mk ? dl.mk.procs.flatMap(p => p.k) : []).concat((dl.lp || []).flatMap(p => p.k)),
+                  x => x.n === 'LdCtrlWriteRelMem'),
+                full: kind === 'all' || kind === 'ap1',
+                alloc: {}, written: {}, images: new Set(), tolerate: false };
   const resolve = opts.resolve || (typeof KNX !== 'undefined' ? KNX.resolveProduct : null);
   Object.assign(ctx, resolveValues(item, ctx.values, resolve));
+  // Vor der System-B-Unterstützung eingelesen: die relativen Segmente fehlen in den Programmierdaten
+  if ((prog.segments || []).some(x => x.k === 'rel') && !Object.values(ctx.segs).some(g => g.lsm)) {
+    errors.push('Die Produktdatei wurde vor der Unterstützung relativer Speichersegmente (System B) eingelesen — bitte die .knxprod erneut in den Katalog laden.');
+    return result;
+  }
 
   const summary = result.summary;
   summary.mask = prog.mask;
@@ -928,7 +1147,7 @@ function plan(project, dev, item, opts = {}) {
 
   result.steps = steps;
   // Die Filtertabelle wird nach dem Löschen nur dort geschrieben, wo Bits gesetzt sind
-  summary.writes = steps.filter(s => s.op === 'writeMem').reduce((n, s) => n + (s.skipZeros
+  summary.writes = steps.filter(s => s.op === 'writeMem' || s.op === 'writeRelMem').reduce((n, s) => n + (s.skipZeros
     ? fromHex(s.data).filter(b => b).length : s.data.length / 2), 0);
   summary.steps = steps.length;
   return result;

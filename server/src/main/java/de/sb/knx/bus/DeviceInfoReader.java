@@ -146,7 +146,9 @@ public final class DeviceInfoReader {
         List<Map<String, Object>> out = new ArrayList<>();
         for (int i = 0; i < types.size(); i++) {
             int type = types.get(i);
-            if (type < Knx.OT_ADDRESS_TABLE || (type > Knx.OT_INTERFACE_PROGRAM && type != Knx.OT_ROUTER)) continue;
+            // System B laedt auch die Objekttabelle (Typ 9) ueber eine eigene Load State Machine
+            if (type < Knx.OT_ADDRESS_TABLE || (type > Knx.OT_INTERFACE_PROGRAM && type != Knx.OT_ROUTER
+                    && type != Knx.OT_GROUP_OBJECT_TABLE)) continue;
             byte[] load = property(d, i, PID.LOAD_STATE_CONTROL);
             if (load == null) continue;
             Map<String, Object> m = Json.obj();

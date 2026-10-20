@@ -307,7 +307,8 @@ const LDCTRL = new Set([
   'LdCtrlAbsSegment', 'LdCtrlTaskSegment', 'LdCtrlTaskPtr', 'LdCtrlTaskCtrl1', 'LdCtrlTaskCtrl2',
   'LdCtrlMaxLength', 'LdCtrlWriteMem', 'LdCtrlLoadImageMem', 'LdCtrlWriteProp', 'LdCtrlLoadImageProp',
   'LdCtrlCompareProp', 'LdCtrlMerge', 'LdCtrlDelay', 'LdCtrlRestart', 'LdCtrlSetControlVariable',
-  'LdCtrlClearLCFilterTable', 'LdCtrlClearCachedObjectTypes', 'LdCtrlDeclarePropDesc'
+  'LdCtrlClearLCFilterTable', 'LdCtrlClearCachedObjectTypes', 'LdCtrlDeclarePropDesc',
+  'LdCtrlRelSegment', 'LdCtrlWriteRelMem', 'LdCtrlMapError'
 ]);
 
 const localName = el => el.localName || el.nodeName.split(':').pop();
@@ -317,16 +318,22 @@ const num = (el, name) => {
   return /^0x/i.test(v) ? parseInt(v, 16) : parseInt(v, 10) || 0;
 };
 
-/* Größe eines Kommunikationsobjekts als Typ-Oktett der Objekttabelle
-   (03/05/01, Group Object Table Realisation Type 1). */
+/* Größe eines Kommunikationsobjekts als Typcode der Objekttabelle. Bis 14
+   Oktette gleichen sich Realisierungstyp 1 und 7 (03/05/01 4.18.3, Tabelle 88);
+   System B kennt dazu 5, 7, 9, 11, 12, 13 und ab 15 Oktette (n + 6), dazu 252. */
 const OBJECT_SIZE = {
   '1 bit': 0, '2 bit': 1, '3 bit': 2, '4 bit': 3, '5 bit': 4, '6 bit': 5, '7 bit': 6,
   '1 byte': 7, '2 bytes': 8, '3 bytes': 9, '4 bytes': 10, '6 bytes': 11, '8 bytes': 12,
-  '10 bytes': 13, '14 bytes': 14
+  '10 bytes': 13, '14 bytes': 14,
+  '5 bytes': 15, '7 bytes': 16, '9 bytes': 17, '11 bytes': 18, '12 bytes': 19, '13 bytes': 20
 };
 const sizeCode = s => {
   const k = String(s || '').trim().toLowerCase();
-  return k in OBJECT_SIZE ? OBJECT_SIZE[k] : -1;
+  if (k in OBJECT_SIZE) return OBJECT_SIZE[k];
+  const m = /^(\d+) bytes$/.exec(k);
+  if (!m) return -1;
+  const n = +m[1];
+  return n >= 15 && n <= 248 ? n + 6 : n === 252 ? 255 : -1;
 };
 const PRIORITY = { Low: 'L', High: 'H', Alert: 'A' };
 
@@ -381,7 +388,7 @@ function readProgramming(ap, cut) {
   }));
   tags(ap, 'RelativeSegment').forEach(s => segments.push({
     k: 'rel', id: cut(attr(s, 'Id')),
-    at: num(s, 'Offset'), size: num(s, 'Size')
+    at: num(s, 'Offset'), size: num(s, 'Size'), lsm: num(s, 'LoadStateMachine')
   }));
 
   const table = name => {
@@ -430,6 +437,13 @@ function readProgramming(ap, cut) {
     segs[cut(attr(s, 'Id'))] = [num(s, 'Address'), num(s, 'Size'),
       data ? data.textContent.trim() : '', mask ? mask.textContent.trim() : ''];
   });
+  /* Relative Segmente (System B): Ort im Speicherblock, den das Gerät der Load
+     State Machine zuteilt — das fünfte Feld nennt sie, die Adresse ist relativ. */
+  tags(ap, 'RelativeSegment').forEach(s => {
+    const data = [...s.children].find(c => localName(c) === 'Data');
+    segs[cut(attr(s, 'Id'))] = [num(s, 'Offset'), num(s, 'Size'),
+      data ? data.textContent.trim() : '', '', num(s, 'LoadStateMachine')];
+  });
   const lp = tags(ap, 'LoadProcedure').map(el => ({
     m: attr(el, 'MergeId'), t: attr(el, 'ProcedureType'), s: attr(el, 'ProcedureSubType'),
     k: readSteps(el)
@@ -475,21 +489,32 @@ function readMask(mv, opt) {
   // Die Fassungen sind nur per Kommentar benannt (LegacyVersion ist eine
   // Formatversion). Die neue erkennt man an den Einschubstellen der Applikation.
   const legacy = h => hawks.length > 1 && !tags(h, 'LdCtrlMerge').length;
-  const hawk = hawks.find(h => (opt && opt.lc912) ? !legacy(h) : legacy(h))
+  /* Die alte Fassung gilt nur, wenn sie auch laden kann: bei den Kopplern 0912h
+     und 091Ah enthält sie vollständige Ladeprozeduren, bei System B (07B0h,
+     17B0h) dagegen nur das Entladen — wer sie nimmt, kann nichts laden. */
+  const loads = h => tags(h, 'Procedure').some(p => attr(p, 'ProcedureType') === 'Load');
+  const hawk = hawks.find(h => (opt && opt.lc912) ? !legacy(h) : legacy(h) && loads(h))
     || hawks.find(h => !legacy(h)) || hawks[0];
   const feat = {};
   const procs = [];
+  /* Objektliste der Maske: Index → Objekttyp. LsmIdx ist der Index des Objekts
+     (InterfaceObjectRef der LoadControl-Ressource); bei System B liegt dort
+     nicht der gleichnamige Typ, sondern 3 = Objekttabelle (9), 4 = Applikation (3). */
+  const io = {};
   if (hawk) {
     tags(hawk, 'Feature').forEach(f => { feat[attr(f, 'Name')] = attr(f, 'Value'); });
     tags(hawk, 'Procedure').forEach(p => procs.push({
       t: attr(p, 'ProcedureType'), s: attr(p, 'ProcedureSubType'), k: readSteps(p)
     }));
+    tags(hawk, 'InterfaceObject').forEach(o => {
+      if (o.hasAttribute('Index')) io[num(o, 'Index')] = num(o, 'ObjectType');
+    });
   }
   return {
     v: num(mv, 'MaskVersion'),
     mm: attr(mv, 'ManagementModel'),
     compat: tags(mv, 'DownwardCompatibleMask').map(d => parseInt(attr(d, 'RefId').slice(3), 16)),
-    feat, procs
+    feat, procs, io
   };
 }
 
@@ -612,14 +637,15 @@ function readApp(ap, lang, langs) {
       text: tr(o, 'Text'), fn: tr(o, 'FunctionText'),
       dpt: attr(o, 'DatapointType'), size: attr(o, 'ObjectSize'),
       prio: PRIORITY[attr(o, 'Priority')] || 'L',
-      flags: flagsOf(o, { c: true, r: false, w: false, t: false, u: false })
+      flags: flagsOf(o, { c: true, r: false, w: false, t: false, u: false }),
+      ri: attr(o, 'ReadOnInitFlag') === 'Enabled'
     }));
 
     /* Die Objekttabelle im Gerät kennt nur Nummern. Für Objekte, die die
        Parametrierung ausblendet, gelten die Angaben der Objektdefinition. */
     const co = {};
     base.forEach(b => {
-      const e = { f: flagStr(b.flags), z: sizeCode(b.size), pr: b.prio };
+      const e = { f: flagStr(b.flags), z: sizeCode(b.size), pr: b.prio, ...(b.ri ? { ri: 1 } : {}) };
       if (b.nb) co[b.num + '@' + b.nb] = { ...e, n: b.num, b: b.nb };
       else co[b.num] = e;
     });
@@ -632,6 +658,8 @@ function readApp(ap, lang, langs) {
       const size = (el && attr(el, 'ObjectSize')) || b.size;
       // Flags und Größe an der Referenz schlagen die der Objektdefinition
       const flags = el ? flagsOf(el, b.flags) : b.flags;
+      // „Lesen bei Initialisierung“ steuert nur die Produktdatei; System B legt es im Deskriptor ab
+      const ri = el && el.hasAttribute('ReadOnInitFlag') ? attr(el, 'ReadOnInitFlag') === 'Enabled' : b.ri;
       objs[id] = {
         num: b.num,
         name: objectName(text, fn),
@@ -639,6 +667,7 @@ function readApp(ap, lang, langs) {
         f: flagStr(flags),
         z: sizeCode(size),
         pr: (el && PRIORITY[attr(el, 'Priority')]) || b.prio,
+        ...(ri ? { ri: 1 } : {}),
         ...(b.nb ? { b: b.nb } : {})
       };
     };
@@ -1119,5 +1148,5 @@ async function read(file, prefer) {
 const zip = { entries: zipEntries, read: zipRead, crc32, CRC_TABLE };
 const xml = { tags, attr, localName, toDpt, objectName, plain };
 
-return { read, BINARY, LIMITS, zip, xml, collect, expand, compact };
+return { read, BINARY, LIMITS, zip, xml, collect, expand, compact, supported: name => LDCTRL.has(name) };
 })();

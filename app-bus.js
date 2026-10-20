@@ -1134,7 +1134,7 @@ function doAssign(address, serial) {
 /* ---------- Applikation laden ---------- */
 
 const KIND_LABELS = {
-  all: 'Vollständig', par: 'Nur Parameter', grp: 'Nur Gruppenadressen',
+  all: 'Vollständig', ap1: 'Vollständig ohne PEI-Programm', par: 'Nur Parameter', grp: 'Nur Gruppenadressen',
   'par,grp': 'Parameter und Gruppenadressen', cfg: 'Nur Konfiguration', unload: 'Applikation entladen'
 };
 

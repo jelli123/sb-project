@@ -2364,7 +2364,7 @@ const KNX = (() => {
     couplerScope, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, deleteLine, deleteArea,
     catalogById, addCatalogItems, deleteCatalogItem,
-    resolveProduct, applyProduct, paramValue,
+    resolveProduct, applyProduct, paramValue, testHits,
     gaTree, issues,
     gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,
     deleteNode, isInside, nodeMoveError, moveNode, moveFunction, setDeviceRoom, uid: nid

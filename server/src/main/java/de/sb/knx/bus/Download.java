@@ -27,6 +27,10 @@ public final class Download {
 
     /** A_Memory_Write mit Standardrahmen: APDU 15 Oktett, davon 3 Kopf - 12 Datenoktette. */
     private static final int MEM_CHUNK = 12;
+    /** A_MemoryExtended_Write oberhalb 64 KiB: 3 Oktette Adresse und 1 Oktett Anzahl - 10 Datenoktette. */
+    private static final int EXT_MEM_CHUNK = 10;
+    private static final int PID_TABLE_REFERENCE = 7;
+    private static final int PID_MCB_TABLE = 27;
     /**
      * A_PropertyValue_Write mit Standardrahmen: 15 Oktette nach dem TPCI, davon 5 Kopf
      * (APCI, Objekt, PID, Anzahl und Start) - 10 Datenoktette. Laengere Bloecke braeuchten
@@ -67,6 +71,8 @@ public final class Download {
     private SecureLayer.KeyKind secureKind;
     private long written;
     private final List<String> notes = new ArrayList<>();
+    /** Aus dem Geraet gelesene Werte (LdCtrlLoadImageProp), gegen die spaeter verglichen wird. */
+    private final Map<String, byte[]> images = new java.util.HashMap<>();
 
     public Download(BusService bus) {
         this.bus = bus;
@@ -84,10 +90,16 @@ public final class Download {
                 progress.step(i, steps.size(), label);
                 try {
                     execute(step);
-                } catch (KNXException e) {
-                    throw new KNXException("Schritt " + i + " von " + steps.size() + " (" + label + "): "
-                            + describe(e), e);
-                } catch (IllegalStateException | KnxSecureException e) {
+                } catch (KNXException | IllegalStateException | KnxSecureException e) {
+                    // LdCtrlMapError: die Ladeprozedur erklaert diesen Fehler fuer unerheblich
+                    if (Json.bool(step, "tolerate", false) && !(e instanceof KNXDisconnectException)) {
+                        notes.add("Schritt " + i + " (" + label + ") uebergangen: " + describe(e));
+                        reconnectIfLost();
+                        continue;
+                    }
+                    if (e instanceof KNXException ke)
+                        throw new KNXException("Schritt " + i + " von " + steps.size() + " (" + label + "): "
+                                + describe(ke), ke);
                     throw new IllegalStateException("Schritt " + i + " von " + steps.size() + " (" + label + "): "
                             + e.getMessage(), e);
                 }
@@ -129,6 +141,8 @@ public final class Download {
             case "secureToolKey" -> secureToolKey(s);
             case "secureMode" -> secureMode(s);
             case "secureGroupKeys" -> secureGroupKeys(s);
+            case "writeRelMem" -> writeRelMem(s);
+            case "loadImageProp" -> loadImageProp(s);
             default -> throw new IllegalStateException("Unbekannter Schritt: " + op);
         }
     }
@@ -168,8 +182,15 @@ public final class Download {
     private void compareProp(Map<String, Object> s) throws KNXException, InterruptedException {
         byte[] expected = hex(Json.str(s, "data", ""));
         int pid = Json.integer(s, "pid", 0);
+        // Vorher ins Abbild gelesen: dann ist die Vorgabe nur Platzhalter, verglichen wird mit dem Abbild
+        byte[] image = Json.bool(s, "image", false) ? images.get(imageKey(s)) : null;
+        if (image != null) expected = image;
         byte[] actual = bus.client().readProperty(dst(), objectIndex(s), pid,
                 Json.integer(s, "start", 1), Json.integer(s, "count", 1));
+        if (image != null && pid == PID_TABLE_REFERENCE && !Arrays.equals(image, actual)) {
+            throw new IllegalStateException("Das Geraet hat den Speicher neu zugeteilt (Lage " + Knx.hex(image) + " -> "
+                    + Knx.hex(actual) + ") - ein Teil-Download geht so nicht, bitte vollstaendig laden.");
+        }
         // Die Vorgabe kann laenger sein als der Wert; ueberzaehlige Oktette muessen 0 sein.
         boolean same = true;
         for (int i = 0; i < expected.length; i++) {
@@ -275,8 +296,12 @@ public final class Download {
     }
 
     private void writeRange(int addr, byte[] data, boolean verify) throws KNXException, InterruptedException {
-        for (int off = 0; off < data.length; off += MEM_CHUNK) {
-            byte[] chunk = Arrays.copyOfRange(data, off, Math.min(data.length, off + MEM_CHUNK));
+        for (int off = 0, n; off < data.length; off += n) {
+            // Ueber 64 KiB nimmt Calimero A_MemoryExtended_Write; ein Block teilt sich an der Grenze
+            int at = addr + off;
+            n = at > 0xFFFF ? EXT_MEM_CHUNK : Math.min(MEM_CHUNK, 0x10000 - at);
+            n = Math.min(n, data.length - off);
+            byte[] chunk = Arrays.copyOfRange(data, off, off + n);
             bus.client().writeMemory(dst(), addr + off, chunk);
             if (verify) {
                 byte[] back = bus.client().readMemory(dst(), addr + off, chunk.length);
@@ -366,6 +391,66 @@ public final class Download {
         bus.client().restart(dst());
         release();
         objectTypes = null;
+    }
+
+    /* ---------------- System B: relativer Speicher ---------------- */
+
+    /**
+     * Schreibt in den Block, den das Geraet einem Objekt bei der relativen Zuteilung gegeben hat
+     * (LdCtrlWriteRelMem). Wo er liegt, sagt PID_TABLE_REFERENCE (03/05/01 4.2.7): ein 4-Oktett-Zeiger,
+     * nach dem Entladen 0. Ist er 0, ist die Zuteilung gescheitert - geschrieben wird dann nichts.
+     */
+    private void writeRelMem(Map<String, Object> s) throws KNXException, InterruptedException {
+        int oi = Json.integer(s, "oi", -1);
+        if (oi < 0 || oi > 255) throw new IllegalStateException("Objektindex fehlt");
+        int offset = Json.integer(s, "offset", 0);
+        byte[] data = hex(Json.str(s, "data", ""));
+        if (offset < 0 || data.length == 0) throw new IllegalStateException("Nichts zu schreiben");
+        long base = Knx.unsigned(bus.client().readProperty(dst(), oi, PID_TABLE_REFERENCE, 1, 1)) & 0xFFFFFFFFL;
+        if (base == 0) {
+            throw new IllegalStateException("Objekt " + oi + " hat keinen Speicher zugeteilt (PID_TABLE_REFERENCE = 0).");
+        }
+        long end = base + offset + data.length;
+        // Der Zeiger reicht laut Standard ueber 20 Bit; Calimero adressiert bis 24 Bit
+        if (end > 0x1000000L) throw new IllegalStateException(String.format("Speicherlage %Xh ausserhalb des Adressraums", base));
+        writeRange((int) (base + offset), data, Json.bool(s, "verify", false));
+    }
+
+    /**
+     * Liest eine Property ins Abbild (LdCtrlLoadImageProp): PID_TABLE_REFERENCE vor einem Teil-Download,
+     * damit danach feststeht, ob der Block an derselben Stelle blieb; PID_MCB_TABLE am Ende mit
+     * Segmentgroesse und CRC16-CCITT, die der Plan gegen das Geschriebene haelt (03/05/01 4.2.27).
+     * Eine abweichende Pruefsumme ist ein Hinweis, kein Abbruch: ob ein Geraet sie ueber genau diesen
+     * Block bildet, sagt der Standard nicht fuer jede Realisierung.
+     */
+    private void loadImageProp(Map<String, Object> s) throws KNXException, InterruptedException {
+        int index = objectIndex(s);
+        int pid = Json.integer(s, "pid", 0);
+        byte[] v;
+        try {
+            v = bus.client().readProperty(dst(), index, pid, Json.integer(s, "start", 1), Json.integer(s, "count", 1));
+        } catch (KNXRemoteException e) {
+            notes.add("Property " + pid + " von Objekt " + index + " nicht lesbar (" + describe(e) + ").");
+            return;
+        }
+        images.put(imageKey(s), v);
+        if (pid == PID_MCB_TABLE && s.get("expectCrc") instanceof Number crc && v.length >= 8) {
+            long size = Knx.unsigned(Arrays.copyOfRange(v, 0, 4)) & 0xFFFFFFFFL;
+            int got = Knx.unsigned(Arrays.copyOfRange(v, 6, 8));
+            long expectSize = Json.integer(s, "expectSize", -1);
+            if (size != expectSize) {
+                notes.add(String.format("Objekt %d meldet %d Byte Segmentgroesse, zugeteilt waren %d.", index, size, expectSize));
+            } else if (got != crc.intValue()) {
+                notes.add(String.format("Pruefsumme von Objekt %d: Geraet %04X, erwartet %04X - der Inhalt weicht ab.",
+                        index, got, crc.intValue()));
+            }
+        }
+    }
+
+    /** Schluessel eines Abbilds wie im Plan: Index und PID, sonst Typ, Vorkommen und PID. */
+    private static String imageKey(Map<String, Object> s) {
+        if (s.get("oi") instanceof Number oi) return "i:" + oi.intValue() + ":" + Json.integer(s, "pid", 0);
+        return "t:" + Json.integer(s, "ot", -1) + ":" + Json.integer(s, "occ", 0) + ":" + Json.integer(s, "pid", 0);
     }
 
     /* ---------------- KNX Secure ---------------- */

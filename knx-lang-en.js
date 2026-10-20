@@ -1151,6 +1151,7 @@ KNXI18n.add('en', {
   'Nur Gruppenadressen': 'Group addresses only',
   'Parameter und Gruppenadressen': 'Parameters and group addresses',
   'Nur Konfiguration': 'Configuration only',
+  'Vollständig ohne PEI-Programm': 'Complete without PEI program',
   'Applikation entladen': 'Unload application',
   'Nur Filtertabelle': 'Filter table only',
   'Parameter und Filtertabelle': 'Parameters and filter table',
