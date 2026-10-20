@@ -275,13 +275,16 @@ const KNX = (() => {
 
   /* ---------- Kommunikationsobjekte ---------- *
    * Flags nach ETS: K Kommunikation, L Lesen, S Schreiben, Ü Übertragen,
-   * A Aktualisieren. Die erste zugewiesene GA eines KO ist die sendende.   */
+   * A Aktualisieren, I Lesen bei Init. Die erste zugewiesene GA eines KO ist
+   * die sendende. I kennt nur die Objekttabelle von System B; bei System 1
+   * hat das Konfigurationsoktett dafür kein Bit.                          */
   const KO_FLAGS = [
     { key: 'c', short: 'K', de: 'Kommunikation', desc: 'Objekt nimmt am Bus teil' },
     { key: 'r', short: 'L', de: 'Lesen',         desc: 'Wert darf ausgelesen werden' },
     { key: 'w', short: 'S', de: 'Schreiben',     desc: 'Objekt nimmt Werte vom Bus an' },
     { key: 't', short: 'Ü', de: 'Übertragen',    desc: 'Objekt sendet von sich aus' },
-    { key: 'u', short: 'A', de: 'Aktualisieren', desc: 'Wert wird durch Lesen aktualisiert' }
+    { key: 'u', short: 'A', de: 'Aktualisieren', desc: 'Wert wird durch Lesen aktualisiert' },
+    { key: 'i', short: 'I', de: 'Lesen bei Init', desc: 'Objekt fragt seinen Wert nach dem Start am Bus ab' }
   ];
   const flagStr = f => KO_FLAGS.map(x => f && f[x.key] ? x.short : '–').join('');
   /* Anzeige eines Objekts: Name, dahinter die Beschreibung des Nutzers. */
@@ -696,6 +699,14 @@ const KNX = (() => {
       if (bad || (v.mode != null && v.mode !== out.mode) || (v.tunnels != null && +v.tunnels !== out.tunnels)) dropped.ip++;
       return out;
     };
+    /* Projekte vor dem I-Flag: das Flag kommt nach dem Katalog aus der
+       Produktdatei, sonst ginge „Lesen bei Init“ beim nächsten Laden verloren. */
+    const initFromCatalog = [];
+    const noInit = (f, o, d) => {
+      if (!(isMap(o.flags) && 'i' in o.flags) && o.ref && d.catalogId)
+        initFromCatalog.push({ f, ref: o.ref, cat: d.catalogId });
+      return f;
+    };
     p.devices = (Array.isArray(p.devices) ? p.devices : []).map(d => {
       const seenObj = new Set();
       let pa = d.addr === null ? null : Number.isInteger(d.addr) ? d.addr : 0;
@@ -726,7 +737,7 @@ const KNX = (() => {
           name: normName(o.name, 'Objekt'),
           desc: normDesc(o.desc),
           dpt: dptById(o.dpt).id,
-          flags: normFlags(o.flags),
+          flags: noInit(normFlags(o.flags), o, d),
           stale: !!o.stale,
           gas: (Array.isArray(o.gas) ? o.gas : []).filter(x => gaIds.has(x))
         }))
@@ -781,6 +792,11 @@ const KNX = (() => {
     .filter(c => Object.keys(c.objs).length || Object.keys(c.params).length
                    || c.hwOnly || c.coupler || c.ip);
     const catIds = new Set(p.catalog.map(c => c.id));
+    initFromCatalog.forEach(x => {
+      const c = p.catalog.find(c => c.id === x.cat);
+      const src = c && Object.prototype.hasOwnProperty.call(c.objs, x.ref) ? c.objs[x.ref] : null;
+      if (src && src.ri) x.f.i = true;
+    });
     p.devices.forEach(d => {
       if (!catIds.has(d.catalogId)) { d.catalogId = null; d.params = {}; }
     });
@@ -1707,7 +1723,8 @@ const KNX = (() => {
         // Die Beschreibung ist Sache des Nutzers und überlebt das Neuableiten
         desc: old ? old.desc || '' : '',
         dpt: dptById(src.dpt).id,
-        flags: flagsFrom(src.f),
+        // Flags sind wie die Adressen Sache des Projekts: von Hand oder aus der ETS gesetzt
+        flags: old ? old.flags : flagsFrom(src.f, src.ri),
         gas: old ? old.gas : []
       };
     });
@@ -1722,10 +1739,10 @@ const KNX = (() => {
     return { added: objs.length, orphans };
   }
 
-  const flagsFrom = s => ({
+  const flagsFrom = (s, ri) => ({
     c: String(s || '').includes('c'), r: String(s || '').includes('r'),
     w: String(s || '').includes('w'), t: String(s || '').includes('t'),
-    u: String(s || '').includes('u')
+    u: String(s || '').includes('u'), i: !!ri
   });
 
   /* Produkte aus einer Produktdatei aufnehmen; gleiche Bestellnummer und

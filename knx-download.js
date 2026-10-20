@@ -329,13 +329,13 @@ const be32 = v => [(v >>> 24) & 0xFF, (v >>> 16) & 0xFF, (v >>> 8) & 0xFF, v & 0
 /* Objektdeskriptor (Tabelle 87): Bit 15 Aktualisieren, 14 Übertragen, 13 Lesen
    bei Initialisierung, 12 Schreiben, 11 Lesen, 10 Kommunikation, 9–8 Priorität,
    7–0 Typcode der Wertgröße (Tabelle 88). */
-function descriptorB(flags, ri, pr, z) {
+function descriptorB(flags, pr, z) {
   const f = flags || {};
-  return ((f.u ? 1 : 0) << 15) | ((f.t ? 1 : 0) << 14) | ((ri ? 1 : 0) << 13) | ((f.w ? 1 : 0) << 12)
+  return ((f.u ? 1 : 0) << 15) | ((f.t ? 1 : 0) << 14) | ((f.i ? 1 : 0) << 13) | ((f.w ? 1 : 0) << 12)
     | ((f.r ? 1 : 0) << 11) | ((f.c ? 1 : 0) << 10) | ((PRIO_BITS[pr] != null ? PRIO_BITS[pr] : 3) << 8) | (z & 0xFF);
 }
-const flagsFrom = f => ({ c: /c/.test(f || ''), r: /r/.test(f || ''), w: /w/.test(f || ''),
-                          t: /t/.test(f || ''), u: /u/.test(f || '') });
+const flagsFrom = (f, ri) => ({ c: /c/.test(f || ''), r: /r/.test(f || ''), w: /w/.test(f || ''),
+                                t: /t/.test(f || ''), u: /u/.test(f || ''), i: !!ri });
 
 function systemBTables(ctx, prog, model) {
   const { errors, warn } = ctx;
@@ -367,10 +367,10 @@ function systemBTables(ctx, prog, model) {
       const src = o.src || {};
       const z = Number.isInteger(src.z) && src.z >= 0 ? src.z : (co[n] ? co[n].z : -1);
       if (!(z >= 0)) errors.push(`Objekt ${n} „${o.name}“: Größe unbekannt — die Objekttabelle lässt sich nicht bilden.`);
-      d = descriptorB(o.flags, src.ri || (co[n] && co[n].ri), src.pr || (co[n] && co[n].pr), z);
+      d = descriptorB(o.flags, src.pr || (co[n] && co[n].pr), z);
     } else if (co[n]) {
       const c = co[n];
-      d = c.z >= 0 ? descriptorB(flagsFrom(c.f), c.ri, c.pr, c.z) : 0;
+      d = c.z >= 0 ? descriptorB(flagsFrom(c.f, c.ri), c.pr, c.z) : 0;
     }
     go.push(...be16(d));
   }

@@ -49,15 +49,18 @@ function issueBadge(id) {
  * erzeugen kostet rund eine Sekunde pro Klick.                            */
 const ROW_H = 30;
 
+/* Für Filter und „Alle auf-/zuklappen“ wird der ganze Baum gebraucht, nicht
+   nur der aufgeklappte Teil. */
+let walkAll = false;
 function emit(o) {
   visibleRows.push(o);
-  if (o.hasKids && !o.collapsed && o.children) o.children();
+  if (o.hasKids && (walkAll || !o.collapsed) && o.children) o.children();
 }
 
 function buildTreeRow(o, index) {
   const el = document.createElement('div');
   el.className = 'tree-node' + (sameRef(state.sel, o.ref) ? ' sel' : '')
-    + (sameRef(state.filter, o.ref) ? ' filtered' : '');
+    + (sameRef(state.filter, o.ref) ? ' filtered' : '') + (o.context ? ' context' : '');
   el.style.top = (index * ROW_H) + 'px';
 
   const row = document.createElement('div');
@@ -189,7 +192,7 @@ function buildingNode(node, depth) {
   emit({
     depth, key: node.id, ref: { kind: 'node', id: node.id },
     icon: A.IC[node.kind] || A.IC.room, iconClass: node.kind,
-    label: node.name, title: KNX.kindDe(node.kind),
+    label: node.name, title: KNX.kindDe(node.kind), find: A.t(KNX.kindDe(node.kind)),
     meta: devs ? devs + '\u00A0G' : '',
     hasKids: (node.children || []).length + fns.length + inRoom.length > 0,
     collapsed: state.collapsed.has(node.id),
@@ -246,9 +249,9 @@ function fnNode(fn, depth) {
   emit({
     depth, key: open, ref: { kind: 'fn', id: fn.id },
     icon: KNXIcons.svg(KNX.fnIcon(fn), 15), iconClass: 'fn-ic fn-' + t.cat,
-    label: fn.name, title: A.t(t.de),
+    label: fn.name, title: A.t(t.de), find: A.t(t.de),
     meta: fn.gas.length ? fn.gas.length + '\u00A0GA' : '',
-    hasKids: fn.gas.length > 0, collapsed: !state.collapsed.has(open),
+    hasKids: fn.gas.length > 0, collapsed: !state.collapsed.has(open), startsClosed: true,
     actions: () => [
       iconBtn(A.IC_TRASH, 'Funktion löschen', () => F.actDeleteFunction(fn.id)),
       iconBtn(A.IC_LINK, 'Adressen zuordnen', () => F.actAssignFunctionGas(fn.id))
@@ -402,15 +405,17 @@ function segmentNode(key, depth) {
   });
 }
 
+/* Geräte starten in beiden Ansichten zugeklappt — der Merker heißt deshalb
+   „offen“, getrennt je Ansicht. */
+const devOpenKey = (id, building) => (building ? 'dev-open:' : 'tdev-open:') + id;
 function deviceNode(d, depth, building) {
-  // In der Gebäudeansicht starten Geräte zugeklappt — der Merker heißt dort „offen“
-  const key = building ? 'dev-open:' + d.id : d.id;
+  const key = devOpenKey(d.id, building);
   emit({
     depth, key, ref: { kind: 'dev', id: d.id },
     icon: A.IC.device, iconClass: 'device',
-    label: d.name, title: d.product, addr: KNX.paStr(d.addr),
+    label: d.name, title: d.product, find: d.product, addr: KNX.paStr(d.addr),
     meta: d.objs.length ? d.objs.length + '\u00A0KO' : '',
-    hasKids: d.objs.length > 0, collapsed: building ? !state.collapsed.has(key) : state.collapsed.has(key),
+    hasKids: d.objs.length > 0, collapsed: !state.collapsed.has(key), startsClosed: true,
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gerät löschen', () => T.actDeleteDevice(d.id)),
       (d.catalogId || KNX.deviceIsIp(d))
@@ -433,7 +438,7 @@ function objNode(o, depth) {
   emit({
     depth, key: o.id, ref: { kind: 'obj', id: o.id },
     icon: A.IC.obj, iconClass: 'obj',
-    label: KNX.objLabel(o), title: `Objekt ${o.num} · ${o.dpt} · Flags ${KNX.flagStr(o.flags)}`,
+    label: KNX.objLabel(o), title: `Objekt ${o.num} · ${o.dpt} · Flags ${KNX.flagStr(o.flags)}`, find: o.dpt,
     addr: send ? KNX.addrStr(send) : '',
     meta: o.gas.length > 1 ? '+' + (o.gas.length - 1) : '',
     hasKids: false, collapsed: false,
@@ -480,7 +485,7 @@ function gaLeafNode(g, depth, under) {
     depth, key: under ? under.key : 'ga:' + g.id, ref: { kind: 'ga', id: g.id },
     icon: fn ? KNXIcons.svg(KNX.fnIcon(fn), 15) : A.IC.obj,
     iconClass: fn ? 'fn-ic fn-' + KNX.fnType(fn.type).cat : 'obj',
-    label: g.name, addr: KNX.addrStr(g),
+    label: g.name, addr: KNX.addrStr(g), find: g.dpt,
     title: (under && under.role ? under.role + ' · ' : '') + g.dpt + (g.note ? ' · ' + g.note : ''),
     meta: links.length ? links.length + '\u00A0KO' : '',
     hasKids: false, collapsed: false,
@@ -500,12 +505,140 @@ function countGroups(n) {
 /* ============================================================
    Baum-Master
    ============================================================ */
+/* Baut die Zeilen der aktuellen Ansicht nach `visibleRows`. */
+function emitView() {
+  const p = KNX.project();
+  if (state.view === 'building') buildingNode(p.tree, 0);
+  else if (state.view === 'topology') {
+    const bb = KNX.backbone();
+    if (bb) backboneNode(bb);
+    else KNX.regularAreas().slice().sort((a, b) => a.addr - b.addr).forEach(a => areaNode(a));
+  } else {
+    const root = KNX.gaTree();
+    root.children.forEach(c => gaGroupNode(c, 0));
+    root.groups.forEach(g => gaLeafNode(g, 0));          // freie Adressierung ohne Ordner
+  }
+}
+function allRows() {
+  visibleRows = [];
+  walkAll = true;
+  try { emitView(); } finally { walkAll = false; }
+  return visibleRows;
+}
+
+/* ---------- Baumfilter ---------- *
+ * Je Ansicht ein freier Text und Eigenschaften zum Ankreuzen. Gezeigt werden
+ * die Treffer mit ihren Vorfahren; unter einem Treffer gilt der gewohnte
+ * Klappzustand, so lässt sich ein gefundener Raum weiter aufklappen.
+ * Eigenschaften derselben Gruppe (`g`) gelten als „oder“, sonst als „und“. */
+const treeFilters = { building: { q: '', on: new Set() }, topology: { q: '', on: new Set() },
+                      ga: { q: '', on: new Set() } };
+const treeFilter = () => treeFilters[state.view] || treeFilters.building;
+const kindIs = k => r => r.ref.kind === k;
+const devOf = r => r.ref.kind === 'dev' ? KNX.deviceById(r.ref.id) : null;
+const ISSUE_PROP = { key: 'issues', label: 'Mit Fehlern oder Warnungen',
+  test: r => issuesOf(r.ref.id).some(i => i.level === 'error' || i.level === 'warn') };
+const TREE_PROPS = {
+  building: [
+    { key: 'dev', g: 'kind', label: 'Geräte', test: kindIs('dev') },
+    { key: 'fn', g: 'kind', label: 'Funktionen', test: kindIs('fn') },
+    { key: 'room-empty', label: 'Räume ohne Geräte', test: r => {
+      const n = r.ref.kind === 'node' && KNX.findNode(r.ref.id);
+      return !!n && KNX.DEVICE_HOSTS.has(n.kind) && !KNX.devicesInRoom(n.id).length;
+    } },
+    { key: 'fn-empty', label: 'Funktionen ohne Adressen', test: r =>
+      r.ref.kind === 'fn' && !(KNX.functionById(r.ref.id) || { gas: [] }).gas.length },
+    ISSUE_PROP
+  ],
+  topology: [
+    { key: 'dev', g: 'kind', label: 'Geräte', test: kindIs('dev') },
+    { key: 'obj', g: 'kind', label: 'Kommunikationsobjekte', test: kindIs('obj') },
+    { key: 'noroom', label: 'Geräte ohne Raum', test: r => { const d = devOf(r); return !!d && !d.roomId; } },
+    { key: 'noprod', label: 'Geräte ohne Produktdatei', test: r => { const d = devOf(r); return !!d && !d.catalogId; } },
+    { key: 'secure', label: 'Secure-Geräte', test: r => { const d = devOf(r); return !!d && !!d.secure; } },
+    { key: 'obj-nogas', label: 'Objekte ohne Adresse', test: r =>
+      r.ref.kind === 'obj' && !((KNX.objById(r.ref.id) || {}).obj || { gas: [1] }).gas.length },
+    ISSUE_PROP
+  ],
+  ga: [
+    { key: 'unused', label: 'Adressen ohne Objekt', test: r => r.ref.kind === 'ga' && !KNX.gaLinks(r.ref.id).length },
+    { key: 'nosend', label: 'Adressen ohne sendendes Objekt', test: r =>
+      r.ref.kind === 'ga' && !KNX.gaLinks(r.ref.id).some(l => l.sending) },
+    { key: 'nofn', label: 'Adressen ohne Funktion', test: r =>
+      r.ref.kind === 'ga' && !KNX.functionsOfGa(r.ref.id).length },
+    ISSUE_PROP
+  ]
+};
+const treeFiltering = () => { const f = treeFilter(); return !!f.q || f.on.size > 0; };
+
+function filterRows() {
+  const f = treeFilter();
+  const words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = new Map();
+  (TREE_PROPS[state.view] || []).filter(p => f.on.has(p.key)).forEach(p => {
+    const g = p.g || p.key;
+    groups.set(g, (groups.get(g) || []).concat(p));
+  });
+  const matches = o => {
+    if (words.length) {
+      const hay = [o.label, o.addr, o.find].filter(Boolean).join(' ').toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
+    }
+    for (const ps of groups.values()) if (!ps.some(p => p.test(o))) return false;
+    return true;
+  };
+
+  const all = allRows();
+  const n = all.length;
+  const parent = new Int32Array(n), hit = new Uint8Array(n), forced = new Uint8Array(n);
+  const stack = [];
+  let hits = 0;
+  for (let i = 0; i < n; i++) {
+    while (stack.length && all[stack[stack.length - 1]].depth >= all[i].depth) stack.pop();
+    parent[i] = stack.length ? stack[stack.length - 1] : -1;
+    stack.push(i);
+    if (!matches(all[i])) continue;
+    hit[i] = 1;
+    hits++;
+    // Vorfahren eines Treffers sind offen, egal wie sie zuletzt standen
+    for (let j = parent[i]; j >= 0 && !forced[j]; j = parent[j]) forced[j] = 1;
+  }
+  const rows = [], shown = new Uint8Array(n), under = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = all[i], j = parent[i];
+    under[i] = hit[i] || (j >= 0 && under[j]) ? 1 : 0;
+    const open = j >= 0 && (forced[j] || !all[j].collapsed);
+    if (!(hit[i] || forced[i] || (j >= 0 && shown[j] && under[j] && open))) continue;
+    shown[i] = 1;
+    rows.push({ ...o, collapsed: o.collapsed && !forced[i], context: !under[i] });
+  }
+  return { rows, hits };
+}
+
+/* Alles auf- oder zuklappen. Gibt es nur eine oberste Zeile (Liegenschaft,
+   Backbone), bleibt sie offen — sonst stünde danach eine einzige Zeile da. */
+function setTreeOpen(open) {
+  const all = allRows();
+  const single = all.filter(r => r.depth === 0).length === 1;
+  all.forEach(r => {
+    if (!r.hasKids) return;
+    const close = !open && !(single && r.depth === 0);
+    // Bei zugeklappt startenden Zeilen steht im Merker, was offen ist
+    if (!!r.startsClosed === close) state.collapsed.delete(r.key);
+    else state.collapsed.add(r.key);
+  });
+  A.persistUI();
+  renderTree();
+}
+
 function renderTree() {
   const p = KNX.project();
-  visibleRows = [];
+  const filtering = treeFiltering();
+  let hits = 0;
+  if (filtering) ({ rows: visibleRows, hits } = filterRows());
+  else { visibleRows = []; emitView(); }
 
   if (state.view === 'building') {
-    buildingNode(p.tree, 0);
     $('#tree-count').textContent =
       `${KNX.rooms().length} Bereiche mit Geräteplatz · ` +
       `${p.devices.filter(d => d.roomId).length} von ${p.devices.length} Geräten verortet`;
@@ -513,8 +646,6 @@ function renderTree() {
     $('#btn-tree-add').title = A.t('Unter dem gewählten Element anlegen');
   } else if (state.view === 'topology') {
     const bb = KNX.backbone();
-    if (bb) backboneNode(bb);
-    else KNX.regularAreas().slice().sort((a, b) => a.addr - b.addr).forEach(a => areaNode(a));
     const regular = KNX.regularAreas();
     const nLines = regular.reduce((s, a) => s + a.lines.length, 0);
     $('#tree-count').textContent =
@@ -524,8 +655,6 @@ function renderTree() {
     $('#btn-tree-add').title = 'Neuen Bereich anlegen';
   } else {
     const root = KNX.gaTree();
-    root.children.forEach(c => gaGroupNode(c, 0));
-    root.groups.forEach(g => gaLeafNode(g, 0));          // freie Adressierung ohne Ordner
     const folders = G.folderDepth() >= 1;
     $('#tree-count').textContent = folders
       ? `${p.groups.length} Adressen in ${root.children.length} Hauptgruppen`
@@ -534,12 +663,16 @@ function renderTree() {
     $('#btn-tree-add').title = folders ? 'Neue Hauptgruppe anlegen' : 'Neue Gruppenadresse anlegen';
   }
 
+  if (filtering) $('#tree-count').textContent = hits === 1 ? A.t('1 Treffer') : A.t('{0} Treffer', hits);
+  syncTreeTools();
+
   document.querySelectorAll('.tab[data-view]').forEach(t =>
     t.classList.toggle('on', t.dataset.view === state.view));
 
   const inner = $('#tree-inner');
   inner.style.height = (visibleRows.length * ROW_H) + 'px';
-  inner.innerHTML = visibleRows.length ? '' : '<div class="tree-empty">Nichts anzuzeigen.</div>';
+  inner.innerHTML = visibleRows.length ? ''
+    : `<div class="tree-empty">${filtering ? A.t('Kein Treffer.') : 'Nichts anzuzeigen.'}</div>`;
   drawnFrom = -1;
   paintTreeViewport();
 }
@@ -573,6 +706,106 @@ function scrollTreeTo(index) {
 /* ============================================================
    Statistik und Prüfergebnis
    ============================================================ */
+/* ---------- Werkzeugzeile über dem Baum ---------- */
+const treeSearch = $('#tree-search');
+const propsBtn = $('#btn-tree-props');
+let treeSearchTimer = 0, propsEl = null, propsView = '';
+
+function syncTreeTools() {
+  const f = treeFilter();
+  if (document.activeElement !== treeSearch) treeSearch.value = f.q;
+  const n = f.on.size;
+  propsBtn.classList.toggle('on', n > 0);
+  const badge = propsBtn.querySelector('.tool-badge');
+  badge.hidden = !n;
+  badge.textContent = n;
+  if (propsEl && propsView !== state.view) closeTreeProps();
+}
+
+treeSearch.addEventListener('input', () => {
+  clearTimeout(treeSearchTimer);
+  treeSearchTimer = setTimeout(() => { treeFilter().q = treeSearch.value.trim(); renderTree(); }, 120);
+});
+treeSearch.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && treeSearch.value) {
+    clearTimeout(treeSearchTimer);
+    treeSearch.value = '';
+    treeFilter().q = '';
+    renderTree();
+  } else if (e.key === 'ArrowDown') {
+    // Weiter in die Treffer, ohne zur Maus greifen zu müssen
+    const first = $('#tree .tree-row');
+    if (first) { e.preventDefault(); first.focus(); }
+  }
+});
+$('#btn-tree-expand').addEventListener('click', () => setTreeOpen(true));
+$('#btn-tree-collapse').addEventListener('click', () => setTreeOpen(false));
+
+/* Eigenschaften zum Ankreuzen. Bleibt beim Ankreuzen offen, damit sich
+   mehrere setzen lassen; schließt bei Klick daneben, Escape oder Ansichtswechsel. */
+function openTreeProps() {
+  closeTreeProps();
+  const f = treeFilter();
+  const list = TREE_PROPS[state.view] || [];
+  const item = p => `<label class="ctx-item tree-prop"><input type="checkbox" data-k="${p.key}"${f.on.has(p.key) ? ' checked' : ''}>
+      <span>${esc(A.t(p.label))}</span></label>`;
+  const kinds = list.filter(p => p.g === 'kind'), rest = list.filter(p => p.g !== 'kind');
+  propsEl = document.createElement('div');
+  propsEl.className = 'ctx-menu tree-props';
+  propsEl.setAttribute('role', 'dialog');
+  propsEl.setAttribute('aria-label', A.t('Nach Eigenschaften filtern'));
+  propsEl.innerHTML =
+    (kinds.length ? `<div class="tree-props-h">${esc(A.t('Nur diese Art'))}</div>${kinds.map(item).join('')}
+      <div class="ctx-sep" role="separator"></div>` : '') +
+    `<div class="tree-props-h">${esc(A.t('Eigenschaften'))}</div>${rest.map(item).join('')}
+     <div class="ctx-sep" role="separator"></div>
+     <button type="button" class="ctx-item" id="tree-props-clear"${f.on.size ? '' : ' disabled'}>
+       <span class="ctx-ic"></span><span>${esc(A.t('Alle Eigenschaften aufheben'))}</span></button>`;
+  document.body.appendChild(propsEl);
+  propsView = state.view;
+  const r = propsBtn.getBoundingClientRect(), box = propsEl.getBoundingClientRect();
+  propsEl.style.left = Math.max(6, Math.min(r.left, innerWidth - box.width - 6)) + 'px';
+  propsEl.style.top = Math.min(r.bottom + 4, innerHeight - box.height - 6) + 'px';
+  propsBtn.setAttribute('aria-expanded', 'true');
+
+  propsEl.addEventListener('change', e => {
+    const k = e.target.dataset.k;
+    if (!k) return;
+    e.target.checked ? f.on.add(k) : f.on.delete(k);
+    $('#tree-props-clear').disabled = !f.on.size;
+    renderTree();
+  });
+  $('#tree-props-clear').addEventListener('click', () => {
+    f.on.clear();
+    propsEl.querySelectorAll('input[data-k]').forEach(c => { c.checked = false; });
+    $('#tree-props-clear').disabled = true;
+    renderTree();
+  });
+  document.addEventListener('pointerdown', onPropsAway, true);
+  document.addEventListener('keydown', onPropsKey, true);
+  const first = propsEl.querySelector('input');
+  if (first) first.focus();
+}
+function closeTreeProps() {
+  if (!propsEl) return;
+  propsEl.remove();
+  propsEl = null;
+  propsBtn.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('pointerdown', onPropsAway, true);
+  document.removeEventListener('keydown', onPropsKey, true);
+}
+function onPropsAway(e) {
+  if (propsEl && !propsEl.contains(e.target) && !propsBtn.contains(e.target)) closeTreeProps();
+}
+function onPropsKey(e) {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeTreeProps();
+  propsBtn.focus();
+}
+propsBtn.addEventListener('click', () => (propsEl ? closeTreeProps() : openTreeProps()));
+
 function renderStats() {
   const p = KNX.project();
   const linked = p.groups.filter(g => KNX.gaLinks(g.id).length).length;
@@ -1146,12 +1379,11 @@ function detailGa(ga) {
     <h3 class="detail-h">${A.t('Zugeordnete Objekte')}</h3>
     ${links.length
       ? '<ul class="detail-list">' + links.map(l => `
-          <li class="jump" data-kind="obj" data-id="${l.obj.id}">
+          <li class="jump obj-li" data-kind="obj" data-id="${l.obj.id}">
             <span class="dir ${l.sending ? 'send' : 'recv'}" title="${l.sending ? A.t('sendendes Objekt') : A.t('hörendes Objekt')}">${l.sending ? '↑' : '↓'}</span>
             <span class="addr">${KNX.paStr(l.dev.addr)}</span>
             <span class="grow">${esc(l.dev.name)} · ${esc(KNX.objLabel(l.obj))}</span>
-            <span class="dpt-tag${l.obj.dpt === ga.dpt ? '' : ' bad'}">${l.obj.dpt}</span>
-            <span class="flags">${KNX.flagStr(l.obj.flags)}</span>
+            <span class="obj-sub"><span class="dpt-tag${l.obj.dpt === ga.dpt ? '' : ' bad'}">${l.obj.dpt}</span>${flagChips(l.obj, true, true)}</span>
           </li>`).join('') + '</ul>'
       : `<p class="hint">${A.t('Kein Objekt zugeordnet — die Adresse ist wirkungslos.')}</p>`}
     ${window.KNXSecure ? KNXSecure.gaSection(ga) : ''}
@@ -1277,20 +1509,32 @@ function detailDev(d) {
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {
           const send = o.gas[0] ? KNX.gaById(o.gas[0]) : null;
-          return `<li class="jump${o.stale ? ' stale' : ''}" data-kind="obj" data-id="${o.id}"
+          return `<li class="jump obj-li${o.stale ? ' stale' : ''}" data-kind="obj" data-id="${o.id}"
             ${o.stale ? `title="${A.t('Durch die aktuelle Parametrierung nicht mehr vorgesehen')}"` : ''}>
             <span class="onum">${o.num}</span>
             <span class="grow">${esc(KNX.objLabel(o))}</span>
             ${send ? '<span class="addr">' + KNX.addrStr(send) + '</span>'
                    : '<span class="room-chip empty">—</span>'}
-            <span class="dpt-tag">${o.dpt}</span>
-            <span class="flags">${KNX.flagStr(o.flags)}</span></li>`;
+            <span class="obj-sub"><span class="dpt-tag">${o.dpt}</span>${flagChips(o, true, true)}</span></li>`;
         }).join('') + '</ul>'
       : item
         ? `<p class="hint">${A.t('Dieses Gerät arbeitet ohne Kommunikationsobjekte — es wird allein über seine Eigenschaften eingestellt.')}</p>`
         : coupler
           ? `<p class="hint">${A.t('Koppler arbeiten ohne Kommunikationsobjekte — sie leiten nach ihrer Filtertabelle weiter.')}</p>`
           : `<p class="hint">${A.t('Noch keine Objekte angelegt.')}</p>`}`;
+}
+
+/* Flags als Chips in ETS-Reihenfolge. Mit `edit` sind es Schalter, die
+   renderDetail verdrahtet; `small` für die Zeilen einer Objektliste. */
+function flagChips(o, edit, small) {
+  return `<span class="flag-set${small ? ' small' : ''}">` + KNX.KO_FLAGS.map(f => {
+    const on = !!o.flags[f.key];
+    const tip = esc(A.t(f.de) + ' — ' + A.t(f.desc));
+    return edit
+      ? `<button type="button" class="flag-chip${on ? ' on' : ''}" data-obj="${o.id}" data-flag="${f.key}"
+           aria-pressed="${on}" aria-label="${esc(A.t(f.de))}" title="${tip}">${esc(A.t(f.short))}</button>`
+      : `<span class="flag-chip${on ? ' on' : ''}" title="${tip}">${esc(A.t(f.short))}</span>`;
+  }).join('') + '</span>';
 }
 
 function detailObj(dev, o) {
@@ -1303,10 +1547,10 @@ function detailObj(dev, o) {
         <p class="detail-sub">${A.t('Objekt {0} von {1}', o.num, esc(dev.name))} · ${KNX.paStr(dev.addr)}</p>
       </div>
     </div>
-    <div class="flag-row">${KNX.KO_FLAGS.map(f =>
-      `<span class="flag-chip${o.flags[f.key] ? ' on' : ''}" title="${esc(A.t(f.de) + ' — ' + A.t(f.desc))}">${esc(A.t(f.short))}</span>`).join('')}
+    <div class="flag-row">${flagChips(o, true)}
       <span class="dpt-tag">${o.dpt}</span>
     </div>
+    <p class="hint">${A.t('Flags per Klick ein- und ausschalten.')}</p>
     <div class="detail-actions">
       <button class="btn btn-sm" id="d-assign">${A.IC_LINK} Adressen zuordnen</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} Bearbeiten</button>
@@ -1607,6 +1851,10 @@ function renderDetail() {
     on('#d-delete', () => G.actDeleteGaGroup(sel.id));
   }
 
+  // Vor den Sprungzielen: ein Flag-Klick in einer Objektzeile springt nicht
+  panel.querySelectorAll('.flag-chip[data-flag]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); T.actToggleFlag(b.dataset.obj, b.dataset.flag); }));
+
   panel.querySelectorAll('.jump').forEach(el => {
     el.classList.add('clickable');
     el.addEventListener('click', ev => {
@@ -1639,7 +1887,7 @@ function expandTo(kind, id) {
     if (bb) state.collapsed.delete(bb.area.id);
   } else if (kind === 'obj') {
     const e = KNX.objById(id);
-    if (e) { state.collapsed.delete(e.dev.id); openLine(e.dev.lineId); state.collapsed.delete('seg:' + KNX.segKeyOf(e.dev)); }
+    if (e) { state.collapsed.add(devOpenKey(e.dev.id)); openLine(e.dev.lineId); state.collapsed.delete('seg:' + KNX.segKeyOf(e.dev)); }
   } else if (kind === 'dev') {
     const d = KNX.deviceById(id);
     if (d) { openLine(d.lineId); state.collapsed.delete('seg:' + KNX.segKeyOf(d)); }

@@ -292,7 +292,7 @@ function actAssignGa(id) {
             <input type="checkbox" class="chk" data-obj="${o.id}"${o.gas.includes(id) ? ' checked' : ''}>
             <span class="chk-label">${esc(KNX.objLabel(o))}</span>
             <span class="dpt-tag${o.dpt === ga.dpt ? '' : ' bad'}" title="${o.dpt === ga.dpt ? T18('passt zum DPT der Adresse') : T18('weicht vom DPT der Adresse ab')}">${o.dpt}</span>
-            <span class="flags" title="${T18('K L S Ü A')}">${KNX.flagStr(o.flags)}</span>
+            <span class="flags" title="${T18('K L S Ü A I')}">${KNX.flagStr(o.flags)}</span>
           </label>`).join('') || `<p class="hint">${T18('Keine Objekte angelegt.')}</p>`}
       </div>`;
   }).join('');

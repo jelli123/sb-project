@@ -58,11 +58,12 @@ function serialHex(b64) {
 }
 
 /* Die Flags am Objekt der Instanz schlagen die des Produkts. */
-const FLAG_ATTR = { c: 'CommunicationFlag', r: 'ReadFlag', w: 'WriteFlag', t: 'TransmitFlag', u: 'UpdateFlag' };
-const flagsFrom = s => ({
+const FLAG_ATTR = { c: 'CommunicationFlag', r: 'ReadFlag', w: 'WriteFlag', t: 'TransmitFlag', u: 'UpdateFlag',
+                    i: 'ReadOnInitFlag' };
+const flagsFrom = (s, ri) => ({
   c: String(s || '').includes('c'), r: String(s || '').includes('r'),
   w: String(s || '').includes('w'), t: String(s || '').includes('t'),
-  u: String(s || '').includes('u')
+  u: String(s || '').includes('u'), i: !!ri
 });
 
 const kids = (el, ...names) => [...el.children].filter(c => names.includes(localName(c)));
@@ -315,7 +316,7 @@ function build(doc, infoDoc, products, say) {
     const byRef = new Map();
     const mk = (ref, src) => {
       const o = { id: nid('o'), ref, num: src.num, name: src.name || ('Objekt ' + src.num),
-                  dpt: src.dpt, flags: flagsFrom(src.f), gas: [] };
+                  dpt: src.dpt, flags: flagsFrom(src.f, src.ri), gas: [] };
       byRef.set(ref, o);
       d.objs.push(o);
       return o;

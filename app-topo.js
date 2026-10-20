@@ -258,7 +258,8 @@ function actNewDevice(ctx) {
   $('#m-cat-open').addEventListener('click', () => {
     const draftNow = readDraft();
     A.closeModal();
-    actCatalog(id => actNewDevice({ ...ctx, draft: draftNow, catalogId: id || draftNow.catalogId }));
+    actCatalog(id => actNewDevice({ ...ctx, draft: draftNow, catalogId: id || draftNow.catalogId }),
+               { lineId: draftNow.lineId, segmentId: draftNow.segmentId, roomId: draftNow.roomId });
   });
   applyCat();
   $('#m-name').focus();
@@ -360,12 +361,63 @@ function pickProdFile(onProducts) {
   input.click();
 }
 
-/* Katalogverwaltung; `onPick` bekommt die Id des gewählten Produkts. */
-function actCatalog(onPick) {
+/* Mehrere Geräte auf einmal aus dem Katalog: je Produkt die gewünschte
+   Stückzahl, fortlaufend auf die freien Adressen der Ziellinie. Prüft erst
+   alles und legt dann in einem Schritt an — ein Rückgängig nimmt alle zurück.
+   → Fehlertext oder null */
+function addFromCatalog(picks, tgt) {
+  const line = KNX.lineById(tgt.lineId), area = KNX.areaOfLine(tgt.lineId);
+  if (!line || !area) return T18('Bitte eine Linie wählen.');
+  const items = picks.map(p => ({ c: KNX.catalogById(p.id), n: p.qty })).filter(x => x.c && x.n > 0);
+  if (!items.length) return T18('Mindestens ein Produkt auswählen.');
+  const need = items.reduce((s, x) => s + (x.c.noAddress ? 0 : x.n), 0);
+  const free = [];
+  for (let n = 1; n <= KNX.PA_MAX.device && free.length < need; n++) {
+    const raw = KNX.paJoin(area.addr, line.addr, n);
+    if (KNX.paFree(raw)) free.push(raw);
+  }
+  if (free.length < need)
+    return T18('Auf Linie {0}.{1} sind nur noch {2} Adressen frei, gebraucht werden {3}.', area.addr, line.addr, free.length, need);
+  const room = tgt.roomId && KNX.findNode(tgt.roomId) ? tgt.roomId : null;
+  const made = [];
+  items.forEach(({ c, n }) => {
+    for (let k = 0; k < n; k++) {
+      const d = KNX.addDevice({
+        id: KNX.uid('d'), name: A.L(c.name).slice(0, 60), product: (c.order || A.L(c.name)).slice(0, 60),
+        lineId: line.id, segmentId: tgt.segmentId || null, addr: c.noAddress ? null : free.shift(),
+        roomId: room, ma: null, supply: 0, serial: '', note: '',
+        catalogId: c.id, params: {}, objs: []
+      });
+      KNX.applyProduct(d);
+      made.push(d);
+    }
+  });
+  state.sel = { kind: 'dev', id: made[0].id };
+  state.collapsed.delete(tgt.segmentId ? 'seg:' + tgt.segmentId : line.id);
+  A.commit();
+  const pas = made.filter(d => d.addr !== null).map(d => KNX.paStr(d.addr));
+  A.status((made.length === 1 ? T18('1 Gerät angelegt') : T18('{0} Geräte angelegt', made.length))
+    + (pas.length ? ' · ' + (pas.length > 1 ? pas[0] + ' … ' + pas[pas.length - 1] : pas[0]) : ''));
+  return null;
+}
+
+/* Katalogverwaltung; `onPick` bekommt die Id des gewählten Produkts. Mit
+   `target` (Linie, Segment, Raum aus dem Geräteformular) lassen sich mehrere
+   Produkte samt Stückzahl ankreuzen und direkt als Geräte anlegen. Ein
+   einzelnes Produkt mit Stückzahl 1 geht wie bisher zurück ins Formular. */
+function actCatalog(onPick, target) {
+  const bulk = !!target;
+  const picks = new Map();                 // Produkt-Id → Stückzahl
+  const tgt = { lineId: null, segmentId: null, roomId: null, ...(target || {}) };
+  if (bulk && !KNX.lineById(tgt.lineId)) tgt.lineId = (KNX.regularAreas()[0].lines[0] || {}).id || null;
+  const QTY_MAX = 99;
+
   const render = () => {
     const items = KNX.project().catalog;
     return `
-      <p class="hint">${T18('Produkte aus ETS-Produktdateien (<b>.knxprod</b>). Ein gewähltes Produkt legt beim Anlegen eines Geräts alle Kommunikationsobjekte mit an.')}</p>
+      <p class="hint">${bulk
+        ? T18('Produkte ankreuzen und die Stückzahl eintragen — sie entstehen direkt als Geräte auf der Ziellinie. Ein einzelnes Gerät geht zurück ins Formular.')
+        : T18('Produkte aus ETS-Produktdateien (<b>.knxprod</b>). Ein gewähltes Produkt legt beim Anlegen eines Geräts alle Kommunikationsobjekte mit an.')}</p>
       <div class="pick-row">
         <button type="button" class="btn btn-sm btn-primary" id="m-load">${T18('Produktdatei laden …')}</button>
         <button type="button" class="btn btn-sm" id="m-online"
@@ -376,46 +428,121 @@ function actCatalog(onPick) {
       </div>
       <div class="chk-list tall" id="m-cat-list">
         ${items.length ? items.map(c => `
-          <div class="cat-row" data-id="${c.id}"
+          <div class="cat-row${picks.has(c.id) ? ' sel' : ''}" data-id="${c.id}"
                data-name="${esc((A.L(c.name) + ' ' + c.order + ' ' + c.manufacturer).toLowerCase())}">
+            ${bulk ? `<input type="checkbox" class="chk cat-chk" aria-label="${T18('Auswählen')}"${picks.has(c.id) ? ' checked' : ''}>` : ''}
             <div class="cat-main">
               <b>${esc(A.L(c.name))}</b>
               <span>${esc([c.manufacturer, c.order, A.L(c.appName)].filter(Boolean).join(' · '))}</span>
             </div>
             <span class="dpt-tag">${c.hwOnly ? T18('ohne Applikation') : objCount(c)
               ? objCount(c) + ' KO'
-              : Object.keys(c.params || {}).length + ' P'}</span>            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="${T18('Aus dem Katalog entfernen')}">
+              : Object.keys(c.params || {}).length + ' P'}</span>
+            ${bulk ? `<input class="input mono cat-qty" type="number" min="1" max="${QTY_MAX}" value="${picks.get(c.id) || 1}"
+                       aria-label="${T18('Stückzahl')}" title="${T18('Stückzahl')}"${picks.has(c.id) ? '' : ' disabled'}>` : ''}
+            <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="${T18('Aus dem Katalog entfernen')}">
               ${A.IC_TRASH}</button>
           </div>`).join('')
           : `<p class="hint">${T18('Der Katalog ist leer. Oben eine <b>.knxprod</b>-Datei laden.')}</p>`}
-      </div>`;
+      </div>
+      ${bulk ? `
+      <div class="cat-target">
+        <label class="field"><span>${T18('Ziellinie')}</span>
+          <select class="select" id="m-line">${lineOptions(tgt.lineId)}</select></label>
+        <label class="field" id="m-seg-row"${segmentOptions(tgt.lineId, tgt.segmentId) ? '' : ' hidden'}><span>${T18('Segment')}</span>
+          <select class="select" id="m-seg">${segmentOptions(tgt.lineId, tgt.segmentId)}</select></label>
+        <label class="field"><span>${T18('Verbaut in')}</span>
+          <select class="select" id="m-room">${roomOptions(tgt.roomId)}</select></label>
+      </div>
+      <p class="hint" id="m-cat-sum"></p>
+      <div id="m-err"></div>` : ''}`;
   };
 
   let picked = '';
+  const count = () => [...picks.values()].reduce((s, n) => s + n, 0);
+  // Ein einzelnes Produkt mit Stückzahl 1 ist die gewohnte Wahl fürs Formular
+  const single = () => picks.size === 1 && count() === 1;
   A.openModal(T18('Produktkatalog'), render(), () => {
-    if (onPick) A.nextModal(() => onPick(picked));
+    if (bulk && picks.size && !single()) {
+      const err = addFromCatalog([...picks].map(([id, qty]) => ({ id, qty })), tgt);
+      if (err) { showErr(err); return false; }
+      return;
+    }
+    const id = bulk && single() ? [...picks.keys()][0] : picked;
+    if (onPick) A.nextModal(() => onPick(id));
   });
+
+  const sync = () => {
+    if (!bulk) return;
+    const n = count();
+    $('#modal-ok').textContent = picks.size && !single()
+      ? (n === 1 ? T18('1 Gerät anlegen') : T18('{0} Geräte anlegen', n)) : T18('Übernehmen');
+    const line = KNX.lineById(tgt.lineId), area = KNX.areaOfLine(tgt.lineId);
+    $('#m-cat-sum').textContent = !picks.size ? T18('Nichts angekreuzt.')
+      : single() ? T18('Ein Gerät — weiter im Formular.')
+      : T18('{0} Geräte aus {1} Produkten auf Linie {2}', n, picks.size, line && area ? area.addr + '.' + line.addr : '?');
+    showErr('');
+  };
+  const qtyOf = row => {
+    const v = parseInt(row.querySelector('.cat-qty').value, 10);
+    return Number.isInteger(v) ? Math.min(QTY_MAX, Math.max(1, v)) : 1;
+  };
+  const setPick = (row, on) => {
+    const id = row.dataset.id;
+    if (on) picks.set(id, qtyOf(row)); else picks.delete(id);
+    row.classList.toggle('sel', on);
+    row.querySelector('.cat-chk').checked = on;
+    row.querySelector('.cat-qty').disabled = !on;
+    sync();
+  };
 
   const wire = () => {
     const list = $('#m-cat-list');
     list.querySelectorAll('.cat-row').forEach(row => {
       row.addEventListener('click', e => {
-        if (e.target.closest('.cat-del')) return;
+        if (e.target.closest('.cat-del, .cat-qty')) return;
+        if (bulk) {
+          // Die Box schaltet selbst um; ein Klick auf die Zeile tut dasselbe
+          setPick(row, e.target.classList.contains('cat-chk') ? e.target.checked : !picks.has(row.dataset.id));
+          return;
+        }
         picked = row.dataset.id;
         list.querySelectorAll('.cat-row').forEach(r => r.classList.toggle('sel', r === row));
       });
-      row.addEventListener('dblclick', () => { picked = row.dataset.id; A.modalConfirm(); });
+      row.addEventListener('dblclick', e => {
+        if (e.target.closest('.cat-del, .cat-qty, .cat-chk')) return;
+        picks.clear();
+        picked = row.dataset.id;
+        if (bulk) picks.set(picked, 1);
+        A.modalConfirm();
+      });
+      const qty = row.querySelector('.cat-qty');
+      if (qty) qty.addEventListener('input', () => {
+        if (picks.has(row.dataset.id)) { picks.set(row.dataset.id, qtyOf(row)); sync(); }
+      });
     });
     list.querySelectorAll('.cat-del').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       const c = KNX.catalogById(b.dataset.id);
       KNX.deleteCatalogItem(b.dataset.id);
       if (picked === b.dataset.id) picked = '';
+      picks.delete(b.dataset.id);
       A.commit();
       $('#modal-body').innerHTML = render();
       wire();
       A.status(A.t('„{0}“ aus dem Katalog entfernt', c ? A.L(c.name) : A.t('Produkt')));
     }));
+    if (bulk) {
+      $('#m-line').addEventListener('change', e => {
+        tgt.lineId = e.target.value;
+        syncSegments(tgt.lineId, null);
+        tgt.segmentId = readSegment(tgt.lineId);
+        sync();
+      });
+      $('#m-seg').addEventListener('change', () => { tgt.segmentId = readSegment(tgt.lineId); });
+      $('#m-room').addEventListener('change', e => { tgt.roomId = e.target.value || null; });
+      sync();
+    }
     $('#m-search').addEventListener('input', e => {
       const q = e.target.value.trim().toLowerCase();
       list.querySelectorAll('.cat-row').forEach(r => {
@@ -425,7 +552,7 @@ function actCatalog(onPick) {
     $('#m-load').addEventListener('click', () => {
       pickProdFile((products, fileName, info) => {
         A.closeModal();
-        actImportPick(products, fileName, () => actCatalog(onPick), info);
+        actImportPick(products, fileName, () => actCatalog(onPick, bulk ? tgt : null), info);
       });
     });
     const online = $('#m-online');
@@ -436,7 +563,7 @@ function actCatalog(onPick) {
     } else {
       online.addEventListener('click', () => {
         A.closeModal();
-        A.nextModal(() => actOnlineCatalog(() => actCatalog(onPick)));
+        A.nextModal(() => actOnlineCatalog(() => actCatalog(onPick, bulk ? tgt : null)));
       });
     }
   };
@@ -1035,7 +1162,7 @@ function actNewObj(devId) {
   }
   const draft = { num: d.objs.length ? Math.max(...d.objs.map(o => o.num)) + 1 : 0,
                   name: '', dpt: '1.001',
-                  flags: { c: true, r: false, w: true, t: false, u: false } };
+                  flags: { c: true, r: false, w: true, t: false, u: false, i: false } };
   A.openModal(T18('Neues Objekt — {0}', esc(d.name)), objForm(draft), () => {
     const name = $('#m-name').value.trim();
     if (!name) { showErr(T18('Bitte einen Namen vergeben.')); return false; }
@@ -1119,6 +1246,21 @@ function actAssignObj(objId) {
       el.hidden = !!q && !el.dataset.name.includes(q);
     });
   });
+}
+
+/* Ein Flag direkt umschalten — aus dem Detailbereich, ohne Dialog. Das gilt
+   auch für Objekte aus der Produktdatei: wie in der ETS darf man ihre Flags
+   ändern, und das Neuableiten nach einer Parameteränderung behält sie. */
+function actToggleFlag(objId, key) {
+  const e = KNX.objById(objId);
+  const f = KNX.KO_FLAGS.find(x => x.key === key);
+  if (!e || !f) return;
+  const on = !e.obj.flags[key];
+  e.obj.flags[key] = on;
+  KNX.touch();
+  A.commit();
+  A.status(on ? T18('„{0}“ eingeschaltet · {1}', T18(f.de), KNX.objLabel(e.obj))
+              : T18('„{0}“ ausgeschaltet · {1}', T18(f.de), KNX.objLabel(e.obj)));
 }
 
 /* Sendende Adresse eines Objekts wechseln. */
@@ -1456,7 +1598,7 @@ function actRenameGaGroup(key) {
 
 window.KNXTopo = {
   actNewDevice, actEditDevice, actDeleteDevice, moveDevice, actParams,
-  actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending,
+  actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending, actToggleFlag,
   actNewArea, actEditArea, actDeleteArea,
   actNewLine, actEditLine, actDeleteLine,
   actNewSegment, actEditSegment, actDeleteSegment,

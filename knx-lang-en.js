@@ -97,7 +97,7 @@ KNXI18n.add('en', {
   'Die Adresse 0/0/0 ist als Broadcast reserviert.': 'Address 0/0/0 is reserved for broadcast.',
   'passt zum DPT der Adresse': 'matches the address datapoint type',
   'weicht vom DPT der Adresse ab': 'differs from the address datapoint type',
-  'K L S Ü A': 'C R W T U',
+  'K L S Ü A I': 'C R W T U I',
   'Keine Objekte angelegt.': 'No objects created.',
 
   /* ---------- Darstellung ---------- */
@@ -859,7 +859,7 @@ KNXI18n.add('en', {
   'gestartet': 'started',
 
   /* ---------- KO-Flags (ETS-Begriffe) ---------- */
-  'K': 'C', 'L': 'R', 'S': 'W', 'Ü': 'T', 'A': 'U',
+  'K': 'C', 'L': 'R', 'S': 'W', 'Ü': 'T', 'A': 'U', 'I': 'I',
   'Kommunikation': 'Communication',
   'Lesen': 'Read',
   'Schreiben': 'Write',
@@ -869,6 +869,11 @@ KNXI18n.add('en', {
   'Objekt nimmt Werte vom Bus an': 'Object accepts values from the bus',
   'Objekt sendet von sich aus': 'Object sends on its own',
   'Wert wird durch Lesen aktualisiert': 'Value is updated by reading',
+  'Lesen bei Init': 'Read on init',
+  'Objekt fragt seinen Wert nach dem Start am Bus ab': 'Object requests its value from the bus after start-up',
+  'Flags per Klick ein- und ausschalten.': 'Click a flag to switch it on or off.',
+  '„{0}“ eingeschaltet · {1}': '“{0}” switched on · {1}',
+  '„{0}“ ausgeschaltet · {1}': '“{0}” switched off · {1}',
   '— frei definiert —': '— hand-made —',
   'Hauptlinie {0}.0 bearbeiten': 'Edit main line {0}.0',
   'Linie bearbeiten': 'Edit line',
@@ -1251,6 +1256,46 @@ KNXI18n.add('en', {
     'KNX Secure is removed: Security Mode off, key tables empty. The tool key stays until a factory reset.',
   'KNX Secure: Danach gilt wieder der FDSK vom Zertifikat, Security Mode und Schlüsseltabellen sind zurückgesetzt. Beim nächsten Programmieren wird ein neuer Tool Key gesetzt.':
     'KNX Secure: afterwards the FDSK from the certificate applies again, Security Mode and key tables are reset. The next download sets a new tool key.',
+
+  /* ---------- Baumfilter und Auf-/Zuklappen ---------- */
+  'Baum filtern …': 'Filter tree …',
+  'Baum filtern': 'Filter tree',
+  'Nach Eigenschaften filtern': 'Filter by properties',
+  'Alle aufklappen': 'Expand all',
+  'Alle zuklappen': 'Collapse all',
+  '1 Treffer': '1 match',
+  '{0} Treffer': '{0} matches',
+  'Kein Treffer.': 'No match.',
+  'Nur diese Art': 'Only this kind',
+  'Alle Eigenschaften aufheben': 'Clear all properties',
+  'Mit Fehlern oder Warnungen': 'With errors or warnings',
+  'Räume ohne Geräte': 'Rooms without devices',
+  'Funktionen ohne Adressen': 'Functions without addresses',
+  'Geräte ohne Raum': 'Devices without room',
+  'Geräte ohne Produktdatei': 'Devices without product file',
+  'Secure-Geräte': 'Secure devices',
+  'Objekte ohne Adresse': 'Objects without address',
+  'Adressen ohne Objekt': 'Addresses without object',
+  'Adressen ohne sendendes Objekt': 'Addresses without sending object',
+  'Adressen ohne Funktion': 'Addresses without function',
+
+  /* ---------- Katalog: mehrere Geräte auf einmal ---------- */
+  'Produkte ankreuzen und die Stückzahl eintragen — sie entstehen direkt als Geräte auf der Ziellinie. Ein einzelnes Gerät geht zurück ins Formular.':
+    'Tick products and enter the quantity — they are created directly as devices on the target line. A single device goes back to the form.',
+  'Auswählen': 'Select',
+  'Stückzahl': 'Quantity',
+  'Ziellinie': 'Target line',
+  'Übernehmen': 'Apply',
+  '1 Gerät anlegen': 'Create 1 device',
+  '{0} Geräte anlegen': 'Create {0} devices',
+  'Nichts angekreuzt.': 'Nothing ticked.',
+  'Ein Gerät — weiter im Formular.': 'One device — continue in the form.',
+  '{0} Geräte aus {1} Produkten auf Linie {2}': '{0} devices from {1} products on line {2}',
+  'Bitte eine Linie wählen.': 'Please choose a line.',
+  'Auf Linie {0}.{1} sind nur noch {2} Adressen frei, gebraucht werden {3}.':
+    'Line {0}.{1} has only {2} free addresses left, {3} are needed.',
+  '1 Gerät angelegt': '1 device created',
+  '{0} Geräte angelegt': '{0} devices created',
 
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',

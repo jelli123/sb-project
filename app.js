@@ -261,6 +261,8 @@ let modalOkFn = null;
 function openModal(title, bodyHtml, onOk) {
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = bodyHtml;
+  // Ein Dialog darf seinen OK-Knopf umbenennen; der nächste beginnt wieder mit „OK“
+  $('#modal-ok').textContent = T18('OK');
   modalOkFn = onOk;
   $('#modal-cancel').hidden = false;
   $('#modal-backdrop').classList.add('open');

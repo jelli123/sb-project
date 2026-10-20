@@ -119,6 +119,24 @@
           <button id="btn-tree-add" class="btn btn-sm" data-pt-id="btn-tree-add">+</button>
         </div>
       </div>
+      <div class="tree-tools" data-pt-id="tree-tools">
+        <input id="tree-search" class="input search" data-pt-id="tree-search" type="search"
+               placeholder="Baum filtern …" aria-label="Baum filtern" data-i18n-placeholder data-i18n-aria-label spellcheck="false">
+        <button id="btn-tree-props" class="icon-btn tool-btn" data-pt-id="btn-tree-props" aria-haspopup="dialog" aria-expanded="false"
+                title="Nach Eigenschaften filtern" aria-label="Nach Eigenschaften filtern" data-i18n-title data-i18n-aria-label>
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2.5 3.5h11L9.3 8.5v4l-2.6 1.2V8.5z"/></svg>
+          <span class="tool-badge" hidden></span>
+        </button>
+        <span class="hist-sep" aria-hidden="true"></span>
+        <button id="btn-tree-expand" class="icon-btn tool-btn" data-pt-id="btn-tree-expand"
+                title="Alle aufklappen" aria-label="Alle aufklappen" data-i18n-title data-i18n-aria-label>
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5.5 2.5h8v8"/><rect x="2.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M6.5 7.5v4M4.5 9.5h4"/></svg>
+        </button>
+        <button id="btn-tree-collapse" class="icon-btn tool-btn" data-pt-id="btn-tree-collapse"
+                title="Alle zuklappen" aria-label="Alle zuklappen" data-i18n-title data-i18n-aria-label>
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5.5 2.5h8v8"/><rect x="2.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M4.5 9.5h4"/></svg>
+        </button>
+      </div>
       <nav id="tree" data-pt-id="tree" role="tree" aria-label="Projektstruktur">
         <div id="tree-inner"></div>
       </nav>
