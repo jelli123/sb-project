@@ -27,6 +27,18 @@ let issueMap = new Map();
 
 const sameRef = (a, b) => !!a && !!b && a.kind === b.kind && a.id === b.id;
 const issuesOf = id => issueMap.get(id) || [];
+/* Programmierstand (app-prog.js): nur mit dem lokalen Dienst. Markiert wird,
+   was zu programmieren ist — wie bei den Hinweisen nicht das, was stimmt. */
+const progOn = () => !!(window.KNXProg && KNXProg.available);
+const progBadge = devs => (progOn() ? KNXProg.badge(devs) : null);
+function progItems(devs, label) {
+  if (!progOn()) return [];
+  const due = devs.filter(KNXProg.isDue);
+  const list = due.length ? due : devs.filter(KNXProg.state);
+  return list.length
+    ? [{ label: A.t(label), run: () => KNXProg.open({ devices: list.map(d => d.id) }) }] : [];
+}
+
 /* Reine Hinweise bekommen keine Markierung — sonst ist alles markiert. */
 function issueBadge(id) {
   const is = issuesOf(id);
@@ -97,6 +109,8 @@ function buildTreeRow(o, index) {
   }
   const badge = issueBadge(o.ref.id);
   if (badge) row.appendChild(badge);
+  const prog = o.progDevs && progBadge(o.progDevs());
+  if (prog) row.appendChild(prog);
   if (o.meta) {
     const m = document.createElement('span');
     m.className = 'node-meta';
@@ -331,6 +345,7 @@ function backboneNode(bb) {
     icon: A.IC.area, iconClass: 'area',
     label: bb.line.name, title: 'Backbone · ' + KNX.MEDIA[bb.line.medium], addr: '0.0.-',
     meta: devs.length ? devs.length + '\u00A0T' : '',
+    progDevs: () => devs,
     hasKids: devs.length + areas.length + KNX.segmentsOf(bb.line).length > 0, collapsed: state.collapsed.has(bb.area.id),
     actions: () => [
       iconBtn(A.IC.device, 'Gerät auf dem Backbone', () => T.actNewDevice({ lineId: bb.line.id })),
@@ -351,6 +366,7 @@ function areaNode(a, depth = 0) {
     depth, key: a.id, ref: { kind: 'area', id: a.id },
     icon: A.IC.area, iconClass: 'area',
     label: a.name, title: 'Bereich', addr: a.addr + '.-.-',
+    progDevs: () => a.lines.flatMap(l => KNX.devicesOnLine(l.id)),
     hasKids: a.lines.length > 0, collapsed: state.collapsed.has(a.id),
     actions: () => [
       iconBtn(A.IC_TRASH, 'Bereich löschen', () => T.actDeleteArea(a.id)),
@@ -370,6 +386,7 @@ function lineNode(a, l, depth = 1) {
     icon: A.IC.line, iconClass: 'line',
     label: l.name, title: (main ? 'Hauptlinie · ' : '') + KNX.MEDIA[l.medium], addr: a.addr + '.' + l.addr + '.-',
     meta: devs.length ? devs.length + '\u00A0T' : '',
+    progDevs: () => devs,
     hasKids: devs.length > 0 || segmented, collapsed: state.collapsed.has(l.id),
     actions: () => [
       ...(main ? [] : [iconBtn(A.IC_TRASH, 'Linie löschen', () => T.actDeleteLine(l.id))]),
@@ -393,6 +410,7 @@ function segmentNode(key, depth) {
     label: s.seg ? s.name : 'Segment 0', title: 'Segment · ' + KNX.MEDIA[s.medium],
     addr: 'S' + s.num,
     meta: devs.length ? devs.length + '\u00A0T' : '',
+    progDevs: () => devs,
     hasKids: devs.length > 0, collapsed: state.collapsed.has('seg:' + key),
     actions: () => [
       ...(s.seg ? [iconBtn(A.IC_TRASH, 'Segment löschen', () => T.actDeleteSegment(key))] : []),
@@ -415,6 +433,7 @@ function deviceNode(d, depth, building) {
     icon: A.IC.device, iconClass: 'device',
     label: d.name, title: d.product, find: d.product, addr: KNX.paStr(d.addr),
     meta: d.objs.length ? d.objs.length + '\u00A0KO' : '',
+    progDevs: () => [d],
     hasKids: d.objs.length > 0, collapsed: !state.collapsed.has(key), startsClosed: true,
     actions: () => [
       iconBtn(A.IC_TRASH, 'Gerät löschen', () => T.actDeleteDevice(d.id)),
@@ -556,6 +575,8 @@ const TREE_PROPS = {
     { key: 'noroom', label: 'Geräte ohne Raum', test: r => { const d = devOf(r); return !!d && !d.roomId; } },
     { key: 'noprod', label: 'Geräte ohne Produktdatei', test: r => { const d = devOf(r); return !!d && !d.catalogId; } },
     { key: 'secure', label: 'Secure-Geräte', test: r => { const d = devOf(r); return !!d && !!d.secure; } },
+    { key: 'prog-due', label: 'Programmierung ausstehend', needsBus: true,
+      test: r => { const d = devOf(r); return !!d && progOn() && KNXProg.isDue(d); } },
     { key: 'obj-nogas', label: 'Objekte ohne Adresse', test: r =>
       r.ref.kind === 'obj' && !((KNX.objById(r.ref.id) || {}).obj || { gas: [1] }).gas.length },
     ISSUE_PROP
@@ -575,7 +596,7 @@ function filterRows() {
   const f = treeFilter();
   const words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
   const groups = new Map();
-  (TREE_PROPS[state.view] || []).filter(p => f.on.has(p.key)).forEach(p => {
+  (TREE_PROPS[state.view] || []).filter(p => f.on.has(p.key) && (!p.needsBus || progOn())).forEach(p => {
     const g = p.g || p.key;
     groups.set(g, (groups.get(g) || []).concat(p));
   });
@@ -746,7 +767,7 @@ $('#btn-tree-collapse').addEventListener('click', () => setTreeOpen(false));
 function openTreeProps() {
   closeTreeProps();
   const f = treeFilter();
-  const list = TREE_PROPS[state.view] || [];
+  const list = (TREE_PROPS[state.view] || []).filter(p => !p.needsBus || progOn());
   const item = p => `<label class="ctx-item tree-prop"><input type="checkbox" data-k="${p.key}"${f.on.has(p.key) ? ' checked' : ''}>
       <span>${esc(A.t(p.label))}</span></label>`;
   const kinds = list.filter(p => p.g === 'kind'), rest = list.filter(p => p.g !== 'kind');
@@ -1202,7 +1223,7 @@ function progSection(item) {
     <ul class="detail-list">${rows.join('')}</ul>
     ${blocked.length
       ? '<p class="hint warn">' + blocked.map(esc).join(' ') + '</p>'
-      : `<p class="hint">${A.t('Die Applikation lässt sich über die Inbetriebnahme laden.')}</p>`}`;
+      : `<p class="hint">${A.t('Die Applikation lässt sich über „Programmieren“ laden.')}</p>`}`;
 }
 
 function issueList(id) {
@@ -1476,8 +1497,8 @@ function detailDev(d) {
     </div>`}
     <div class="detail-actions">
       ${item || isIp ? `<button class="btn btn-sm btn-primary" id="d-params">${A.t('Parameter …')}</button>` : ''}
-      ${item && window.KNXBus && window.KNXBus.available
-        ? `<button class="btn btn-sm" id="d-program" title="${A.t('Applikation, Parameter und Gruppenadressen ins Gerät laden')}">${A.t('Programmieren …')}</button>` : ''}
+      ${progOn() && KNXProg.state(d)
+        ? `<button class="btn btn-sm" id="d-program" title="${A.t('Adresse, Applikation, Parameter und Gruppenadressen ins Gerät laden')}">${A.t('Programmieren …')}</button>` : ''}
       ${item ? '' : `<button class="btn btn-sm" id="d-addobj">${A.t('+ Objekt')}</button>`}
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
@@ -1503,6 +1524,7 @@ function detailDev(d) {
       <li><span class="grow">${A.t('6 Byte, für die Adressvergabe ohne Programmiertaste')}</span>
         <span class="addr">${esc(d.serial)}</span></li></ul>` : ''}
     ${window.KNXSecure ? KNXSecure.deviceSection(d) : ''}
+    ${progOn() ? KNXProg.deviceSection(d) : ''}
     ${noteSection(d.note)}
     ${progSection(item)}
     ${filterSection(d)}
@@ -1809,7 +1831,7 @@ function renderDetail() {
     panel.innerHTML = detailDev(target);
     on('#d-addobj', () => T.actNewObj(target.id));
     on('#d-params', () => T.actParams(target.id));
-    on('#d-program', () => window.KNXBus.program(target.id));
+    on('#d-program', () => KNXProg.open({ devices: [target.id] }));
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
     $('#d-room')?.addEventListener('change', e => A.setDeviceRoom(target.id, e.target.value || null));
@@ -1976,7 +1998,8 @@ function menuFor(kind, id) {
       const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
       return [
         (item || KNX.deviceIsIp(d)) && { label: A.t('Parameter …'), run: () => T.actParams(id) },
-        item && bus && bus.available && { label: A.t('Programmieren …'), run: () => bus.program(id) },
+        progOn() && KNXProg.state(d) && { label: A.t('Programmieren …'), run: () => KNXProg.open({ devices: [id] }) },
+        item && bus && bus.debug && { label: A.t('Inbetriebnahme (Debug) …'), run: () => bus.program(id) },
         !item && { label: A.t('Objekt anlegen …'), run: () => T.actNewObj(id) },
         '-',
         { ...edit, run: () => T.actEditDevice(id) },
@@ -1999,6 +2022,7 @@ function menuFor(kind, id) {
       return [
         { label: A.t('Gerät anlegen …'), run: () => T.actNewDevice({ lineId: id }) },
         { label: A.t('Segment anlegen …'), run: () => T.actNewSegment(id) },
+        ...progItems(KNX.devicesOnLine(id), 'Linie programmieren …'),
         a.backbone && { label: A.t('Bereich anlegen …'), run: () => T.actNewArea() },
         '-',
         { ...edit, run: () => T.actEditLine(id) },
@@ -2011,6 +2035,7 @@ function menuFor(kind, id) {
       return [
         { label: A.t('Gerät anlegen …'),
           run: () => T.actNewDevice({ lineId: s.line.id, segmentId: s.seg ? id : null }) },
+        ...progItems(KNX.devicesInSegment(id), 'Segment programmieren …'),
         '-',
         { ...edit, run: () => T.actEditSegment(id) },
         s.seg && { ...del, run: () => T.actDeleteSegment(id) }
@@ -2021,6 +2046,7 @@ function menuFor(kind, id) {
       if (!a) return [];
       return [
         { label: A.t('Linie anlegen …'), run: () => T.actNewLine(id) },
+        ...progItems(a.lines.flatMap(l => KNX.devicesOnLine(l.id)), 'Bereich programmieren …'),
         '-',
         { ...edit, run: () => T.actEditArea(id) },
         !a.backbone && KNX.regularAreas().length > 1 && { ...del, run: () => T.actDeleteArea(id) }
@@ -2044,6 +2070,7 @@ function render() {
   renderSortHead();
   renderFilter();
   renderDetail();
+  if (progOn()) KNXProg.refresh();
 }
 window.KNXOnRender = render;
 window.KNXRender = { render, jumpTo, moveTreeSel, paintTreeViewport, paintTable,

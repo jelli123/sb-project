@@ -1186,7 +1186,7 @@ textarea.input.note {
    ============================================================ */
 
 /* Ein Dialog aus dem Overlay heraus muss darueber liegen (#modal-backdrop hat 50). */
-#bus-overlay {
+#bus-overlay, #prog-overlay {
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -1197,7 +1197,7 @@ textarea.input.note {
   background: var(--backdrop);
   overflow: auto;
 }
-#bus-overlay.open { display: flex; }
+#bus-overlay.open, #prog-overlay.open { display: flex; }
 
 .ovl-card {
   background: var(--surface);
@@ -1327,6 +1327,184 @@ textarea.input.note {
 .ovl-activity.warn  { color: var(--warn); background: var(--warn-weak); }
 .ovl-activity.error { color: var(--danger); background: var(--danger-weak); }
 
+/* ---------- Geführte Programmierung ---------- */
+/* Markierung im Baum: hier ist etwas zu programmieren. Ein Klick öffnet das Fenster.
+   Am Gerät nur das Symbol — der Name braucht den Platz —, an Linie und Bereich mit Anzahl. */
+.prog-dot {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 16px;
+  min-width: 14px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--warn);
+  font: 700 10px/1 var(--font);
+  cursor: pointer;
+}
+.prog-dot.n { padding: 0 4px; border-color: var(--warn-border); background: var(--warn-weak); }
+.prog-dot:hover { border-color: var(--warn); }
+
+/* Zähler im Kopf am Knopf „Programmieren“ */
+#btn-prog { position: relative; }
+/* Liegt über der Ecke des Knopfs: die Topbar hat keinen Platz zu verschenken */
+.btn-badge {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warn);
+  color: var(--on-status);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.btn-badge[hidden] { display: none; }
+
+.pg-tag {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  white-space: nowrap;
+}
+.pg-tag.ok  { color: var(--ok); border-color: var(--ok-border); background: var(--ok-weak); }
+.pg-tag.due { color: var(--warn); border-color: var(--warn-border); background: var(--warn-weak); }
+
+.pg-card { max-width: 1200px; }
+.pg-conn, .pg-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.pg-conn .lbl { font-size: 12.5px; color: var(--muted); }
+.pg-conn .select { width: auto; min-width: 220px; max-width: 100%; flex: 0 1 440px; }
+.pg-conn .chk, .pg-tools .chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pg-conn .chk input, .pg-tools .chk input { accent-color: var(--accent); }
+.pg-tools .spacer { flex: 1; }
+.pg-show { display: inline-flex; gap: 14px; margin-right: 6px; }
+
+/* Aufforderung, die Programmiertaste zu drücken — nicht zu übersehen */
+.pg-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: var(--warn-weak);
+  border-bottom: 1px solid var(--warn-border);
+  flex: 0 0 auto;
+}
+.pg-prompt[hidden] { display: none; }
+.pg-prompt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pg-prompt-title { font-size: 14px; color: var(--fg); }
+.pg-prompt-detail { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+
+.pg-body { padding-top: 0; }
+/* Die Spalten richten sich nach dem Inhalt — table.ga ist sonst fest aufgeteilt */
+table.ga.pg-table { table-layout: auto; }
+.pg-table td { vertical-align: middle; }
+.pg-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.pg-table .col-chk { width: 28px; }
+.pg-table input[type=checkbox] { accent-color: var(--accent); }
+.pg-table td.addr { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pg-table tr.pg-line td {
+  padding-top: 12px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  border-bottom-color: var(--border2);
+}
+.pg-name > span, .pg-name small { display: block; max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+.pg-name > span svg { vertical-align: -1px; color: var(--muted); }
+.pg-name small { color: var(--muted); font-size: 11.5px; }
+.pg-name small.warn { color: var(--warn); }
+.pg-row:not(.on) .pg-name > span { color: var(--muted); }
+/* Inline statt Flex: so bemisst die Tabelle die Spalte nach der ganzen Reihe */
+.pg-chips { white-space: nowrap; line-height: 28px; }
+.pg-mode-text { font-size: 12.5px; color: var(--danger); white-space: normal; }
+.pg-mode { width: 175px; min-height: 26px; font-size: 12.5px; padding: 0 4px; }
+
+/* Ein Teil des Downloads: ausstehend hat einen Punkt, gewählt ist gefüllt */
+.pchip {
+  font: inherit;
+  font-size: 12px;
+  line-height: normal;
+  vertical-align: middle;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  white-space: nowrap;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.pchip:hover:not(:disabled) { background: var(--surface2); }
+.pchip.due::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.pchip.on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.pchip.on:hover:not(:disabled) { background: var(--accent-hover); }
+.pchip.on.due::before { background: var(--on-accent); }
+.pchip.implied { color: var(--accent); background: var(--accent-weak); border-color: var(--accent-border); }
+.pchip.implied.due::before { background: var(--accent); }
+.pchip:disabled { cursor: default; }
+
+.pg-stand { width: 210px; max-width: 210px; }
+.pg-stand .prog-bar { margin: 4px 0 0; height: 4px; }
+.pg-st { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.pg-st.ok, .pg-st.done { color: var(--ok); }
+.pg-st.due, .pg-st.warn { color: var(--warn); }
+.pg-st.fail { color: var(--danger); }
+.pg-st.wait, .pg-st.skip { color: var(--muted); }
+.pg-st.run { color: var(--accent); font-weight: 600; }
+.pg-st.run::before {
+  content: '';
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.pg-st.done::before { content: '✓ '; }
+.pg-st.fail::before { content: '✕ '; }
+.pg-row.run { background: var(--accent-weak); }
+.pg-empty { color: var(--muted); padding: 18px 8px !important; white-space: normal !important; }
+
+.pg-foot-row { display: flex; align-items: center; gap: 10px; }
+.pg-foot-row .spacer { flex: 1; }
+.pg-foot .ovl-log { margin-top: 8px; }
+
 /* ---------- Kontextmenü ---------- */
 .ctx-menu {
   position: fixed;
@@ -1378,10 +1556,18 @@ textarea.input.note {
 @media (max-width: 1420px) {
   #topbar .topbar-field > span { display: none; }
 }
+/* Die Teile eines Downloads stehen nebeneinander, solange Platz ist */
+@media (max-width: 1260px) {
+  .pg-chips { white-space: normal; }
+}
+/* Mit --debug steht das Inbetriebnahme-Werkzeug zusätzlich da */
+@media (max-width: 1660px) {
+  #topbar[data-debug] .topbar-field > span { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ovl-activity.running::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
-  .btn[data-busy="1"]::before, .ovl-activity.running .act-text::before { animation-duration: 2s; }
+  .btn[data-busy="1"]::before, .ovl-activity.running .act-text::before, .pg-st.run::before { animation-duration: 2s; }
   /* Dialoge und Meldungen blenden nur noch ein, statt heranzugleiten */
   @keyframes pop { from { opacity: 0; } to { opacity: 1; } }
   #toast { transition: opacity 0.18s; }

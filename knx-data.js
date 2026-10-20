@@ -725,6 +725,8 @@ const KNX = (() => {
         serial: normSerial(d.serial),
         // Secure-Inbetriebnahme gewählt; Schlüssel liegen in der Ablage des Dienstes, nie hier
         ...(d.secure === true ? { secure: true } : {}),
+        // Was zuletzt ins Gerät geladen wurde (Prüfsummen, siehe KNXDownload.fingerprint)
+        ...withLoaded(d.loaded),
         params: normParams(d.params),
         ip: normIp(d.ip),
         ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
@@ -835,6 +837,8 @@ const KNX = (() => {
            'früheren Raumzuordnungen erzeugt — Gruppenadressen hängen jetzt an Kommunikationsobjekten.');
     }
 
+    settleLoaded(p);
+
     p.seq = seq + 1;
     p.schema = SCHEMA;
     delete p.nextNodeId;
@@ -880,6 +884,39 @@ const KNX = (() => {
   function normSerial(v) {
     const hex = String(v == null ? '' : v).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
     return hex.length === 12 ? hex : '';
+  }
+  /* Programmierstand eines Geräts: die Adresse, die es bekommen hat, und je
+     Teil die Prüfsumme dessen, was geladen wurde. `ets` nennt Teile, die laut
+     ETS-Projekt geladen sind — ihre Prüfsumme entsteht erst in settleLoaded. */
+  const LOAD_PARTS = ['app', 'par', 'grp'];
+  const DIGEST = /^[0-9a-f]{16}$/;
+  function normLoaded(v) {
+    if (!isMap(v)) return null;
+    const out = {};
+    if (Number.isInteger(v.pa) && v.pa > 0 && v.pa <= 0xFFFF) out.pa = v.pa;
+    LOAD_PARTS.forEach(k => { if (typeof v[k] === 'string' && DIGEST.test(v[k])) out[k] = v[k]; });
+    if (Number.isFinite(v.at) && v.at > 0 && v.at < 1e14) out.at = Math.trunc(v.at);
+    if (Array.isArray(v.ets)) {
+      const ets = LOAD_PARTS.filter(k => v.ets.includes(k));
+      if (ets.length) out.ets = ets;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  const withLoaded = v => { const l = normLoaded(v); return l ? { loaded: l } : {}; };
+  /* Die Teile, die das ETS-Projekt als geladen meldet, gelten mit dem Stand
+     beim Einlesen als geladen. Ohne Programmierdaten lässt sich nichts
+     nachhalten — dann fällt der Vermerk weg. */
+  function settleLoaded(p) {
+    if (typeof KNXDownload === 'undefined') return;
+    p.devices.forEach(d => {
+      if (!d.loaded || !d.loaded.ets) return;
+      const item = d.catalogId ? p.catalog.find(c => c.id === d.catalogId) : null;
+      let fp = null;
+      try { fp = KNXDownload.fingerprint(p, d, item); } catch (e) { fp = null; }
+      if (fp) d.loaded.ets.forEach(k => { d.loaded[k] = fp[k]; });
+      delete d.loaded.ets;
+      if (!Object.keys(d.loaded).length) delete d.loaded;
+    });
   }
   function normFlags(f) {
     const out = {};
@@ -1216,8 +1253,8 @@ const KNX = (() => {
   /* ---------- Index ---------- *
    * Wird bei jeder Änderung verworfen und beim nächsten Zugriff neu gebaut.
    * Ohne ihn wäre jede Zeile der Tabelle eine Baumtraversierung.           */
-  let idx = null;
-  const invalidate = () => { idx = null; };
+  let idx = null, rev = 0;
+  const invalidate = () => { idx = null; rev++; };
   const push = (map, key, val) => {
     const a = map.get(key);
     if (a) a.push(val); else map.set(key, [val]);
@@ -2375,6 +2412,8 @@ const KNX = (() => {
     migrationNotes: () => notes.slice(),
     markDirty: () => { dirty = true; invalidate(); },
     touch: invalidate,
+    // Zählt jede Änderung — für Zwischenergebnisse, die bis zur nächsten gelten
+    rev: () => rev,
     walk, findNode, parentOf, nodePath, rooms, roomIdsUnder,
     lineById, areaOfLine, lineLabel, deviceById, objById,
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,

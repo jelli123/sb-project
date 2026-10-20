@@ -274,6 +274,19 @@ function build(doc, infoDoc, products, say) {
     });
   });
 
+  /* Was die ETS als geladen vermerkt (Adr, Prg, Par, Grp). Die Prüfsummen
+     dazu bildet migrate() mit dem eingelesenen Stand. */
+  function etsLoaded(dEl, addr) {
+    const yes = a => attr(dEl, a) === 'true';
+    const out = { ets: [yes('ApplicationProgramLoaded') && 'app', yes('ParametersLoaded') && 'par',
+                        yes('CommunicationPartLoaded') && 'grp'].filter(Boolean) };
+    if (yes('IndividualAddressLoaded') && addr > 0) out.pa = addr;
+    // Die ETS schreibt sieben Nachkommastellen; nicht jeder Browser liest mehr als drei
+    const at = Date.parse(attr(dEl, 'LastDownload').replace(/(\.\d{3})\d+/, '$1'));
+    if (at > 0) out.at = at;
+    return out;
+  }
+
   function device(dEl, area, line, segmentId) {
     const prodRef = attr(dEl, 'ProductRefId'), h2p = attr(dEl, 'Hardware2ProgramRefId');
     const prod = byPair.get(prodRef + '|' + h2p) || byH2p.get(h2p) || null;
@@ -298,7 +311,8 @@ function build(doc, infoDoc, products, say) {
       roomId: null,
       catalogId: prod ? useProduct(prod) : null,
       note, serial: serialHex(attr(dEl, 'SerialNumber')),
-      params: {}, ip: ipConfig(dEl, name), ma: null, supply: 0, objs: []
+      params: {}, ip: ipConfig(dEl, name), ma: null, supply: 0, objs: [],
+      loaded: etsLoaded(dEl, addr)
     };
 
     /* Parameter: Die Ids sind vollständig, im Katalog um das Programm

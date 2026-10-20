@@ -196,7 +196,14 @@ function syncHistoryButtons() {
 }
 
 function applySnapshot(json) {
-  KNX.setProject(JSON.parse(json));
+  // Was in den Geräten steht, macht kein Rückgängig ungeschehen
+  const loaded = new Map(KNX.project().devices.map(d => [d.id, d.loaded]));
+  const p = JSON.parse(json);
+  (p.devices || []).forEach(d => {
+    if (!loaded.has(d.id)) return;
+    if (loaded.get(d.id)) d.loaded = loaded.get(d.id); else delete d.loaded;
+  });
+  KNX.setProject(p);
   if (!KNX.save()) warn(KNX.saveError());
   state.checked.clear();
   persistUI();
@@ -230,6 +237,15 @@ function commit() {
   syncHistoryButtons();
   reRender();
   ok ? toast(T18('Gespeichert'), 800) : warn(KNX.saveError());
+}
+
+/* Speichert ohne Schritt im Verlauf — für den Programmierstand der Geräte,
+   den ein Rückgängig nicht zurückdrehen darf (siehe applySnapshot). */
+function saveQuiet() {
+  KNX.markDirty();
+  const ok = KNX.save();
+  reRender();
+  if (!ok) warn(KNX.saveError());
 }
 
 /* ---------- Toast / Status ---------- */
@@ -743,7 +759,7 @@ function parentOptions(id) {
    ============================================================ */
 window.KNXApp = {
   state, esc,
-  persistUI, restoreUI, resolve, commit,
+  persistUI, restoreUI, resolve, commit, saveQuiet,
   initHistory, initNav, undo, redo, navGo, canUndo, canRedo, canBack, canFwd,
   syncHistoryButtons,
   resetHistory: () => {

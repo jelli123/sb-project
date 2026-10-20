@@ -37,6 +37,7 @@ public final class Main {
         Path data = null;
         Path web = null;
         boolean openBrowser = true;
+        boolean debug = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -44,6 +45,7 @@ public final class Main {
                 case "--data" -> data = Paths.get(args[++i]);
                 case "--web" -> web = Paths.get(args[++i]);
                 case "--no-browser" -> openBrowser = false;
+                case "--debug" -> debug = true;
                 case "--help", "-h" -> {
                     printUsage();
                     return;
@@ -81,6 +83,7 @@ public final class Main {
         }));
 
         int boundPort = port;
+        boolean debugUi = debug;
         http.createContext("/api/projects", new ProjectApi(projects, vault, boundPort));
         http.createContext("/api/settings", new ProjectApi(projects, vault, boundPort));
         http.createContext("/api/secure", new SecureApi(vault, boundPort));
@@ -98,6 +101,8 @@ public final class Main {
             m.put("version", Main.class.getPackage().getImplementationVersion());
             m.put("dataDir", dataDir.toString());
             m.put("webDir", webDir.toString());
+            // Blendet in der Oberflaeche das Inbetriebnahme-Fenster zum Testen und Debuggen ein
+            m.put("debug", debugUi);
             Http.json(ex, 200, m);
         });
         http.createContext("/", new StaticFiles(webDir, boundPort));
@@ -113,6 +118,7 @@ public final class Main {
         System.out.println("SB-Projekt laeuft auf " + url);
         System.out.println("  Daten:  " + dataDir);
         System.out.println("  Web:    " + webDir);
+        if (debug) System.out.println("  Debug:  Inbetriebnahme-Fenster eingeblendet");
         System.out.println("Beenden mit Strg+C.");
 
         if (openBrowser) openInBrowser(url);
@@ -125,6 +131,7 @@ public final class Main {
                   --data <pfad>   Verzeichnis fuer Projekte und Produktkatalog
                   --web <pfad>    Verzeichnis mit index.html und den JS-Dateien
                   --no-browser    Browser nicht automatisch oeffnen
+                  --debug         Inbetriebnahme-Fenster zum Testen und Debuggen einblenden
                 """);
     }
 

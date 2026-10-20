@@ -1153,5 +1153,64 @@ function plan(project, dev, item, opts = {}) {
   return result;
 }
 
-return { plan, kinds, usesFilterTable, encode, dpt9, associations, filterTable, hex, fromHex };
+/* ---------- Programmierstand ---------- *
+ * Prüfsummen über das, was ein Download ins Gerät bringt — je Teil eine.
+ * Nach dem Laden merkt sich das Projekt sie am Gerät (`loaded`); weicht der
+ * aktuelle Stand davon ab, ist der Teil neu zu laden. Das entspricht den
+ * Merkern Adr/Prg/Par/Grp der ETS, ist aber aus dem Inhalt berechnet: Wer
+ * eine Änderung zurücknimmt, hat auch nichts mehr zu laden.
+ * Die Applikation geht in Parameter und Gruppenadressen ein — mit ihr sind
+ * beide neu zu laden. Die eigene Adresse steht bei vielen Masken in der
+ * Adresstabelle und zählt darum zu den Gruppenadressen.                   */
+function digest(text) {
+  // cyrb53: schnell und für die Erkennung von Änderungen breit genug
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+}
+
+const sortedPairs = o => Object.keys(o || {}).sort().map(k => [k, o[k]]);
+
+/**
+ * Liefert { app, par, grp } oder null, wenn das Produkt keine Programmierdaten hat.
+ * groups: optional eine Map Id → Gruppenadresse, wenn viele Geräte nacheinander
+ * berechnet werden.
+ */
+function fingerprint(project, dev, item, groups) {
+  const prog = item && item.prog;
+  if (!prog || !prog.dl) return null;
+  groups = groups || new Map(project.groups.map(g => [g.id, g]));
+  const app = digest(JSON.stringify([item.id, prog.mask, prog.appNumber, prog.appVersion, prog.style]));
+
+  let ip = null;
+  if (dev.ip) {
+    const bb = project.areas.find(a => a.backbone);
+    ip = [sortedPairs(dev.ip), (bb && bb.lines[0] && bb.lines[0].mcast) || '',
+          String(dev.ip.name || '').trim() ? '' : dev.name];
+  }
+  const par = digest(JSON.stringify([app, sortedPairs(dev.params), ip]));
+
+  const objs = dev.objs.filter(o => !o.stale).slice().sort((a, b) => a.num - b.num).map(o => [
+    o.num, sortedPairs(o.flags),
+    o.gas.map(id => { const g = groups.get(id); return g ? [g.raw, !!g.secure] : null; })
+  ]);
+  const filter = usesFilterTable(item) ? digest(hex(filterTable(project, dev, 8192).table)) : '';
+  const grp = digest(JSON.stringify([app, dev.addr, !!dev.secure, objs, filter]));
+  return { app, par, grp };
+}
+
+/* Welche Teile ein Download der Art `kind` auf den Stand des Projekts bringt. */
+function kindParts(kind) {
+  return { all: ['app', 'par', 'grp'], ap1: ['app', 'par', 'grp'], par: ['par'], grp: ['grp'],
+           'par,grp': ['par', 'grp'] }[kind] || [];
+}
+
+return { plan, kinds, usesFilterTable, encode, dpt9, associations, filterTable, hex, fromHex,
+         fingerprint, kindParts };
 })();

@@ -4,7 +4,7 @@
 # noch dieses Repo.
 #
 #   ./release.sh              Version aus server/pom.xml
-#   ./release.sh 0.2.0-test   eigene Versionsbezeichnung
+#   ./release.sh 0.2.1-test   eigene Versionsbezeichnung
 #
 # Ergebnis: release/sb-projekt-<version>.zip
 set -e
@@ -120,7 +120,9 @@ Stand: $DATE, Quellstand: $COMMIT
 Was das ist
 -----------
 Ein Editor fuer KNX-Projekte: Gebaeude, Topologie, Gruppenadressen und
-Funktionen, dazu Inbetriebnahme ueber eine KNXnet/IP-Schnittstelle.
+Funktionen, dazu Programmieren ueber eine KNXnet/IP-Schnittstelle: Der
+Knopf "Programmieren" zeigt, was in welchem Geraet neu zu laden ist, und
+laedt es in einem Durchgang.
 Testversion — bitte nichts an einer Anlage tun, das nicht rueckgaengig
 zu machen ist.
 
@@ -140,6 +142,8 @@ im Fenster des Dienstes.
 Optionen:  --port <n>   anderer Port
            --data <pfad> anderes Verzeichnis fuer Projekte und Katalog
            --no-browser  Browser nicht oeffnen
+           --debug       Inbetriebnahme-Fenster zum Testen und Debuggen
+                         einblenden (Scan, Geraeteinfo, Einzelschritte)
 
 Wo die Daten liegen
 -------------------

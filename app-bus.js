@@ -1,7 +1,10 @@
 /* ============================================================
    KNX-Struktur — Funktionen, die den lokalen Dienst voraussetzen:
    Projektverwaltung auf dem PC und Inbetriebnahme am Bus.
-   Ohne laufenden Dienst bleiben die Knoepfe ausgeblendet.
+   Ohne laufenden Dienst bleiben die Knoepfe ausgeblendet. Das
+   Inbetriebnahme-Fenster ist zum Testen und zur Fehlersuche da und
+   erscheint nur, wenn der Dienst mit --debug gestartet wurde; im
+   Normalbetrieb programmiert app-prog.js.
    ============================================================ */
 'use strict';
 
@@ -13,8 +16,10 @@ const B = window.KNXBackend;
 
 if (!B) { window.KNXBus = { available: false }; return; }
 
+const DEBUG = !!(B.info && B.info.debug);
 $('#btn-projects').hidden = false;
-$('#btn-bus').hidden = false;
+$('#btn-bus').hidden = !DEBUG;
+if (DEBUG) $('#topbar').dataset.debug = '1';
 
 /* ============================================================
    Projektverwaltung
@@ -154,13 +159,13 @@ function chime(kind) {
 const canNotify = () => 'Notification' in window && window.isSecureContext;
 const isAway = () => document.visibilityState !== 'visible' || !document.hasFocus();
 
-function desktopNotify(title, body, level) {
+function desktopNotify(title, body, level, onOpen = openOverlay) {
   if (!prefs.desktop || !canNotify() || Notification.permission !== 'granted') return;
   try {
     const n = new Notification(title, {
       body, tag: 'knx-bus', renotify: true, requireInteraction: level === 'error'
     });
-    n.onclick = () => { window.focus(); openOverlay(); n.close(); };
+    n.onclick = () => { window.focus(); onOpen(); n.close(); };
   } catch (e) {
     // Manche Browser erlauben Benachrichtigungen nur ueber einen Service Worker.
   }
@@ -585,6 +590,21 @@ async function runTask(spec, fn) {
   // damit die Oberflaeche nicht weiter Aktionen anbietet, die ohnehin scheitern.
   if (failed) refreshStatus();
   return outcome;
+}
+
+/* Die geführte Programmierung belegt den Busthread genauso. Solange sie läuft,
+   sind die Aktionen hier gesperrt — und umgekehrt. Liefert die Freigabe oder
+   null, wenn schon etwas läuft. */
+function lock(label) {
+  if (task.current) return null;
+  task.current = { label, external: true, started: Date.now() };
+  syncControls();
+  return () => {
+    if (!task.current || !task.current.external) return;
+    task.current = null;
+    syncControls();
+    if (langStale) rebuildForLanguage();
+  };
 }
 
 function refreshStatus() {
@@ -1127,6 +1147,8 @@ function doAssign(address, serial) {
       if (bus.lastConnect) bus.lastConnect.deviceAddress = address;
       refreshStatus();
     }
+    const dev = deviceByPa(address);
+    if (r.ok && dev && window.KNXProg) KNXProg.record(dev, { pa: dev.addr });
     return { level: r.ok ? 'ok' : 'warn', message: r.message };
   });
 }
@@ -1248,7 +1270,9 @@ async function program() {
 }
 
 function doProgram(dev, plan, what) {
-  const pa = KNX.paStr(dev.addr);
+  const pa = KNX.paStr(dev.addr), addr = dev.addr, kind = plan.summary.kind;
+  // Vermerkt wird der Stand, der geladen wird — nicht, was inzwischen geändert wurde
+  const fp = window.KNXProg ? KNXProg.fingerprint(dev) : null;
   const bar = q('#bus-prog-plan .prog-bar');
   const state = q('#bus-prog-state');
   runTask({ btn: q('#bus-program'), label: T18('{0} ({1}) programmieren', dev.name, pa), busyText: T18('Programmiert …') }, async t => {
@@ -1277,6 +1301,10 @@ function doProgram(dev, plan, what) {
     }
     const res = s.result || {};
     (res.notes || []).forEach(n => appendLog('warn', n));
+    if (window.KNXProg) {
+      if (kind === 'unload') KNXProg.forget(dev, ['app', 'par', 'grp']);
+      else KNXProg.record(dev, { pa: addr, fp, parts: KNXDownload.kindParts(kind) });
+    }
     if (bar) bar.firstElementChild.style.width = '100%';
     if (res.linkLost) {
       bus.connected = false;
@@ -1342,6 +1370,9 @@ async function restart() {
   `, () => {
     runTask({ btn: q('#bus-restart'), label: T18('{0} an {1}', label, address), busyText: T18('Läuft …') }, async () => {
       const r = await B.bus.restart(eraseCode ? { address, eraseCode } : { address });
+      // Unbestätigt kann er trotzdem ausgeführt sein — dann lieber neu laden als falsch vermerken
+      if (eraseCode && deviceByPa(address) && window.KNXProg)
+        KNXProg.forget(deviceByPa(address), KNXProg.ERASES[eraseCode] || []);
       if (r.linkLost) {
         bus.connected = false;
         q('#bus-reconnect').hidden = false;
@@ -1370,6 +1401,8 @@ async function unload() {
     runTask({ btn: q('#bus-unload'), label: T18('{0} an {1} entladen', name, address),
               busyText: T18('Entlädt …') }, async () => {
       const r = await B.bus.unload({ address, objectType });
+      if (r.ok && deviceByPa(address) && window.KNXProg)
+        KNXProg.forget(deviceByPa(address), KNXProg.UNLOADS[objectType] || []);
       return { level: r.ok ? 'ok' : 'warn', message: r.message };
     });
   });
@@ -1424,6 +1457,11 @@ document.addEventListener('keydown', e => {
 $('#btn-projects').addEventListener('click', openProjects);
 $('#btn-bus').addEventListener('click', openOverlay);
 
-window.KNXBus = { available: true, open: openOverlay, openProjects, program: programDevice };
+window.KNXBus = {
+  available: true, debug: DEBUG, open: openOverlay, openProjects, program: programDevice,
+  busy: () => (task.current ? task.current.label : ''),
+  lock,
+  feedback: { prefs, savePrefs, chime, unlockAudio, canNotify, isAway, desktopNotify, setTitleBadge, toggleDesktop }
+};
 
 })();

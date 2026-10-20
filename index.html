@@ -96,8 +96,14 @@
     <input type="file" id="prod-file" accept=".knxprod" hidden>
     <button id="btn-projects" class="btn" data-pt-id="btn-projects" hidden
             title="Projekte auf diesem Rechner verwalten" data-i18n-title data-i18n>Projekte</button>
-    <button id="btn-bus" class="btn" data-pt-id="btn-bus" hidden
-            title="Geräte am Bus suchen, auslesen und adressieren" data-i18n-title data-i18n>Inbetriebnahme</button>
+    <button id="btn-prog" class="btn" data-pt-id="btn-prog" hidden
+            title="Geräte programmieren: Adresse, Applikation, Parameter und Gruppenadressen"><span data-i18n>Programmieren</span><span class="btn-badge" hidden></span></button>
+    <!-- Nur mit --debug: das Werkzeug zum Testen und zur Fehlersuche -->
+    <button id="btn-bus" class="btn btn-icon" data-pt-id="btn-bus" hidden
+            title="Geräte am Bus suchen, auslesen und adressieren" data-i18n-title
+            aria-label="Inbetriebnahme" data-i18n-aria-label>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+    </button>
     <button id="btn-new" class="btn btn-primary" data-pt-id="btn-new" title="Leeres Projekt starten" data-i18n-title data-i18n>Neues Projekt</button>
   </header>
 
