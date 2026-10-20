@@ -5,6 +5,7 @@ import de.sb.knx.api.BusApi;
 import de.sb.knx.api.CatalogApi;
 import de.sb.knx.api.OnlineApi;
 import de.sb.knx.api.ProjectApi;
+import de.sb.knx.api.SecureApi;
 import de.sb.knx.bus.BusService;
 import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
@@ -12,6 +13,7 @@ import de.sb.knx.http.Jobs;
 import de.sb.knx.http.StaticFiles;
 import de.sb.knx.json.Json;
 import de.sb.knx.online.OnlineCatalog;
+import de.sb.knx.secure.KeyVault;
 import de.sb.knx.store.CatalogStore;
 import de.sb.knx.store.ProjectStore;
 
@@ -68,6 +70,8 @@ public final class Main {
         Events events = new Events();
         Jobs jobs = new Jobs(events);
         BusService bus = new BusService(events);
+        KeyVault vault = new KeyVault(dataDir);
+        bus.vault(vault);
 
         HttpServer http = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         http.setExecutor(Executors.newCachedThreadPool(r -> {
@@ -77,8 +81,9 @@ public final class Main {
         }));
 
         int boundPort = port;
-        http.createContext("/api/projects", new ProjectApi(projects, boundPort));
-        http.createContext("/api/settings", new ProjectApi(projects, boundPort));
+        http.createContext("/api/projects", new ProjectApi(projects, vault, boundPort));
+        http.createContext("/api/settings", new ProjectApi(projects, vault, boundPort));
+        http.createContext("/api/secure", new SecureApi(vault, boundPort));
         http.createContext("/api/catalog", new CatalogApi(catalog, boundPort));
         http.createContext("/api/online", new OnlineApi(online, jobs, events, boundPort));
         http.createContext("/api/bus", new BusApi(bus, jobs, events, boundPort));

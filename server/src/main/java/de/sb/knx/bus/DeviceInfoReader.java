@@ -5,6 +5,7 @@ import tuwien.auto.calimero.DeviceDescriptor;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
 import tuwien.auto.calimero.mgmt.Destination;
+import tuwien.auto.calimero.mgmt.FuncPropResponse;
 import tuwien.auto.calimero.mgmt.KNXDisconnectException;
 import tuwien.auto.calimero.mgmt.PropertyAccess.PID;
 
@@ -45,6 +46,15 @@ public final class DeviceInfoReader {
                 out.put("descriptor", descriptor);
             }
 
+            /* Ein Geraet im Security Mode antwortet ohne Tool Key mit FFFFh und gibt auch sonst nichts
+               preis (AN193 2.2.4.5, 3.4) - weiterzufragen erzeugte nur Fehlereintraege im Geraet. */
+            if (dd0 != null && dd0.maskVersion() == 0xFFFF) {
+                out.put("secured", true);
+                out.put("interfaceObjects", List.of());
+                out.put("propertyAccess", false);
+                return out;
+            }
+
             /* Realisierungstyp 1 kennt keine Properties und quittiert sie nicht einmal.
                Calimero wiederholt dann dreimal, baut die Verbindung ab und der
                Speicherzugriff danach laeuft ins Leere - deshalb gar nicht erst fragen. */
@@ -60,6 +70,9 @@ public final class DeviceInfoReader {
 
             boolean properties = readDeviceObject(d, out);
             out.put("propertyAccess", properties);
+
+            int secIndex = indexOfType(objectTypes, Knx.OT_SECURITY);
+            if (secIndex >= 0) out.put("security", readSecurity(d, address, secIndex));
 
             int appIndex = indexOfType(objectTypes, Knx.OT_APPLICATION_PROGRAM);
             if (properties && appIndex >= 0) {
@@ -145,6 +158,39 @@ public final class DeviceInfoReader {
             out.add(m);
         }
         return out;
+    }
+
+    /**
+     * Zustand des Security Interface Object (03/05/01 6.3). Security Mode und Ladezustand gibt ein
+     * Geraet nur ueber den gesicherten Werkzeugzugang preis; ohne gebundenen Schluessel bleibt es bei
+     * der Feststellung, dass es ein Secure-Geraet ist.
+     */
+    private Map<String, Object> readSecurity(Destination d, IndividualAddress address, int index)
+            throws KNXDisconnectException {
+        Map<String, Object> m = Json.obj();
+        m.put("objectIndex", index);
+        SecureLayer.Entry e = bus.secure().entry(address);
+        m.put("toolAccess", e != null && e.synced);
+        if (e != null && e.using != null) m.put("key", e.using == SecureLayer.KeyKind.FDSK ? "fdsk" : "toolKey");
+        try {
+            // ReadServiceID 00h: Security Mode lesen (6.3.5.2); Antwort ServiceID, dann der Modus
+            FuncPropResponse r = bus.client().readFunctionPropertyState(d, index, Download.PID_SECURITY_MODE,
+                    (byte) 0x00, (byte) 0x00);
+            byte[] res = r.result();
+            if (res.length >= 2) m.put("mode", (res[1] & 0xFF) == 1);
+        } catch (KNXDisconnectException ex) {
+            throw ex;
+        } catch (KNXException ex) {
+            m.put("modeError", ex.getMessage());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+        byte[] load = property(d, index, PID.LOAD_STATE_CONTROL);
+        if (load != null) {
+            m.put("loadState", Knx.unsigned(load));
+            m.put("loadStateName", Knx.loadState(Knx.unsigned(load)));
+        }
+        return m;
     }
 
     private Map<String, Object> readBcu1(Destination d) throws KNXDisconnectException {

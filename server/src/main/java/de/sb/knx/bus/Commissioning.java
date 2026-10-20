@@ -55,6 +55,24 @@ public final class Commissioning {
     public List<Map<String, Object>> scanLine(int area, int line, BiConsumer<String, String> progress)
             throws KNXException, InterruptedException {
         Map<String, Map<String, Object>> found = new ConcurrentHashMap<>();
+        // Der Scan fragt nur, wer antwortet. Gesichert muesste er sich mit jedem Secure-Geraet erst
+        // synchronisieren - bei 256 Adressen im Takt von 115 ms waere das Zeit- und Buslast ohne Nutzen.
+        // Ein Geraet im Security Mode meldet unverschluesselt den Device Descriptor FFFFh (AN193 2.2.4.5).
+        SecureLayer secure = bus.secure();
+        secure.plainOnly(true);
+        try {
+            scan(area, line, found, progress);
+        } finally {
+            secure.plainOnly(false);
+        }
+        // Nach Teilnehmernummer, nicht als Text: sonst stuende 1.1.10 vor 1.1.3.
+        List<Map<String, Object>> out = new ArrayList<>(found.values());
+        out.sort(Comparator.comparingInt(m -> deviceOf(String.valueOf(m.get("address")))));
+        return out;
+    }
+
+    private void scan(int area, int line, Map<String, Map<String, Object>> found, BiConsumer<String, String> progress)
+            throws KNXException, InterruptedException {
         bus.procedures().scanNetworkDevices(area, line,
                 address -> {
                     entryFor(found, address);
@@ -67,13 +85,10 @@ public final class Commissioning {
                             m.put("maskVersion", String.format("%04X", descriptor.maskVersion()));
                             m.put("profile", descriptor.deviceProfile());
                             m.put("mediumType", descriptor.mediumType());
+                            if (descriptor.maskVersion() == 0xFFFF) m.put("secured", true);
                         }
                     }
                 });
-        // Nach Teilnehmernummer, nicht als Text: sonst stuende 1.1.10 vor 1.1.3.
-        List<Map<String, Object>> out = new ArrayList<>(found.values());
-        out.sort(Comparator.comparingInt(m -> deviceOf(String.valueOf(m.get("address")))));
-        return out;
     }
 
     private static Map<String, Object> entryFor(Map<String, Map<String, Object>> found, IndividualAddress address) {
@@ -205,9 +220,14 @@ public final class Commissioning {
             m.put("eraseCode", code.name());
             m.put("channel", channel);
             Duration processTime;
+            // Ruecksetzen in den Werkszustand macht den FDSK wieder gueltig und hebt die Sequenznummer
+            // fuer den Werkzeugzugang an (03/05/01 6.1.4, 6.2) - beim naechsten Zugriff wird neu
+            // synchronisiert, zuerst mit dem FDSK. Die Antwort selbst kommt noch mit dem Tool Key (6.3.10.4).
+            boolean toDefault = code == EraseCode.FactoryReset || code == EraseCode.FactoryResetWithoutIndividualAddress;
             try {
                 processTime = bus.client().restart(d, code, channel);
             } catch (KNXTimeoutException e) {
+                bus.secure().invalidate(address, toDefault);
                 m.put("ok", false);
                 m.put("confirmed", false);
                 m.put("message", "Master-Reset " + code.name() + " an " + address + " gesendet, aber nicht bestaetigt. "
@@ -215,6 +235,7 @@ public final class Commissioning {
                         + "zeigt erst der Ladezustand.");
                 return m;
             }
+            bus.secure().invalidate(address, toDefault);
             m.put("ok", true);
             m.put("confirmed", true);
             m.put("processTimeSeconds", processTime == null ? null : processTime.toSeconds());

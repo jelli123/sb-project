@@ -1431,3 +1431,11 @@ table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--border); 
 .detail-h-row .detail-h { flex: 1; }
 .detail-h-btns { display: flex; gap: 4px; margin-bottom: 4px; }
 .detail-h-btns .btn { min-height: 24px; padding: 0 8px; font-size: 12px; }
+
+/* ---------- KNX Secure ---------- */
+.secure-ic { display: inline-flex; vertical-align: -1px; color: var(--ok); }
+.detail-h > svg { vertical-align: -1px; margin-right: 2px; }
+.chk.detail-field { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 2px 0 8px; cursor: pointer; }
+.chk.detail-field input, #modal-body .chk input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+#modal-body .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 6px 0; }
+.detail-list .addr.warn { color: var(--warn); }

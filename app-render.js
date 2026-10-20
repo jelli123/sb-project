@@ -706,7 +706,8 @@ function gaRow(ga) {
 
   const tdA = document.createElement('td');
   tdA.className = 'cell-addr';
-  tdA.innerHTML = '<span class="addr">' + KNX.addrStr(ga) + '</span>';
+  tdA.innerHTML = '<span class="addr">' + KNX.addrStr(ga) + '</span>'
+    + (ga.secure ? ` <span class="secure-ic" title="${esc(A.t('KNX Secure — mit Gruppenschlüssel'))}">${A.IC_LOCK}</span>` : '');
   const badge = issueBadge(ga.id);
   if (badge) tdA.appendChild(badge);
 
@@ -791,7 +792,8 @@ function devRow(d) {
 
   const tdN = document.createElement('td');
   tdN.className = 'cell-name';
-  tdN.innerHTML = esc(d.name) + (d.product ? ' <span class="ga-note">' + esc(d.product) + '</span>' : '');
+  tdN.innerHTML = (d.secure ? `<span class="secure-ic" title="${esc(A.t('Secure-Inbetriebnahme'))}">${A.IC_LOCK}</span> ` : '')
+    + esc(d.name) + (d.product ? ' <span class="ga-note">' + esc(d.product) + '</span>' : '');
 
   const tdL = document.createElement('td');
   tdL.innerHTML = '<span class="dpt-tag">' + esc(KNX.lineLabel(d.lineId)) + '</span>';
@@ -1149,6 +1151,7 @@ function detailGa(ga) {
             <span class="flags">${KNX.flagStr(l.obj.flags)}</span>
           </li>`).join('') + '</ul>'
       : `<p class="hint">${A.t('Kein Objekt zugeordnet — die Adresse ist wirkungslos.')}</p>`}
+    ${window.KNXSecure ? KNXSecure.gaSection(ga) : ''}
     ${fnListSection(KNX.functionsOfGa(ga.id), 'Funktionen')}
     ${rooms.length
       ? `<h3 class="detail-h">${A.t('Wirksam in')}</h3><ul class="detail-list">` + rooms.map(r =>
@@ -1263,6 +1266,7 @@ function detailDev(d) {
     ${d.serial ? `<h3 class="detail-h">${A.t('Seriennummer')}</h3><ul class="detail-list">
       <li><span class="grow">${A.t('6 Byte, für die Adressvergabe ohne Programmiertaste')}</span>
         <span class="addr">${esc(d.serial)}</span></li></ul>` : ''}
+    ${window.KNXSecure ? KNXSecure.deviceSection(d) : ''}
     ${noteSection(d.note)}
     ${progSection(item)}
     ${filterSection(d)}
@@ -1552,6 +1556,7 @@ function renderDetail() {
     on('#d-rename', () => G.actEditGa(target.id));
     on('#d-move', () => G.actMoveGas([target.id]));
     on('#d-delete', () => G.actDeleteGa(target.id));
+    if (window.KNXSecure) KNXSecure.wireGa(panel, target);
   } else if (sel.kind === 'dev') {
     panel.innerHTML = detailDev(target);
     on('#d-addobj', () => T.actNewObj(target.id));
@@ -1560,6 +1565,7 @@ function renderDetail() {
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
     $('#d-room')?.addEventListener('change', e => A.setDeviceRoom(target.id, e.target.value || null));
+    if (window.KNXSecure) KNXSecure.wireDevice(panel, target);
     panel.querySelectorAll('[data-fv]').forEach(b =>
       b.addEventListener('click', () => { state.filterView = b.dataset.fv; renderDetail(); }));
   } else if (sel.kind === 'obj') {

@@ -776,10 +776,15 @@ function readApp(ap, lang, langs) {
   prog.dl.co = main.co;
   // Was hier nicht aufgelöst wird, sperrt den Download wie ein unbekannter Ladeschritt
   unsupported.forEach(u => { if (!prog.unsupported.includes(u)) prog.unsupported.push(u); });
+  /* KNX Data Security: Die Applikation sagt, ob das Gerät sie kann und wie groß
+     Security-IA- und Gruppenschlüsseltabelle sind (03/05/01 6.3.7, 6.3.8). */
+  const secure = attr(ap, 'IsSecureEnabled') === 'true'
+    ? { ia: num(ap, 'MaxSecurityIndividualAddressEntries'), gk: num(ap, 'MaxSecurityGroupKeyTableEntries') }
+    : null;
   const out = { name: pair(langs.de.get(appId + '|Name'),
                            langs.en.get(appId + '|Name') || attr(ap, 'Name')),
                 mask: attr(ap, 'MaskVersion'),
-                types, params: main.params, objs: main.objs, dyn, ip, prog };
+                types, params: main.params, objs: main.objs, dyn, ip, secure, prog };
   if (Object.keys(inst).length) { out.mods = mods; out.inst = inst; }
   return out;
 }
@@ -1016,6 +1021,7 @@ function collect(docs, prefer) {
       ma: (hw && hw.ma) || 0,
       coupler: !!(hw && hw.coupler),
       ip: app.ip || !!(hw && hw.ipEnabled),
+      secure: app.secure || null,
       powerSupply: !!(hw && hw.powerSupply),
       choke: !!(hw && hw.choke),
       noAddress: !!(hw && hw.noAddress),

@@ -620,7 +620,9 @@ const KNX = (() => {
         id, raw,
         name: normName(g.name, 'Unbenannt'),
         dpt,
-        note: normNote(g.note)
+        note: normNote(g.note),
+        // KNX Secure: Gruppenschlüssel im Dienst, hier nur die Wahl
+        ...(g.secure === true ? { secure: true } : {})
       };
     });
     dptMoves.forEach((v, k) => note(
@@ -710,6 +712,8 @@ const KNX = (() => {
         catalogId: d.catalogId || null,
         note: normNote(d.note),
         serial: normSerial(d.serial),
+        // Secure-Inbetriebnahme gewählt; Schlüssel liegen in der Ablage des Dienstes, nie hier
+        ...(d.secure === true ? { secure: true } : {}),
         params: normParams(d.params),
         ip: normIp(d.ip),
         ma: Number.isInteger(d.ma) && d.ma >= 0 ? d.ma : null,
@@ -760,6 +764,7 @@ const KNX = (() => {
         ...modules(c),
         mask: normName(c.mask, ''),
         ip: !!c.ip,
+        secure: normSecure(c.secure),
         medium: normName(c.medium, ''),
         ma: clamp(c.ma, 0, 5000, 0),
         coupler: !!c.coupler,
@@ -824,6 +829,11 @@ const KNX = (() => {
   function clamp(v, lo, hi, dflt) {
     const n = Number(v);
     return Number.isInteger(n) && n >= lo && n <= hi ? n : dflt;
+  }
+  /* KNX Secure laut Produktdatei (IsSecureEnabled) samt Größe der Security-IA-
+     und der Gruppenschlüsseltabelle; 0 heißt, die Datei nennt keine Grenze. */
+  function normSecure(v) {
+    return isMap(v) ? { ia: clamp(v.ia, 0, 65535, 0), gk: clamp(v.gk, 0, 65535, 0) } : null;
   }
   /* Notizen sind frei, aber begrenzt — sie wandern in jede Projektdatei mit. */
   const NOTE_MAX = 2000;
@@ -1741,6 +1751,7 @@ const KNX = (() => {
         ...modules(it),
         mask: normName(it.mask, ''),
         ip: !!it.ip,
+        secure: normSecure(it.secure),
         medium: normName(it.medium, ''),
         ma: +it.ma || 0,
         coupler: !!it.coupler,
@@ -1846,6 +1857,13 @@ const KNX = (() => {
           [...new Set(wrong.map(l => l.obj.dpt))].join(', '));
       if (links.some(l => !l.obj.flags.c))
         add('warn', 'ga', g.id, 'Ein zugeordnetes Objekt hat kein Kommunikations-Flag (K).');
+      // Eine sichere Adresse verstehen nur Geräte mit ihrem Gruppenschlüssel
+      if (g.secure) {
+        const plain = [...new Set(links.filter(l => !l.dev.secure).map(l => l.dev))];
+        if (plain.length)
+          add('error', 'ga', g.id, 'KNX Secure: ' + plain.map(d => paStr(d.addr) + ' ' + plainName(d.name)).join(', ') +
+            ' wird ohne Secure geladen und versteht diese Adresse nicht.');
+      }
     });
 
     const paSeen = new Map();
@@ -1887,6 +1905,11 @@ const KNX = (() => {
       // Produkte ohne Objekte (Koppler, IP-Schnittstellen) sind kein Mangel
       if (!d.objs.length && !d.catalogId && !couplerScope(d))
         add('info', 'device', d.id, 'Keine Kommunikationsobjekte — bei Netzteilen und Kopplern normal.');
+
+      if (d.secure && !d.serial)
+        add('warn', 'device', d.id, 'KNX Secure: Seriennummer fehlt — sie kommt mit dem Gerätezertifikat (FDSK).');
+      if (d.secure && cat && !cat.secure)
+        add('warn', 'device', d.id, 'KNX Secure ist gewählt, die Produktdatei nennt aber keine Secure-Unterstützung — gegebenenfalls die .knxprod neu laden.');
 
       if (cat && (cat.choke || cat.powerSupply) && !(+d.supply > 0))
         add('warn', 'device', d.id, (cat.choke ? 'Drossel' : 'Netzteil') +

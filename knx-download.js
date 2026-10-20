@@ -644,12 +644,171 @@ function translate(ctx, steps, out) {
         return;
       case 'LdCtrlRestart':
         if (ctx.ip && ctx.ip.length) out.push(...ctx.ip.splice(0));
+        if (ctx.sec && ctx.sec.length) out.push(...ctx.sec.splice(0));
         out.push({ op: 'restart', label: 'Neustart' });
         return;
       default:
         errors.push(`Ladeschritt ${s.n} wird nicht unterstützt.`);
     }
   });
+}
+
+/* ---------- KNX Secure ---------- *
+ * Die Produktdaten kennen keine Secure-Schritte; was dafür zusätzlich geladen
+ * wird, legt der Standard fest:
+ *   03/05/01 6.1.5, 6.3.10.5   Tool Key zuerst, gesichert mit dem FDSK
+ *   03/05/01 6.3.5             Security Mode über eine Function Property
+ *   03/05/01 6.3.7, 6.3.8, 6.3.15  Gruppenschlüssel-, Security-IA-Tabelle, GO-Flags
+ *   AN209                      Ablauf: Security-Objekt entladen, Laden beginnen,
+ *                              je Tabelle erst Länge 0, dann die Einträge
+ * Schlüssel stehen nie im Plan. Den Tool Key erzeugt und setzt der Dienst, die
+ * Gruppenschlüssel holt er aus seiner Ablage; hier stehen nur Ids und Indizes. */
+
+const SEC = { ot: 17, ia: 54, goFlags: 61 };
+// b1 conf, b0 auth (03/05/01 6.3.15.2) — sichere Gruppenadressen immer mit Verschlüsselung
+const GO_AUTH_CONF = 0x03;
+
+const validPa = a => Number.isInteger(a) && a > 0 && (a & 0xFF) !== 0xFF;
+
+/**
+ * Secure-Anteil des Plans. `status` ist der Zustand der Schlüsselablage aus
+ * dem Dienst (nur, ob Schlüssel da sind — nie die Schlüssel). Liefert
+ * { head, tables, summary } oder null, wenn das Gerät ohne Secure geladen wird.
+ */
+function secureSteps(project, dev, item, kind, model, status, errors, warn) {
+  const groups = new Map(project.groups.map(g => [g.id, g]));
+  const gaText = id => {
+    const g = groups.get(id);
+    return g ? (typeof KNX !== 'undefined' ? KNX.gaStr(g.raw) : String(g.raw)) : id;
+  };
+  const live = dev.objs.filter(o => !o.stale);
+  const secureGas = new Set();
+  live.forEach(o => o.gas.forEach(id => {
+    const g = groups.get(id);
+    if (g && g.secure && g.raw > 0) secureGas.add(id);
+  }));
+  const keys = status && status.unlocked && dev.serial ? (status.devices || {})[dev.serial] : null;
+  const withTables = kind !== 'par' && kind !== 'cfg' && kind !== 'unload';
+  const t = { mode: 'prop', ot: SEC.ot, occ: 0 };
+  const prop = (pid, start, count, bytes, label) => ({ op: 'writeProp', ot: SEC.ot, occ: 0, pid, start, count,
+    data: hex(bytes), verify: false, loose: true, label });
+  const sync = { op: 'secureSync', serial: dev.serial, label: 'Secure: Zugang herstellen' };
+
+  if (!dev.secure) {
+    if (secureGas.size)
+      warn(`Das Gerät wird ohne Secure geladen und nimmt an ${[...secureGas].map(gaText).join(', ')} nicht teil — diese Adressen sind sicher.`);
+    // War es Secure, wird es zurückgebaut: sonst bliebe es halb gesichert
+    if (!keys || !(keys.toolKey || keys.pending) || kind === 'unload') return null;
+    return {
+      head: [sync, { op: 'secureMode', on: false, label: 'Secure: Security Mode ausschalten' }],
+      tables: withTables ? [
+        lsmStep(t, 4, null, 'Security-Objekt: entladen', [0]),
+        lsmStep(t, 1, null, 'Security-Objekt: Laden beginnen', [2]),
+        prop(SEC.ia, 0, 1, [0, 0], 'Security-IA-Tabelle leeren'),
+        { op: 'secureGroupKeys', entries: [], label: 'Gruppenschlüssel leeren' },
+        prop(SEC.goFlags, 0, 1, [0, 0], 'GO-Security-Flags leeren'),
+        lsmStep(t, 2, null, 'Security-Objekt: Laden abschließen', [1])
+      ] : [],
+      summary: { off: true }
+    };
+  }
+
+  if (!item.secure) {
+    errors.push('Laut Produktdatei kann das Gerät kein KNX Secure. Ist sie vor der Secure-Unterstützung eingelesen worden, die .knxprod bitte neu laden.');
+    return null;
+  }
+  if (!dev.serial) {
+    errors.push('Für die Secure-Inbetriebnahme fehlt die Seriennummer — bitte das Gerätezertifikat (FDSK) eintragen.');
+    return null;
+  }
+  if (!status) {
+    errors.push('KNX Secure braucht den lokalen Dienst mit seiner Schlüsselablage.');
+    return null;
+  }
+  if (status.error) {
+    errors.push(`Die Schlüsselablage ist nicht erreichbar: ${status.error}`);
+    return null;
+  }
+  if (status.loading) {
+    errors.push('Der Zustand der Schlüsselablage wird gelesen …');
+    return null;
+  }
+  if (!status.unlocked) {
+    errors.push(status.exists === false
+      ? 'Für KNX Secure braucht das Projekt eine Schlüsselablage — bitte mit einem Projektpasswort anlegen.'
+      : 'Die Schlüsselablage ist gesperrt — bitte mit dem Projektpasswort entsperren.');
+    return null;
+  }
+  if (!keys || !(keys.fdsk || keys.toolKey || keys.pending)) {
+    errors.push(`Für die Seriennummer ${dev.serial} ist kein Gerätezertifikat (FDSK) hinterlegt.`);
+    return null;
+  }
+
+  const head = [sync];
+  const summary = { toolKey: !!keys.toolKey, groups: 0, senders: 0, objects: 0 };
+  if (kind === 'unload') return { head, tables: [], summary };
+  head.push({ op: 'secureToolKey', serial: dev.serial,
+              label: keys.toolKey ? 'Secure: Tool Key prüfen' : 'Secure: Tool Key setzen' });
+  head.push({ op: 'secureMode', on: true, label: 'Secure: Security Mode einschalten' });
+  if (!withTables) return { head, tables: [], summary };
+
+  // Gruppenschlüssel: GA_Index ist die TSAP der Adresse in der Adresstabelle (6.3.7.2, NOTE 103)
+  const addrs = model ? model.addrs : [];
+  const entries = [...secureGas]
+    .map(id => ({ tsap: addrs.indexOf(groups.get(id).raw) + 1, ga: id }))
+    .filter(e => e.tsap > 0)
+    .sort((a, b) => a.tsap - b.tsap);
+
+  // GO-Security-Flags: ein Oktett je Objekt, Index = Objektnummer (6.3.15.2)
+  const flags = new Map();
+  live.forEach(o => {
+    const linked = o.gas.map(id => groups.get(id)).filter(g => g && g.raw > 0);
+    const secureCount = linked.filter(g => g.secure).length;
+    if (!secureCount) return;
+    if (secureCount < linked.length)
+      errors.push(`Objekt ${o.num} „${o.name}“ hat sichere und unsichere Gruppenadressen — ein Objekt ist entweder gesichert oder nicht (03/05/01 6.3.15).`);
+    if (o.num < 1)
+      errors.push(`Objekt ${o.num} „${o.name}“ kann nicht gesichert werden: die GO-Security-Flags zählen ab Objekt 1.`);
+    else flags.set(o.num, GO_AUTH_CONF);
+  });
+  const maxNum = Math.max(0, ...flags.keys());
+  const flagBytes = new Uint8Array(maxNum);
+  flags.forEach((v, n) => { flagBytes[n - 1] = v; });
+
+  // Security-IA-Tabelle: wer auf diesen Adressen gesichert sendet, aufsteigend, Last Valid SeqNr 0 (6.3.8.5)
+  const senders = new Set();
+  project.devices.forEach(d => {
+    if (d.id === dev.id || !validPa(d.addr)) return;
+    if (!d.objs.some(o => !o.stale && o.gas.some(id => secureGas.has(id)))) return;
+    if (d.secure) senders.add(d.addr);
+  });
+  const ia = [...senders].sort((a, b) => a - b);
+
+  secureGas.forEach(id => {
+    const plainPeers = project.devices.filter(d => d.id !== dev.id && !d.secure
+      && d.objs.some(o => !o.stale && o.gas.includes(id)));
+    if (plainPeers.length)
+      warn(`${gaText(id)} ist sicher, ${plainPeers.map(d => `„${d.name}“`).join(', ')} wird aber ohne Secure geladen — dort kommt nichts an.`);
+  });
+  const lim = item.secure || {};
+  if (lim.gk && entries.length > lim.gk) errors.push(`${entries.length} sichere Gruppenadressen, das Gerät fasst ${lim.gk} Gruppenschlüssel.`);
+  if (lim.ia && ia.length > lim.ia) errors.push(`${ia.length} sichere Absender, die Security-IA-Tabelle des Geräts fasst ${lim.ia}.`);
+
+  summary.groups = entries.length;
+  summary.senders = ia.length;
+  summary.objects = flags.size;
+  const tables = [
+    lsmStep(t, 4, null, 'Security-Objekt: entladen', [0]),
+    lsmStep(t, 1, null, 'Security-Objekt: Laden beginnen', [2]),
+    prop(SEC.ia, 0, 1, [0, 0], 'Security-IA-Tabelle leeren')
+  ];
+  if (ia.length) tables.push(prop(SEC.ia, 1, ia.length, ia.flatMap(a => [...u16(a), 0, 0, 0, 0, 0, 0]),
+    `Security-IA-Tabelle: ${ia.length} Absender`));
+  tables.push({ op: 'secureGroupKeys', entries, label: `Gruppenschlüssel: ${entries.length}` });
+  tables.push(prop(SEC.goFlags, 0, 1, [0, 0], 'GO-Security-Flags leeren'));
+  if (maxNum) tables.push(prop(SEC.goFlags, 1, maxNum, flagBytes, `GO-Security-Flags: ${flags.size} Objekte gesichert`));
+  tables.push(lsmStep(t, 2, null, 'Security-Objekt: Laden abschließen', [1]));
+  return { head, tables, summary };
 }
 
 /* ---------- Plan ---------- */
@@ -684,6 +843,7 @@ function kinds(item) {
  * Baut den Plan für ein Gerät.
  * opts.kind      'all' | 'par' | 'grp' | 'par,grp' | 'unload'
  * opts.resolve   Sichtbarkeitsauflösung (KNX.resolveProduct)
+ * opts.secure    Zustand der Schlüsselablage ({ unlocked, devices }) oder null
  * Liefert { steps, summary, errors, warnings }; bei errors nicht ausführen.
  */
 function plan(project, dev, item, opts = {}) {
@@ -712,13 +872,21 @@ function plan(project, dev, item, opts = {}) {
   summary.kind = kind;
   summary.procedure = prog.style;
 
+  let model = null;
   try {
     summary.params = writeParams(ctx).written;
-    const model = linkModel(project, dev, item, warn);
+    model = linkModel(project, dev, item, warn);
     const tables = writeTables(ctx, prog, model, dev.addr, mask);
     Object.assign(summary, tables);
   } catch (e) {
     errors.push(e.message);
+  }
+
+  // KNX Secure: Zugang, Tool Key und Security Mode vorweg, das Security-Objekt vor dem Neustart
+  const sec = secureSteps(project, dev, item, kind, model, opts.secure || null, errors, warn);
+  if (sec) {
+    summary.secure = sec.summary;
+    ctx.sec = sec.tables;
   }
 
   // Koppler: Filtertabelle aus der Topologie, IP-Geräte: Parameterobjekt
@@ -747,6 +915,7 @@ function plan(project, dev, item, opts = {}) {
   }
 
   const steps = [];
+  if (sec) steps.push(...sec.head);
   if (mask) {
     const hosts = dl.mk && dl.mk.hosts && dl.mk.hosts.length ? dl.mk.hosts : [mask];
     steps.push({ op: 'checkMask', masks: hosts, label: 'Maskenversion prüfen' });
@@ -755,6 +924,7 @@ function plan(project, dev, item, opts = {}) {
   }
   translate(ctx, proc.steps, steps);
   if (ctx.ip && ctx.ip.length) steps.push(...ctx.ip.splice(0));
+  if (ctx.sec && ctx.sec.length) steps.push(...ctx.sec.splice(0));
 
   result.steps = steps;
   // Die Filtertabelle wird nach dem Löschen nur dort geschrieben, wo Bits gesetzt sind

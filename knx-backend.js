@@ -14,7 +14,7 @@ window.KNXBackend = null;
 
 const SCRIPTS = [
   'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-crypt.js', 'knx-proj.js', 'knx-download.js',
-  'app.js', 'app-ga.js', 'app-fn.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
+  'app.js', 'app-ga.js', 'app-fn.js', 'app-secure.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-init.js'
 ];
 
 const DEFAULT_PROJECT_ID = 'Projekt';
@@ -209,7 +209,19 @@ const backend = {
     restart:     body    => post('/api/bus/restart', body, { timeout: 130000 }),
     unload:      body    => post('/api/bus/unload', body, { timeout: 70000 }),
     loadState:   (address, objectType) =>
-      get('/api/bus/loadstate?address=' + encodeURIComponent(address) + '&objectType=' + objectType)
+      get('/api/bus/loadstate?address=' + encodeURIComponent(address) + '&objectType=' + objectType),
+    keys:        body    => post('/api/bus/keys', body)
+  },
+
+  /* KNX Secure: Die Schlüssel bleiben im Dienst. Hinein gehen Passwort und
+     Gerätezertifikat, heraus kommt nur, ob etwas vorhanden ist. */
+  secure: {
+    status:   project => get('/api/secure/status?project=' + encodeURIComponent(project)),
+    unlock:   body    => post('/api/secure/unlock', body, { timeout: 60000 }),
+    lock:     project => post('/api/secure/lock', { project }),
+    password: body    => post('/api/secure/password', body, { timeout: 60000 }),
+    certificate:       body => post('/api/secure/certificate', body),
+    removeCertificate: body => post('/api/secure/certificate/remove', body)
   }
 };
 

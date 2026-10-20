@@ -2,6 +2,7 @@ package de.sb.knx.bus;
 
 import de.sb.knx.http.Events;
 import de.sb.knx.json.Json;
+import de.sb.knx.secure.KeyVault;
 import tuwien.auto.calimero.CloseEvent;
 import tuwien.auto.calimero.DataUnitBuilder;
 import tuwien.auto.calimero.IndividualAddress;
@@ -23,6 +24,7 @@ import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.ManagementClientImpl;
 import tuwien.auto.calimero.mgmt.ManagementProceduresImpl;
 import tuwien.auto.calimero.mgmt.TransportLayer;
+import tuwien.auto.calimero.mgmt.TransportLayerImpl;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -31,6 +33,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +57,9 @@ public final class BusService implements AutoCloseable {
      *  Zwei Transportschichten auf demselben Link wuerden sich gegenseitig die
      *  verbindungsorientierten Telegramme wegtrennen (T_Disconnect auf unbekannte Ziele). */
     static final class SharedClient extends ManagementClientImpl {
-        SharedClient(KNXNetworkLink link) throws KNXLinkClosedException {
-            super(link);
+        /** Mit eigener Secure-Schicht: sie sichert den Zugang zu KNX-Secure-Geraeten (SecureLayer). */
+        SharedClient(KNXNetworkLink link, SecureLayer secure) {
+            super(link, secure);
         }
 
         TransportLayer sharedTransportLayer() {
@@ -106,6 +110,47 @@ public final class BusService implements AutoCloseable {
             return Arrays.copyOfRange(res, 6, res.length);
         }
 
+        /**
+         * A_PropertyValue_Write ohne Vergleich der Antwortdaten. writeProperty verlangt, dass die Antwort
+         * den geschriebenen Wert wiederholt - Schluessel gibt ein Secure-Geraet aber nicht unbedingt
+         * zurueck; PID_TOOL_KEY ist nicht lesbar (03/05/01 6.3.10.2). Abgelehnt ist das Schreiben, wenn
+         * die Antwort 0 Elemente meldet (03/03/07 A_PropertyValue_Response).
+         */
+        void writePropertyUnchecked(Destination dst, int objIndex, int pid, int start, int elements, byte[] data)
+                throws KNXException, InterruptedException {
+            byte[] res = propertyWrite(dst, objIndex, pid, start, elements, data);
+            if (res.length < 6 || ((res[4] & 0xFF) >> 4) == 0) {
+                throw new KNXRemoteException("Property " + pid + ": Schreiben abgelehnt");
+            }
+        }
+
+        /**
+         * Schreibt PID_TOOL_KEY. Hier zaehlt nur, dass eine Antwort ankommt: das Geraet sichert sie bereits
+         * mit dem neuen Schluessel (03/05/01 6.3.10.4), entschluesseln laesst sie sich also nur, wenn er
+         * gesetzt ist. Die Elementanzahl darf dabei 0 sein, obwohl das Schreiben gelungen ist - der Tool Key
+         * hat die Access Policy 008/008 und darf nicht zurueckgelesen werden (03/03/07 3.4.4.2, NOTE 10).
+         */
+        void writeToolKey(Destination dst, int objIndex, int pid, byte[] key) throws KNXException, InterruptedException {
+            propertyWrite(dst, objIndex, pid, 1, 1, key);
+        }
+
+        private byte[] propertyWrite(Destination dst, int objIndex, int pid, int start, int elements, byte[] data)
+                throws KNXException, InterruptedException {
+            byte[] asdu = new byte[4 + data.length];
+            asdu[0] = (byte) objIndex;
+            asdu[1] = (byte) pid;
+            asdu[2] = (byte) ((elements << 4) | ((start >> 8) & 0x0F));
+            asdu[3] = (byte) start;
+            System.arraycopy(data, 0, asdu, 4, data.length);
+            byte[] apdu = DataUnitBuilder.createAPDU(PROPERTY_WRITE, asdu);
+            try {
+                return sendWait(dst, getPriority(), apdu, PROPERTY_RESPONSE, 4, 250, responseTimeout());
+            } finally {
+                Arrays.fill(asdu, (byte) 0);
+                Arrays.fill(apdu, (byte) 0);
+            }
+        }
+
         private static final int PROPERTY_WRITE = 0x03D7;
         private static final int PROPERTY_RESPONSE = 0x03D6;
     }
@@ -123,6 +168,12 @@ public final class BusService implements AutoCloseable {
     private volatile KNXNetworkLink link;
     private volatile SharedClient client;
     private volatile SharedProcedures procedures;
+    private volatile SecureLayer secure;
+
+    /** Schluessel fuer KNX Secure; gebunden wird, was die Oberflaeche fuer das offene Projekt meldet. */
+    private volatile KeyVault vault;
+    private volatile String keyProject;
+    private volatile Map<IndividualAddress, String> keyDevices = Map.of();
     private volatile Map<String, Object> description = Json.obj();
 
     /** Adresse der KNXnet/IP-Schnittstelle selbst - noetig, um das Programmieren der
@@ -134,6 +185,10 @@ public final class BusService implements AutoCloseable {
 
     public BusService(Events events) {
         this.events = events;
+    }
+
+    public void vault(KeyVault vault) {
+        this.vault = vault;
     }
 
     private static ExecutorService newExecutor() {
@@ -193,6 +248,7 @@ public final class BusService implements AutoCloseable {
         link = null;
         client = null;
         procedures = null;
+        secure = null;
         description = Json.obj();
         if (l != null) {
             try {
@@ -376,7 +432,10 @@ public final class BusService implements AutoCloseable {
     }
 
     private void attach() throws KNXLinkClosedException {
-        client = new SharedClient(link);
+        secure = new SecureLayer(new TransportLayerImpl(link));
+        secure.listener(this::onSynced);
+        applyKeys();
+        client = new SharedClient(link, secure);
         client.responseTimeout(Duration.ofSeconds(5));
         procedures = new SharedProcedures(client);
 
@@ -411,6 +470,15 @@ public final class BusService implements AutoCloseable {
             }
             client = null;
         }
+        if (secure != null) {
+            // Mit eigener Secure-Schicht baut der Client die Transportschicht nicht selbst ab.
+            try {
+                secure.detachTransport();
+            } catch (RuntimeException ignored) {
+                // dito
+            }
+            secure = null;
+        }
         if (link != null) {
             link.close();
             link = null;
@@ -425,6 +493,84 @@ public final class BusService implements AutoCloseable {
 
     SharedProcedures procedures() {
         return require(procedures);
+    }
+
+    SecureLayer secure() {
+        return require(secure);
+    }
+
+    KeyVault keyVault() {
+        KeyVault v = vault;
+        if (v == null) throw new IllegalStateException("Keine Schluesselablage vorhanden.");
+        return v;
+    }
+
+    /** Projekt, dessen Schluessel gerade gebunden sind - fuer Rueckmeldungen an die Ablage. */
+    String keyProject() {
+        String p = keyProject;
+        if (p == null) throw new IllegalStateException("Es sind keine Secure-Schluessel gebunden.");
+        return p;
+    }
+
+    /* ---------------- KNX Secure: Schluessel binden ---------------- */
+
+    /**
+     * Bindet die Schluessel der Secure-Geraete eines Projekts an Adressen. Die Oberflaeche meldet
+     * dazu Adresse und Seriennummer; die Schluessel selbst kommen aus der entsperrten Ablage und
+     * verlassen den Dienst nie. Ist sie gesperrt, wird nichts gebunden - der Zugriff auf ein Geraet
+     * im Security Mode scheitert dann mit einem Hinweis, statt unverschluesselt Unsinn zu lesen.
+     */
+    public synchronized Map<String, Object> bindKeys(String project, Map<IndividualAddress, String> devices) {
+        keyProject = project;
+        keyDevices = Map.copyOf(devices);
+        int bound = applyKeys();
+        Map<String, Object> m = Json.obj();
+        KeyVault v = vault;
+        m.put("unlocked", v != null && project != null && v.unlocked(project));
+        m.put("bound", bound);
+        return m;
+    }
+
+    /** Uebertraegt die gemeldeten Geraete in die Secure-Schicht der laufenden Verbindung. */
+    private synchronized int applyKeys() {
+        SecureLayer s = secure;
+        if (s == null) return 0;
+        Map<IndividualAddress, SecureLayer.Entry> next = new HashMap<>();
+        KeyVault v = vault;
+        String project = keyProject;
+        if (v != null && project != null && v.unlocked(project)) {
+            keyDevices.forEach((address, serial) -> {
+                KeyVault.DeviceKeys k = v.device(project, serial);
+                if (k != null && k.any()) next.put(address, new SecureLayer.Entry(serial, k.toolKey(), k.pending(), k.fdsk()));
+            });
+        }
+        s.bind(next);
+        return next.size();
+    }
+
+    /**
+     * Die Synchronisation verraet, welcher Schluessel im Geraet gilt. Das wird in der Ablage
+     * nachgetragen: ein vorgemerkter Tool Key ist angekommen oder eben nicht.
+     */
+    private void onSynced(IndividualAddress address, String serial, SecureLayer.KeyKind kind, byte[] key) {
+        KeyVault v = vault;
+        String project = keyProject;
+        if (v == null || project == null || !v.unlocked(project)) return;
+        try {
+            switch (kind) {
+                case PENDING -> v.confirmToolKey(project, serial, key);
+                case TOOL, FDSK -> v.dropPending(project, serial);
+            }
+        } catch (Exception e) {
+            if (events != null) events.log("warn", "Schluesselablage nicht nachgetragen: " + e.getMessage());
+        }
+        if (events != null) {
+            events.log("info", address + " (Secure): " + switch (kind) {
+                case TOOL -> "arbeitet mit dem gespeicherten Tool Key";
+                case PENDING -> "hat den neuen Tool Key uebernommen";
+                case FDSK -> "arbeitet mit dem FDSK (Werkszustand)";
+            });
+        }
     }
 
     private <T> T require(T value) {

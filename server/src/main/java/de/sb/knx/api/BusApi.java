@@ -69,6 +69,7 @@ public final class BusApi implements HttpHandler {
                 case "/api/bus/restart" -> restart(ex, method);
                 case "/api/bus/unload" -> unload(ex, method);
                 case "/api/bus/loadstate" -> loadState(ex);
+                case "/api/bus/keys" -> keys(ex, method);
                 default -> {
                     if (path.startsWith("/api/bus/jobs/")) job(ex, method, path);
                     else Http.error(ex, 404, "Unbekannter Pfad");
@@ -359,6 +360,33 @@ public final class BusApi implements HttpHandler {
         IndividualAddress addr = Knx.address(requiredParam(ex, "address"));
         int type = objectType(intParam(ex, "objectType", 3));
         Http.json(ex, 200, run(() -> commissioning.loadState(addr, type), 30));
+    }
+
+    /* ---------------- KNX Secure ---------------- */
+
+    /** Hoechstens so viele Geraete je Bindung - mehr hat kein Projekt, und die Liste kommt von aussen. */
+    private static final int MAX_KEY_DEVICES = 4096;
+
+    /**
+     * Bindet die Schluessel der Secure-Geraete des offenen Projekts an ihre Adressen. Die Oberflaeche
+     * meldet Adresse und Seriennummer vor jedem Busvorgang; Schluessel gehen dabei nicht ueber die Leitung.
+     */
+    private void keys(HttpExchange ex, String method) throws Exception {
+        requirePost(method);
+        Map<String, Object> body = Http.jsonBody(ex);
+        String project = Json.str(body, "project", null);
+        if (project == null) throw new IllegalArgumentException("Feld project fehlt");
+        if (!(body.get("devices") instanceof List<?> raw)) throw new IllegalArgumentException("Feld devices fehlt");
+        if (raw.size() > MAX_KEY_DEVICES) throw new IllegalArgumentException("Zu viele Geraete");
+        Map<IndividualAddress, String> devices = new java.util.LinkedHashMap<>();
+        for (Object o : raw) {
+            if (!(o instanceof Map<?, ?> m) || !(m.get("address") instanceof String a) || !(m.get("serial") instanceof String sn))
+                throw new IllegalArgumentException("Eintrag braucht address und serial");
+            IndividualAddress addr = Knx.address(a);
+            String serial = Knx.hex(Knx.serialNumber(sn).array());
+            if (devices.put(addr, serial) != null) throw new IllegalArgumentException("Adresse doppelt: " + addr);
+        }
+        Http.json(ex, 200, bus.bindKeys(de.sb.knx.store.FileStore.safeId(project), devices));
     }
 
     /* ---------------- Hilfen ---------------- */

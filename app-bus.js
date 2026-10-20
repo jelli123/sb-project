@@ -561,6 +561,10 @@ async function runTask(spec, fn) {
 
   let outcome, failed = false;
   try {
+    // Adressen ändern sich mit jeder Vergabe — die Secure-Schlüssel werden darum vor jedem Vorgang neu zugeordnet.
+    if (window.KNXSecure) {
+      try { await KNXSecure.bindForBus(); } catch (e) { appendLog('warn', T18('Secure-Schlüssel nicht zugeordnet: {0}', e.message)); }
+    }
     outcome = (await fn(t)) || { level: 'ok', message: t.label + ' abgeschlossen' };
   } catch (e) {
     outcome = { level: 'error', message: t.label + ' fehlgeschlagen: ' + e.message };
@@ -902,7 +906,7 @@ function renderScan(list, live) {
     const known = byAddr.get(d.address);
     return `<tr class="pick" data-pa="${esc(d.address)}" title="${T18('Adresse in die Felder unten übernehmen')}">
       <td><b>${esc(d.address)}</b></td>
-      <td>${esc(d.maskVersion || pending)}</td>
+      <td>${d.secured ? `<span title="${T18('Security Mode aktiv: ohne Tool Key meldet das Gerät FFFFh')}">${A.IC_LOCK} Secure</span>` : esc(d.maskVersion || pending)}</td>
       <td>${esc(d.profile || pending)}</td>
       <td>${known ? esc(known.name) : `<span class="hint warn">${T18('nicht im Projekt')}</span>`}</td>
       <td class="col-act"><button class="btn btn-sm" data-read="${esc(d.address)}">${T18('Auslesen')}</button></td>
@@ -932,9 +936,9 @@ function renderScan(list, live) {
 
 /* ---------- Geraet auslesen ---------- */
 
-function readDevice() {
+async function readDevice() {
   const addr = readPa('#bus-addr');
-  if (!addr) return;
+  if (!addr || !(await secureReady(addr))) return;
   const box = q('#bus-device');
 
   runTask({ btn: q('#bus-read'), label: T18('Gerät {0} auslesen', addr), busyText: T18('Liest …') }, async () => {
@@ -954,6 +958,14 @@ function readDevice() {
 }
 
 const deviceByPa = pa => KNX.project().devices.find(d => KNX.paStr(d.addr) === pa) || null;
+
+/* Ein Secure-Gerät braucht die entsperrte Schlüsselablage, bevor der Bus berührt
+   wird — im Security Mode gibt es ohne Tool Key nichts preis (AN193 3.4). */
+async function secureReady(pa) {
+  const dev = deviceByPa(pa);
+  if (!window.KNXSecure || !KNXSecure.relevant(dev)) return true;
+  return KNXSecure.ensureUnlocked();
+}
 
 /**
  * Die am Bus gelesene Seriennummer beim Projektgerät hinterlegen. Damit kann später
@@ -1023,7 +1035,19 @@ function renderDevice(d) {
     add('Laufzeitfehler', d.legacy.runError);
     add('Adresstabelle', d.legacy.addressTableEntries);
   }
-  if (!d.propertyAccess) add('Properties', T18('nicht unterstützt — Realisierungstyp 1'));
+  if (d.secured) {
+    add('KNX Secure', T18('Security Mode aktiv — ohne Tool Key gibt das Gerät nichts preis'));
+  } else if (!d.propertyAccess) {
+    add('Properties', T18('nicht unterstützt — Realisierungstyp 1'));
+  }
+  const sec = d.security;
+  if (sec) {
+    add('KNX Secure', [
+      sec.mode === true ? T18('Security Mode ein') : sec.mode === false ? T18('Security Mode aus') : T18('Security Mode unbekannt'),
+      sec.key === 'fdsk' ? T18('Zugang mit FDSK (Werkszustand)') : sec.key === 'toolKey' ? T18('Zugang mit Tool Key') : T18('ohne gesicherten Zugang'),
+      sec.loadStateName ? T18('Schlüsseltabellen: {0}', sec.loadStateName) : ''
+    ].filter(Boolean).join(' · '));
+  }
 
   const objs = (d.interfaceObjects || [])
     .map(o => `${o.index}: ${esc(o.name)}`).join(' · ');
@@ -1152,8 +1176,10 @@ function renderPlan() {
     appendLog('info', T18('Tunneladressen für {0}: {1}', dev.name, KNX.tunnelAddrs(dev).map(KNX.paStr).join(', ')));
   }
   let plan;
+  const S = window.KNXSecure;
+  const secure = S && S.available() ? (S.known() || { unlocked: false, loading: true }) : null;
   try {
-    plan = KNXDownload.plan(KNX.project(), dev, item, { kind: q('#bus-prog-kind').value });
+    plan = KNXDownload.plan(KNX.project(), dev, item, { kind: q('#bus-prog-kind').value, secure });
   } catch (e) {
     plan = { steps: [], summary: {}, errors: [T18('Plan nicht berechenbar: {0}', e.message)], warnings: [] };
   }
@@ -1167,20 +1193,39 @@ function renderPlan() {
     s.filter != null && T18('{0} Adressen in der Filtertabelle', s.filter),
     s.params != null && T18('{0} Parameter', s.params),
     s.writes ? T18('{0} Byte Speicher', s.writes) : '',
+    s.secure && (s.secure.off ? T18('Secure wird zurückgenommen')
+      : T18('Secure: Tool Key {0}', s.secure.toolKey ? T18('vorhanden') : T18('wird gesetzt'))),
+    s.secure && !s.secure.off && s.secure.groups ? T18('{0} Gruppenschlüssel', s.secure.groups) : '',
+    s.secure && !s.secure.off && s.secure.senders ? T18('{0} sichere Absender', s.secure.senders) : '',
     s.steps && T18('{0} Schritte', s.steps)
   ].filter(Boolean);
+  // Fehlt für Secure nur der Schlüssel, gibt es den Weg dorthin gleich hier
+  const keys = S ? S.keysOf(dev) : null;
+  const needUnlock = S && dev.secure && secure && !secure.unlocked && !secure.loading;
+  const needCert = S && dev.secure && secure && secure.unlocked && !(keys && (keys.fdsk || keys.toolKey || keys.pending));
   box.innerHTML = `<p class="hint">${esc(facts.join(' · '))}</p>`
     + plan.errors.map(m => `<p class="hint warn">${esc(m)}</p>`).join('')
+    + (needUnlock ? `<div class="row"><button class="btn btn-sm" id="bus-sec-unlock">${A.IC_LOCK} ${secure.exists === false ? T18('Schlüsselablage anlegen …') : T18('Schlüsselablage entsperren …')}</button></div>` : '')
+    + (needCert ? `<div class="row"><button class="btn btn-sm" id="bus-sec-cert">${T18('Zertifikat eintragen …')}</button></div>` : '')
     + plan.warnings.slice(0, 5).map(m => `<p class="hint">${esc(m)}</p>`).join('')
     + (plan.warnings.length > 5 ? `<p class="hint">${T18('… und {0} weitere Hinweise.', plan.warnings.length - 5)}</p>` : '')
     + '<div class="prog-bar" hidden><span></span></div>';
+  const unlockBtn = q('#bus-sec-unlock');
+  if (unlockBtn) unlockBtn.onclick = () => S.ensureUnlocked();
+  const certBtn = q('#bus-sec-cert');
+  if (certBtn) certBtn.onclick = () => S.enterCertificate(dev.id);
   syncControls();
 }
 
-function program() {
+async function program() {
   const dev = KNX.deviceById(q('#bus-prog-dev').value);
+  if (!dev || !bus.plan) return;
+  if (window.KNXSecure && KNXSecure.relevant(dev)) {
+    if (!(await KNXSecure.ensureUnlocked())) return;
+    renderPlan();
+  }
   const plan = bus.plan;
-  if (!dev || !plan) return;
+  if (!plan) return;
   if (plan.errors.length) { A.warn(plan.errors[0]); return; }
   const pa = KNX.paStr(dev.addr);
   const kind = q('#bus-prog-kind').value;
@@ -1194,6 +1239,10 @@ function program() {
          ? T18('Das Gerät ist währenddessen ohne Funktion und startet am Ende neu.')
          : T18('Das Gerät ist währenddessen ohne Funktion.')}</p>
     ${iface && iface === pa ? `<p class="hint warn">${T18('Das ist die verbundene Schnittstelle. Beim Neustart bricht die Verbindung ab — danach „Neu verbinden“.')}</p>` : ''}
+    ${plan.summary.secure && !plan.summary.secure.off ? `<p class="hint">${plan.summary.secure.toolKey
+      ? T18('KNX Secure: Zugang mit dem gespeicherten Tool Key; der Security Mode bleibt eingeschaltet.')
+      : T18('KNX Secure: Das Gerät bekommt einen neuen Tool Key, der FDSK gilt danach nicht mehr. Der Security Mode wird eingeschaltet.')}</p>` : ''}
+    ${plan.summary.secure && plan.summary.secure.off ? `<p class="hint">${T18('KNX Secure wird zurückgenommen: Security Mode aus, Schlüsseltabellen leer. Der Tool Key bleibt bis zum Werkszustand.')}</p>` : ''}
     ${plan.warnings.length ? '<p class="hint warn">' + plan.warnings.map(esc).join('<br>') + '</p>' : ''}
   `, () => doProgram(dev, plan, what));
 }
@@ -1276,17 +1325,20 @@ function restartLabel() {
     : 'Zurücksetzen');
 }
 
-function restart() {
+async function restart() {
   const address = readPa('#bus-rst-addr');
-  if (!address) return;
+  if (!address || !(await secureReady(address))) return;
   const eraseCode = q('#bus-erase').value;
   const label = q('#bus-erase').selectedOptions[0].textContent;
+  const secureDev = (deviceByPa(address) || {}).secure;
 
   A.openModal(T18('Wirklich ausführen?'), `
     <p>${T18('An <b>{0}</b> wird ausgeführt: <b>{1}</b>.', esc(address), esc(label))}</p>
     ${eraseCode.startsWith('Factory')
       ? `<p class="hint warn">${T18('Der Werkszustand löscht die geladene Applikation. Das Gerät muss danach vollständig neu programmiert werden.')}</p>`
       : `<p class="hint">${T18('Das Gerät ist während des Neustarts kurz nicht erreichbar.')}</p>`}
+    ${eraseCode.startsWith('Factory') && secureDev
+      ? `<p class="hint">${T18('KNX Secure: Danach gilt wieder der FDSK vom Zertifikat, Security Mode und Schlüsseltabellen sind zurückgesetzt. Beim nächsten Programmieren wird ein neuer Tool Key gesetzt.')}</p>` : ''}
   `, () => {
     runTask({ btn: q('#bus-restart'), label: T18('{0} an {1}', label, address), busyText: T18('Läuft …') }, async () => {
       const r = await B.bus.restart(eraseCode ? { address, eraseCode } : { address });
@@ -1306,9 +1358,9 @@ function readLsm() {
   return { objectType: Number(sel.value), name: sel.selectedOptions[0].textContent };
 }
 
-function unload() {
+async function unload() {
   const address = readPa('#bus-rst-addr');
-  if (!address) return;
+  if (!address || !(await secureReady(address))) return;
   const { objectType, name } = readLsm();
 
   A.openModal(T18('Objekt entladen?'), `
@@ -1323,10 +1375,10 @@ function unload() {
   });
 }
 
-function readLoadState() {
+async function readLoadState() {
   if (!q('#bus-rst-addr').value.trim()) q('#bus-rst-addr').value = q('#bus-addr').value.trim();
   const address = readPa('#bus-rst-addr');
-  if (!address) return;
+  if (!address || !(await secureReady(address))) return;
   const { objectType, name } = readLsm();
 
   runTask({ btn: q('#bus-loadstate'), label: T18('Ladezustand von {0} lesen', address), busyText: T18('Liest …') }, async () => {
@@ -1338,9 +1390,12 @@ function readLoadState() {
 
 /* ---------- Oeffnen und Schliessen ---------- */
 
+if (window.KNXSecure) KNXSecure.onChange(() => { if (overlay && !task.current) renderPlan(); });
+
 async function openOverlay() {
   if (langStale) rebuildForLanguage();
   ensureOverlay();
+  if (window.KNXSecure && KNXSecure.available()) KNXSecure.refresh();
   if (!task.current) { fillLines(); fillTargets(); fillProgDevices(); syncControls(); }
   overlay.classList.add('open');
   try {

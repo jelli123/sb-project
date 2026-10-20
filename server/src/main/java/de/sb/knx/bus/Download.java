@@ -10,6 +10,7 @@ import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.FuncPropResponse;
 import tuwien.auto.calimero.mgmt.KNXDisconnectException;
 import tuwien.auto.calimero.mgmt.PropertyAccess.PID;
+import tuwien.auto.calimero.secure.KnxSecureException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +45,13 @@ public final class Download {
     private static final int PID_IO_LIST = 71;
     private static final int PID_ROUTETABLE_CONTROL = 56;
 
+    /** Security Interface Object (03/05/01 6.3): Objekttyp 17 und seine Properties. */
+    static final int OT_SECURITY = 17;
+    static final int PID_SECURITY_MODE = 51;
+    static final int PID_GRP_KEY_TABLE = 53;
+    static final int PID_TOOL_KEY = 56;
+    private static final Map<String, Object> SECURITY_OBJECT = Map.<String, Object>of("ot", OT_SECURITY, "occ", 0);
+
     public interface Progress {
         void step(int index, int total, String label);
     }
@@ -56,6 +64,7 @@ public final class Download {
     private boolean filterCleared;
     private boolean memStateUnreadable;
     private boolean restarted;
+    private SecureLayer.KeyKind secureKind;
     private long written;
     private final List<String> notes = new ArrayList<>();
 
@@ -78,7 +87,7 @@ public final class Download {
                 } catch (KNXException e) {
                     throw new KNXException("Schritt " + i + " von " + steps.size() + " (" + label + "): "
                             + describe(e), e);
-                } catch (IllegalStateException e) {
+                } catch (IllegalStateException | KnxSecureException e) {
                     throw new IllegalStateException("Schritt " + i + " von " + steps.size() + " (" + label + "): "
                             + e.getMessage(), e);
                 }
@@ -116,6 +125,10 @@ public final class Download {
             case "clearObjectCache" -> objectTypes = null;
             case "delay" -> Thread.sleep(Math.max(0, Json.integer(s, "ms", 0)));
             case "restart" -> restart();
+            case "secureSync" -> secureSync(s);
+            case "secureToolKey" -> secureToolKey(s);
+            case "secureMode" -> secureMode(s);
+            case "secureGroupKeys" -> secureGroupKeys(s);
             default -> throw new IllegalStateException("Unbekannter Schritt: " + op);
         }
     }
@@ -304,11 +317,13 @@ public final class Download {
         int size = count > 0 && data.length % count == 0 ? data.length / count : 0;
         int step = size > 0 ? Math.min(count, Math.max(1, Math.min(MAX_ELEMENTS, PROP_CHUNK / size))) : count;
         boolean verify = Json.bool(s, "verify", false);
+        boolean loose = Json.bool(s, "loose", false);
         for (int done = 0; done < count; done += step) {
             int n = Math.min(step, count - done);
             byte[] part = step == count ? data : Arrays.copyOfRange(data, done * size, (done + n) * size);
             try {
-                bus.client().writeProperty(dst(), index, pid, start + done, n, part);
+                if (loose) bus.client().writePropertyUnchecked(dst(), index, pid, start + done, n, part);
+                else bus.client().writeProperty(dst(), index, pid, start + done, n, part);
             } catch (KNXRemoteException e) {
                 throw new IllegalStateException("Das Geraet lehnt das Schreiben von Property " + pid + " (Objekt "
                         + index + ", Wert " + Knx.hex(part) + ") ab. Ist sie in der Firmware beschreibbar?", e);
@@ -351,6 +366,147 @@ public final class Download {
         bus.client().restart(dst());
         release();
         objectTypes = null;
+    }
+
+    /* ---------------- KNX Secure ---------------- */
+
+    /**
+     * Stellt den gesicherten Werkzeugzugang her: synchronisiert mit dem Geraet und stellt dabei fest,
+     * ob es schon mit dem Tool Key arbeitet oder noch mit dem FDSK (03/05/02 4.2). Ohne gebundene
+     * Schluessel bricht der Plan hier ab - unverschluesselt kaeme an ein Geraet im Security Mode
+     * ohnehin nichts an (AN193 2.2.4.5).
+     */
+    private void secureSync(Map<String, Object> s) throws KNXException, InterruptedException {
+        SecureLayer.Entry e = secureEntry(s);
+        dst();
+        secureKind = bus.secure().resync(address);
+        if (secureKind == SecureLayer.KeyKind.FDSK && e.toolKey != null) {
+            notes.add(address + " arbeitet wieder mit dem FDSK - es war offenbar im Werkszustand. Ein neuer Tool Key wird gesetzt.");
+        }
+    }
+
+    /**
+     * Setzt den Tool Key, solange das Geraet noch mit dem FDSK arbeitet (03/05/01 6.1.5 und 6.3.10.5:
+     * nach der Adressvergabe und vor jedem weiteren Zugriff). Der Schluessel ist zufaellig und neu und
+     * steht in der Ablage, bevor er das Geraet erreicht. Die Antwort des Geraets ist bereits mit dem
+     * neuen Schluessel gesichert (6.3.10.4) - kommt sie an, ist er gesetzt.
+     */
+    private void secureToolKey(Map<String, Object> s) throws KNXException, InterruptedException {
+        SecureLayer.Entry e = secureEntry(s);
+        if (secureKind == null) secureKind = bus.secure().resync(address);
+        if (secureKind != SecureLayer.KeyKind.FDSK) return;          // Tool Key ist schon gesetzt
+
+        String project = bus.keyProject();
+        byte[] key;
+        try {
+            key = bus.keyVault().newPendingToolKey(project, e.serial);
+        } catch (java.io.IOException | java.security.GeneralSecurityException x) {
+            throw new IllegalStateException("Tool Key nicht in der Ablage gesichert - es wird nichts geschrieben: " + x.getMessage(), x);
+        }
+        int index = objectIndex(SECURITY_OBJECT);
+        SecureLayer sl = bus.secure();
+        sl.armToolKey(address, key);
+        try {
+            bus.client().writeToolKey(dst(), index, PID_TOOL_KEY, key);
+            // Gegenprobe: diese Anfrage geht schon mit dem neuen Schluessel hinaus. Antwortet das Geraet,
+            // arbeitet es damit - auch wenn es die Antwort auf das Schreiben selbst unverschluesselt gab.
+            bus.client().readProperty(dst(), index, PID.OBJECT_TYPE, 1, 1);
+        } catch (KNXException | KnxSecureException x) {
+            sl.disarm(address);
+            // Ausgang offen: die Anfrage kann angekommen und nur die Antwort verloren sein.
+            // Die Synchronisation mit allen bekannten Schluesseln klaert, welcher jetzt gilt.
+            sl.bindOne(address, new SecureLayer.Entry(e.serial, e.toolKey, key, e.fdsk));
+            reconnectIfLost();
+            SecureLayer.KeyKind now = sl.resync(address);
+            if (now != SecureLayer.KeyKind.PENDING) {
+                throw new IllegalStateException("Tool Key nicht gesetzt (" + describe(x) + "). Das Geraet arbeitet weiter mit dem "
+                        + (now == SecureLayer.KeyKind.FDSK ? "FDSK" : "bisherigen Tool Key") + ".", x);
+            }
+        }
+        try {
+            bus.keyVault().confirmToolKey(project, e.serial, key);
+        } catch (java.io.IOException | java.security.GeneralSecurityException x) {
+            throw new IllegalStateException("Der Tool Key ist im Geraet gesetzt, aber nicht als bestaetigt gespeichert. "
+                    + "Er bleibt vorgemerkt und wird beim naechsten Zugriff erkannt: " + x.getMessage(), x);
+        }
+        sl.bindOne(address, confirmed(e, key));
+        secureKind = SecureLayer.KeyKind.TOOL;
+        notes.add("Tool Key fuer " + address + " gesetzt; der FDSK ist damit inaktiv (03/05/01 6.1.4).");
+    }
+
+    private static SecureLayer.Entry confirmed(SecureLayer.Entry e, byte[] key) {
+        SecureLayer.Entry n = new SecureLayer.Entry(e.serial, key, null, e.fdsk);
+        n.key = key;
+        n.using = SecureLayer.KeyKind.TOOL;
+        n.synced = true;
+        return n;
+    }
+
+    /** Security Mode ueber die Function Property PID_SECURITY_MODE: 00h reserviert, 00h Write, 00h/01h (03/05/01 6.3.5.1). */
+    private void secureMode(Map<String, Object> s) throws KNXException, InterruptedException {
+        boolean on = Json.bool(s, "on", true);
+        int index = objectIndex(SECURITY_OBJECT);
+        FuncPropResponse r = bus.client().callFunctionProperty(dst(), index, PID_SECURITY_MODE,
+                (byte) 0x00, (byte) 0x00, (byte) (on ? 1 : 0));
+        if (r.returnCode() != ReturnCode.Success) {
+            throw new IllegalStateException("Security Mode " + (on ? "ein" : "aus") + ": das Geraet meldet " + r.returnCode() + ".");
+        }
+    }
+
+    /**
+     * Gruppenschluesseltabelle (03/05/01 6.3.7): je Eintrag 2 Oktette GA_Index (die TSAP in der
+     * Adresstabelle) und 16 Oktette Schluessel, aufsteigend nach GA_Index. Erst wird die Laenge auf 0
+     * gesetzt, dann folgt ein Eintrag je Telegramm - wie in der Pruefvorschrift (AN209). Die Schluessel
+     * kommen aus der Ablage, die Oberflaeche nennt nur die Gruppen.
+     */
+    private void secureGroupKeys(Map<String, Object> s) throws KNXException, InterruptedException {
+        int index = objectIndex(SECURITY_OBJECT);
+        String project = bus.keyProject();
+        List<Integer> tsaps = new ArrayList<>();
+        List<String> groups = new ArrayList<>();
+        for (Object o : list(s, "entries")) {
+            if (!(o instanceof Map<?, ?> m) || !(m.get("tsap") instanceof Number t) || !(m.get("ga") instanceof String ga))
+                throw new IllegalStateException("Eintrag der Gruppenschluesseltabelle unbrauchbar");
+            int tsap = t.intValue();
+            int last = tsaps.isEmpty() ? 0 : tsaps.get(tsaps.size() - 1);
+            if (tsap <= last || tsap > 0xFFFF) throw new IllegalStateException("GA_Index muss aufsteigen: " + tsap);
+            tsaps.add(tsap);
+            groups.add(ga);
+        }
+        bus.client().writePropertyUnchecked(dst(), index, PID_GRP_KEY_TABLE, 0, 1, new byte[] {0, 0});
+        for (int i = 0; i < tsaps.size(); i++) {
+            byte[] key;
+            try {
+                key = bus.keyVault().groupKey(project, groups.get(i));
+            } catch (java.io.IOException | java.security.GeneralSecurityException x) {
+                throw new IllegalStateException("Gruppenschluessel nicht in der Ablage gesichert: " + x.getMessage(), x);
+            }
+            byte[] entry = new byte[18];
+            entry[0] = (byte) (tsaps.get(i) >> 8);
+            entry[1] = (byte) (int) tsaps.get(i);
+            System.arraycopy(key, 0, entry, 2, 16);
+            Arrays.fill(key, (byte) 0);
+            try {
+                bus.client().writePropertyUnchecked(dst(), index, PID_GRP_KEY_TABLE, i + 1, 1, entry);
+            } finally {
+                Arrays.fill(entry, (byte) 0);
+            }
+            if (Thread.interrupted()) throw new InterruptedException();
+        }
+    }
+
+    private SecureLayer.Entry secureEntry(Map<String, Object> s) {
+        String serial = Json.str(s, "serial", "");
+        SecureLayer.Entry e = bus.secure().entry(address);
+        if (e == null) {
+            throw new IllegalStateException("Fuer " + address + " sind keine Secure-Schluessel gebunden. "
+                    + "Ist die Schluesselablage entsperrt und das Geraetezertifikat (FDSK) eingetragen?");
+        }
+        if (!e.serial.equalsIgnoreCase(serial)) {
+            throw new IllegalStateException("Unter " + address + " sind die Schluessel der Seriennummer " + e.serial
+                    + " gebunden, der Plan nennt " + serial + ".");
+        }
+        return e;
     }
 
     /* ---------------- Verbindung und Objekte ---------------- */

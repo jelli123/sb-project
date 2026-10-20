@@ -1159,6 +1159,98 @@ KNXI18n.add('en', {
   'Zurücksetzen': 'Reset',
   'geöffnet': 'open',
 
+  /* ---------- KNX Secure ---------- */
+  'KNX Secure': 'KNX Secure',
+  'KNX Secure braucht den lokalen Dienst.': 'KNX Secure needs the local service.',
+  'KNX Secure braucht den lokalen Dienst mit seiner Schlüsselablage.': 'KNX Secure needs the local service with its key store.',
+  'Zustand der Schlüsselablage nicht lesbar.': 'The key store state could not be read.',
+  'Schlüsselablage': 'Key store',
+  'Schlüsselablage anlegen': 'Create key store',
+  'Schlüsselablage entsperren': 'Unlock key store',
+  'Schlüsselablage anlegen …': 'Create key store …',
+  'Schlüsselablage entsperren …': 'Unlock key store …',
+  'Für KNX Secure braucht das Projekt eine Schlüsselablage. Sie liegt verschlüsselt neben dem Projekt; das Passwort wird nirgends gespeichert.':
+    'KNX Secure needs a key store for this project. It is kept encrypted next to the project; the password is never stored.',
+  'Die KNX-Secure-Schlüssel dieses Projekts sind mit dem Projektpasswort verschlüsselt.':
+    'The KNX Secure keys of this project are encrypted with the project password.',
+  'Passwort wiederholen': 'Repeat password',
+  'Ohne dieses Passwort sind die Schlüssel verloren. Geräte mit Tool Key lassen sich dann nur noch über den Werkszustand am Gerät und das Gerätezertifikat (FDSK) wieder in Betrieb nehmen.':
+    'Without this password the keys are lost. Devices with a tool key can then only be commissioned again after a factory reset on the device, using the device certificate (FDSK).',
+  'Das Projektpasswort braucht mindestens 8 Zeichen.': 'The project password needs at least 8 characters.',
+  'Die Passwörter stimmen nicht überein.': 'The passwords do not match.',
+  'Schlüsselablage wird entsperrt …': 'Unlocking key store …',
+  'Schlüsselablage angelegt': 'Key store created',
+  'Schlüsselablage entsperrt': 'Key store unlocked',
+  'Schlüsselablage gesperrt': 'Key store locked',
+  'wird gelesen …': 'reading …',
+  'noch nicht angelegt': 'not created yet',
+  'nicht erreichbar': 'not reachable',
+  'gesperrt — Passwort nötig': 'locked — password needed',
+  'Gerätezertifikat für „{0}“': 'Device certificate for “{0}”',
+  'Das Zertifikat steht als Text und QR-Code auf dem Gerät oder dem beiliegenden Zettel: 36 Zeichen in sechs Blöcken. Es enthält Seriennummer und FDSK.':
+    'The certificate is printed as text and QR code on the device or the enclosed slip: 36 characters in six blocks. It holds the serial number and the FDSK.',
+  'Zertifikat': 'Certificate',
+  'Seriennummer des Geräts ({0}) durch die des Zertifikats ersetzen': 'Replace the device serial number ({0}) with the one from the certificate',
+  'Zertifikat für Seriennummer {0} eingetragen': 'Certificate for serial number {0} entered',
+  'Gerätezertifikat entfernen?': 'Remove device certificate?',
+  'Der FDSK für Seriennummer <b>{0}</b> wird aus der Schlüsselablage entfernt.': 'The FDSK for serial number <b>{0}</b> is removed from the key store.',
+  'Der gesetzte Tool Key bleibt erhalten — das Gerät bleibt erreichbar.': 'The tool key that was set is kept — the device stays reachable.',
+  'Ohne FDSK lässt sich das Gerät nicht mehr Secure in Betrieb nehmen, bis das Zertifikat wieder eingetragen ist.':
+    'Without the FDSK the device cannot be commissioned securely until the certificate is entered again.',
+  'Zertifikat entfernt': 'Certificate removed',
+  'Gerätezertifikat (FDSK)': 'Device certificate (FDSK)',
+  'hinterlegt': 'stored',
+  'fehlt': 'missing',
+  'Tool Key': 'Tool key',
+  'gesetzt': 'set',
+  'vorgemerkt, unbestätigt': 'pending, not confirmed',
+  'noch nicht gesetzt': 'not set yet',
+  'Die Produktdatei nennt keine Secure-Unterstützung. Ist sie vor der Secure-Unterstützung eingelesen worden, die .knxprod bitte neu laden.':
+    'The product file states no Secure support. If it was imported before Secure was supported, please load the .knxprod again.',
+  'Die Seriennummer fehlt noch — sie wird mit dem Zertifikat übernommen.': 'The serial number is still missing — it is taken from the certificate.',
+  'Das Gerät hat einen Tool Key. Beim nächsten Programmieren werden Security Mode und Schlüsseltabellen zurückgenommen; der Tool Key bleibt bis zum Werkszustand.':
+    'The device has a tool key. The next download switches off Security Mode and clears the key tables; the tool key stays until a factory reset.',
+  'Tool Key setzen, Security Mode einschalten und gesicherte Gruppenadressen laden': 'Set the tool key, switch on Security Mode and load secure group addresses',
+  'Secure-Inbetriebnahme': 'Secure commissioning',
+  'Schlüsseldatei: {0} — bitte mit dem Projekt sichern; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.':
+    'Key file: {0} — please back it up with the project; without it, devices with a tool key can only be reached via a factory reset.',
+  'Zertifikat ersetzen …': 'Replace certificate …',
+  'Zertifikat eintragen …': 'Enter certificate …',
+  'Zertifikat entfernen …': 'Remove certificate …',
+  'Schlüssel bis zum nächsten Entsperren aus dem Speicher des Dienstes nehmen': 'Remove the keys from the service memory until the next unlock',
+  'Sperren': 'Lock',
+  'Entsperren …': 'Unlock …',
+  'Telegramme auf dieser Adresse werden authentifiziert und verschlüsselt': 'Telegrams on this address are authenticated and encrypted',
+  'Sicher (Gruppenschlüssel)': 'Secure (group key)',
+  'Ohne Secure geladen, verstehen diese Geräte die Adresse nicht: {0}': 'Loaded without Secure, these devices do not understand the address: {0}',
+  'Wirksam, sobald alle zugeordneten Geräte neu programmiert sind. Den Schlüssel erzeugt der Dienst beim ersten Laden.':
+    'Takes effect once all linked devices are programmed again. The service creates the key on the first download.',
+  'KNX Secure — mit Gruppenschlüssel': 'KNX Secure — with group key',
+  'Secure-Schlüssel nicht zugeordnet: {0}': 'Secure keys not assigned: {0}',
+  'Security Mode aktiv: ohne Tool Key meldet das Gerät FFFFh': 'Security Mode active: without the tool key the device reports FFFFh',
+  'Security Mode aktiv — ohne Tool Key gibt das Gerät nichts preis': 'Security Mode active — without the tool key the device reveals nothing',
+  'Security Mode ein': 'Security Mode on',
+  'Security Mode aus': 'Security Mode off',
+  'Security Mode unbekannt': 'Security Mode unknown',
+  'Zugang mit FDSK (Werkszustand)': 'Access with FDSK (factory state)',
+  'Zugang mit Tool Key': 'Access with tool key',
+  'ohne gesicherten Zugang': 'without secure access',
+  'Schlüsseltabellen: {0}': 'Key tables: {0}',
+  'Secure wird zurückgenommen': 'Secure is removed',
+  'Secure: Tool Key {0}': 'Secure: tool key {0}',
+  'vorhanden': 'present',
+  'wird gesetzt': 'will be set',
+  '{0} Gruppenschlüssel': '{0} group keys',
+  '{0} sichere Absender': '{0} secure senders',
+  'KNX Secure: Zugang mit dem gespeicherten Tool Key; der Security Mode bleibt eingeschaltet.':
+    'KNX Secure: access with the stored tool key; Security Mode stays on.',
+  'KNX Secure: Das Gerät bekommt einen neuen Tool Key, der FDSK gilt danach nicht mehr. Der Security Mode wird eingeschaltet.':
+    'KNX Secure: the device gets a new tool key, after which the FDSK no longer applies. Security Mode is switched on.',
+  'KNX Secure wird zurückgenommen: Security Mode aus, Schlüsseltabellen leer. Der Tool Key bleibt bis zum Werkszustand.':
+    'KNX Secure is removed: Security Mode off, key tables empty. The tool key stays until a factory reset.',
+  'KNX Secure: Danach gilt wieder der FDSK vom Zertifikat, Security Mode und Schlüsseltabellen sind zurückgesetzt. Beim nächsten Programmieren wird ein neuer Tool Key gesetzt.':
+    'KNX Secure: afterwards the FDSK from the certificate applies again, Security Mode and key tables are reset. The next download sets a new tool key.',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'

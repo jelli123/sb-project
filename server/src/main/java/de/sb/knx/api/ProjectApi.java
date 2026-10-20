@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import de.sb.knx.http.Http;
 import de.sb.knx.json.Json;
+import de.sb.knx.secure.KeyVault;
 import de.sb.knx.store.FileStore;
 import de.sb.knx.store.ProjectStore;
 
@@ -15,10 +16,12 @@ import java.util.Map;
 public final class ProjectApi implements HttpHandler {
 
     private final ProjectStore store;
+    private final KeyVault vault;
     private final int port;
 
-    public ProjectApi(ProjectStore store, int port) {
+    public ProjectApi(ProjectStore store, KeyVault vault, int port) {
         this.store = store;
+        this.vault = vault;
         this.port = port;
     }
 
@@ -64,6 +67,8 @@ public final class ProjectApi implements HttpHandler {
                     }
                     case "DELETE" -> {
                         store.delete(id);
+                        // Die Schluessel bleiben beiseitegelegt - ohne sie kaeme man an Geraete mit Tool Key nicht mehr heran.
+                        vault.retire(id);
                         ok(ex);
                     }
                     case "POST" -> {
@@ -72,7 +77,9 @@ public final class ProjectApi implements HttpHandler {
                             Http.error(ex, 400, "Feld name fehlt");
                             return;
                         }
-                        store.rename(id, FileStore.safeId(target));
+                        String newId = FileStore.safeId(target);
+                        store.rename(id, newId);
+                        vault.rename(id, newId);
                         ok(ex);
                     }
                     default -> Http.error(ex, 405, "Methode nicht erlaubt");
