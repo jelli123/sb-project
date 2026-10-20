@@ -405,6 +405,26 @@ public final class BusService implements AutoCloseable {
         }, 30);
     }
 
+    /**
+     * Uebernimmt eine fertige Verbindung. Gedacht fuer Tests, die einen simulierten Bus statt einer
+     * Schnittstelle anschliessen; Secure-Schicht und Schluesselbindung laufen wie im Betrieb.
+     */
+    Map<String, Object> connectLink(KNXNetworkLink l) throws Exception {
+        return call(() -> {
+            closeLink();
+            link = l;
+            attach();
+            interfaceAddress = null;
+            interfaceSerial = null;
+            lostReason = null;
+            Map<String, Object> d = Json.obj();
+            d.put("mode", "link");
+            d.put("link", l.getName());
+            description = d;
+            return status();
+        }, 30);
+    }
+
     public Map<String, Object> disconnect() throws Exception {
         return call(() -> {
             closeLink();
