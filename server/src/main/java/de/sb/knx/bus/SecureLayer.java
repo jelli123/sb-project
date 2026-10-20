@@ -7,6 +7,7 @@ import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.mgmt.SecureManagement;
 import tuwien.auto.calimero.mgmt.TransportLayerImpl;
 import tuwien.auto.calimero.secure.KnxSecureException;
+import tuwien.auto.calimero.secure.SecureApplicationLayer.SalService;
 import tuwien.auto.calimero.secure.SecurityControl;
 
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 
@@ -79,9 +81,12 @@ final class SecureLayer extends SecureManagement {
 
     /** Ein Geraet beantwortet innerhalb einer Sekunde nach seiner letzten Sync-Antwort keine weitere (03/05/02 4.2). */
     private static final long SYNC_GAP_MS = 1_100;
+    /** Versuche je Schluessel, solange das Geraet zwar antwortet, die Antwort aber nicht zu pruefen ist. */
+    private static final int SYNC_ATTEMPTS = 3;
 
     private final Map<IndividualAddress, Entry> entries = new ConcurrentHashMap<>();
     private final Map<IndividualAddress, Long> lastSync = new ConcurrentHashMap<>();
+    private final Map<IndividualAddress, CompletableFuture<Void>> garbled = new ConcurrentHashMap<>();
     private final Map<IndividualAddress, byte[]> armed = new ConcurrentHashMap<>();
     private volatile Listener listener;
     private volatile boolean plainOnly;
@@ -170,6 +175,24 @@ final class SecureLayer extends SecureManagement {
         return out;
     }
 
+    /**
+     * Calimero 2.6 bildet die Zufallszahl einer Sync-Antwort (XOR mit der Challenge, 03/03/07 5.3.2)
+     * ueber {@code BitSet.toByteArray()}, das Null-Oktette am Ende abschneidet: endet sie auf 00h,
+     * stimmt der MAC nicht, und die Antwort wird stillschweigend verworfen - bei jeder 256. Antwort.
+     * Ein Geraet antwortet aber nur auf eine Anfrage, deren Schluessel es kennt; eine solche
+     * Antwort heisst also: Schluessel richtig, noch einmal synchronisieren.
+     */
+    @Override
+    public SalService decrypt(IndividualAddress src, KNXAddress dst, int tpci, byte[] secureApdu) {
+        try {
+            return super.decrypt(src, dst, tpci, secureApdu);
+        } catch (RuntimeException x) {
+            CompletableFuture<Void> f = secureApdu.length > 0 && (secureApdu[0] & 0x07) == 3 ? garbled.get(src) : null;
+            if (f != null) f.complete(null);
+            throw x;
+        }
+    }
+
     @Override
     protected void updateSequenceNumber(boolean toolAccess, long seqNo) {
         super.updateSequenceNumber(toolAccess, seqNo);
@@ -187,20 +210,7 @@ final class SecureLayer extends SecureManagement {
                 byte[] key = (byte[]) c[1];
                 e.key = key;
                 e.using = kind;
-                // Sonst schwiege das Geraet und der passende Schluessel saehe aus wie ein falscher
-                Long last = lastSync.get(address);
-                long wait = last == null ? 0 : SYNC_GAP_MS - (System.nanoTime() - last) / 1_000_000;
-                if (wait > 0) Thread.sleep(wait);
-                try {
-                    sendSyncRequest(address, true).get();
-                    lastSync.put(address, System.nanoTime());
-                } catch (ExecutionException timeout) {
-                    continue;                       // Schluessel passt nicht - das Geraet schweigt
-                } catch (KNXException x) {
-                    e.key = null;
-                    e.using = null;
-                    throw new KnxSecureException("Synchronisation mit " + address + " nicht gesendet: " + x.getMessage(), x);
-                }
+                if (!sync(address, e)) continue;    // Schluessel passt nicht - das Geraet schweigt
                 // Ein Geraet ab Werk erwartet als naechstes womoeglich 1, unser Anfangswert. Calimero
                 // synchronisierte dann gleich noch einmal - und ein Geraet beantwortet innerhalb einer
                 // Sekunde keine zweite Anfrage (03/05/02 4.2). Ueber dem Anfangswert ist beides erledigt.
@@ -217,6 +227,36 @@ final class SecureLayer extends SecureManagement {
                     + "noch auf den FDSK. Ist es mit einem anderen Werkzeug in Betrieb genommen worden, hilft nur der "
                     + "Werkszustand am Geraet; danach gilt wieder der FDSK vom Zertifikat.");
         }
+    }
+
+    /** Eine Synchronisation mit dem Schluessel in {@code e.key}; false, wenn das Geraet nicht antwortet. */
+    private boolean sync(IndividualAddress address, Entry e) throws InterruptedException {
+        for (int attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
+            // Sonst schwiege das Geraet und der passende Schluessel saehe aus wie ein falscher
+            Long last = lastSync.get(address);
+            long wait = last == null ? 0 : SYNC_GAP_MS - (System.nanoTime() - last) / 1_000_000;
+            if (wait > 0) Thread.sleep(wait);
+            CompletableFuture<Void> unreadable = new CompletableFuture<>();
+            garbled.put(address, unreadable);
+            CompletableFuture<Void> answer;
+            try {
+                answer = sendSyncRequest(address, true);
+                CompletableFuture.anyOf(answer, unreadable).get();
+            } catch (ExecutionException timeout) {
+                return false;
+            } catch (KNXException x) {
+                e.key = null;
+                e.using = null;
+                throw new KnxSecureException("Synchronisation mit " + address + " nicht gesendet: " + x.getMessage(), x);
+            } finally {
+                garbled.remove(address, unreadable);
+            }
+            lastSync.put(address, System.nanoTime());
+            if (answer.isDone() && !answer.isCompletedExceptionally()) return true;
+            // Calimero gaebe die offene Anfrage erst nach 6 s frei - und dann womoeglich die naechste mit
+            answer.cancel(false);
+        }
+        return false;
     }
 
     /** Erzwingt eine neue Synchronisation und liefert, mit welchem Schluessel das Geraet arbeitet. */
