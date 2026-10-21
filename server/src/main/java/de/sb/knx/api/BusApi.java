@@ -11,15 +11,20 @@ import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
 import de.sb.knx.json.Json;
+import de.sb.knx.store.FileStore;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Buszugriff: Suche, Verbindung, Scan, Geraete-Info, Adressvergabe, Download, Neustart und Entladen. */
 public final class BusApi implements HttpHandler {
@@ -30,6 +35,17 @@ public final class BusApi implements HttpHandler {
     private final Jobs jobs;
     private final Events events;
     private final int port;
+
+    /*
+     * Reservierung: Es gibt eine Busverbindung, und sie gehoert dem Fenster, das sie aufgebaut hat.
+     * Ein anderes Fenster - etwa mit dem Projekt eines anderen Gebaeudes - bekommt „belegt“, bis
+     * das erste trennt oder geschlossen wird, oder es uebernimmt ausdruecklich (connect?takeover=1).
+     */
+    private String ownerWindow;
+    private String ownerProject;
+    /** Busanfragen, die gerade laufen - auch die synchronen, die nicht als Auftrag zaehlen. */
+    private final AtomicInteger inFlight = new AtomicInteger();
+    private static final Set<String> BUS_JOBS = Set.of("scan", "download");
 
     public BusApi(BusService bus, Jobs jobs, Events events, int port) {
         this.bus = bus;
@@ -45,35 +61,28 @@ public final class BusApi implements HttpHandler {
         if (!Http.localOnly(ex, port)) return;
         String path = ex.getRequestURI().getPath();
         String method = ex.getRequestMethod();
+        String window = Events.windowId(ex.getRequestHeaders().getFirst("X-SB-Window"));
         try {
-            switch (path) {
-                case "/api/bus/status" -> Http.json(ex, 200, bus.status());
-                case "/api/bus/discover" -> discover(ex);
-                case "/api/bus/interfaces" -> {
-                    Map<String, Object> m = Json.obj();
-                    m.put("interfaces", BusService.networkInterfaces());
-                    Http.json(ex, 200, m);
+            if (usesBus(path)) {
+                boolean takeover = path.equals("/api/bus/connect") && "1".equals(Http.query(ex).get("takeover"));
+                String busy = busyFor(window);
+                if (busy != null && takeover && (inFlight.get() > 0 || jobs.active(BUS_JOBS))) {
+                    refuse(ex, busy, "Im Fenster mit Projekt „" + busy + "“ laeuft gerade ein Busvorgang. "
+                            + "Uebernehmen geht erst, wenn er beendet ist.");
+                    return;
                 }
-                case "/api/bus/connect" -> connect(ex, method);
-                case "/api/bus/disconnect" -> {
-                    requirePost(method);
-                    Http.json(ex, 200, bus.disconnect());
+                if (busy != null && !takeover) {
+                    refuse(ex, busy, "Die Busverbindung gehoert gerade dem Fenster mit Projekt „" + busy + "“. "
+                            + "Dort trennen oder hier uebernehmen.");
+                    return;
                 }
-                case "/api/bus/scan" -> scan(ex, method);
-                case "/api/bus/routers" -> Http.json(ex, 200, wrap("routers", run(commissioning::scanRouters, 300)));
-                case "/api/bus/device" -> device(ex);
-                case "/api/bus/progmode" -> progMode(ex, method);
-                case "/api/bus/address" -> address(ex, method);
-                case "/api/bus/address/occupied" -> occupied(ex);
-                case "/api/bus/download" -> download(ex, method);
-                case "/api/bus/restart" -> restart(ex, method);
-                case "/api/bus/unload" -> unload(ex, method);
-                case "/api/bus/loadstate" -> loadState(ex);
-                case "/api/bus/keys" -> keys(ex, method);
-                default -> {
-                    if (path.startsWith("/api/bus/jobs/")) job(ex, method, path);
-                    else Http.error(ex, 404, "Unbekannter Pfad");
-                }
+            }
+            boolean counted = usesBus(path) && !path.equals("/api/bus/connect");
+            if (counted) inFlight.incrementAndGet();
+            try {
+                route(ex, path, method, window);
+            } finally {
+                if (counted) inFlight.decrementAndGet();
             }
         } catch (IllegalArgumentException | IllegalStateException e) {
             Http.error(ex, 400, String.valueOf(e.getMessage()));
@@ -82,6 +91,84 @@ public final class BusApi implements HttpHandler {
         } catch (Exception e) {
             Http.error(ex, 500, Jobs.describe(e));
         }
+    }
+
+    private void route(HttpExchange ex, String path, String method, String window) throws Exception {
+        switch (path) {
+            case "/api/bus/status" -> {
+                Map<String, Object> st = bus.status();
+                st.put("busyProject", busyFor(window));
+                Http.json(ex, 200, st);
+            }
+            case "/api/bus/discover" -> discover(ex);
+            case "/api/bus/interfaces" -> {
+                Map<String, Object> m = Json.obj();
+                m.put("interfaces", BusService.networkInterfaces());
+                Http.json(ex, 200, m);
+            }
+            case "/api/bus/connect" -> connect(ex, method, window);
+            case "/api/bus/disconnect" -> {
+                requirePost(method);
+                Http.json(ex, 200, bus.disconnect());
+                synchronized (this) {
+                    ownerWindow = null;
+                    ownerProject = null;
+                }
+            }
+            case "/api/bus/scan" -> scan(ex, method);
+            case "/api/bus/routers" -> Http.json(ex, 200, wrap("routers", run(commissioning::scanRouters, 300)));
+            case "/api/bus/device" -> device(ex);
+            case "/api/bus/progmode" -> progMode(ex, method);
+            case "/api/bus/address" -> address(ex, method);
+            case "/api/bus/address/occupied" -> occupied(ex);
+            case "/api/bus/download" -> download(ex, method);
+            case "/api/bus/restart" -> restart(ex, method);
+            case "/api/bus/unload" -> unload(ex, method);
+            case "/api/bus/loadstate" -> loadState(ex);
+            case "/api/bus/keys" -> keys(ex, method);
+            default -> {
+                if (path.startsWith("/api/bus/jobs/")) job(ex, method, path);
+                else Http.error(ex, 404, "Unbekannter Pfad");
+            }
+        }
+    }
+
+    /* ---------------- Reservierung ---------------- */
+
+    /** Alles, was den Bus benutzt oder eine Verbindung aendert. Zustand und Suche im Netz nicht. */
+    private static boolean usesBus(String path) {
+        if (path.equals("/api/bus/status") || path.equals("/api/bus/discover") || path.equals("/api/bus/interfaces")) {
+            return false;
+        }
+        if (path.startsWith("/api/bus/jobs/")) return path.endsWith("/cancel");
+        return true;
+    }
+
+    /** Das Projekt des Fensters, dem die Verbindung gehoert - null, wenn dieses Fenster sie benutzen darf. */
+    private synchronized String busyFor(String window) {
+        if (ownerWindow == null || ownerWindow.equals(window) || !bus.connected() || !events.connected(ownerWindow)) {
+            return null;
+        }
+        return ownerProject == null ? "?" : ownerProject;
+    }
+
+    private synchronized void own(HttpExchange ex, String window) {
+        ownerWindow = window;
+        String raw = ex.getRequestHeaders().getFirst("X-SB-Project");
+        String project = null;
+        try {
+            if (raw != null) project = FileStore.safeId(URLDecoder.decode(raw, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            project = null;
+        }
+        ownerProject = project;
+    }
+
+    private static void refuse(HttpExchange ex, String busy, String message) throws IOException {
+        Map<String, Object> m = Json.obj();
+        m.put("error", message);
+        m.put("busyProject", busy);
+        Http.json(ex, 409, m);
     }
 
     /* ---------------- Suche und Verbindung ---------------- */
@@ -93,7 +180,7 @@ public final class BusApi implements HttpHandler {
         Http.json(ex, 200, m);
     }
 
-    private void connect(HttpExchange ex, String method) throws Exception {
+    private void connect(HttpExchange ex, String method, String window) throws Exception {
         requirePost(method);
         Map<String, Object> body = Http.jsonBody(ex);
         String mode = Json.str(body, "mode", "tunneling").toLowerCase(Locale.ROOT);
@@ -114,6 +201,7 @@ public final class BusApi implements HttpHandler {
                     Json.str(body, "deviceAddress", null),
                     Json.str(body, "deviceSerial", null));
         }
+        if (Boolean.TRUE.equals(status.get("connected"))) own(ex, window);
         events.log("info", "Verbunden: " + Json.write(status.get("connection")));
         Http.json(ex, 200, status);
     }

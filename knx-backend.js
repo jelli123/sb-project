@@ -15,15 +15,27 @@ window.KNXBackend = null;
 const SCRIPTS = [
   'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-crypt.js', 'knx-proj.js', 'knx-download.js',
   'app.js', 'app-ga.js', 'app-fn.js', 'app-secure.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-prog.js',
-  'app-init.js'
+  'app-mcp.js', 'app-init.js'
 ];
 
 const DEFAULT_PROJECT_ID = 'Projekt';
 
+/* Jedes Fenster hat eine eigene Kennung. Damit richtet der Dienst Aufrufe einer
+   KI-Sitzung an genau das Fenster, das das Projekt zeigt, und erkennt, wer
+   zuletzt gespeichert hat. Beim Neuladen entsteht eine neue. */
+const WINDOW_ID = (() => {
+  try { if (crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* unten weiter */ }
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+})();
+
 /* ---------- HTTP-Grundlagen ---------- */
 
 async function request(method, path, body, opts = {}) {
-  const init = { method, headers: {} };
+  // Fenster und Projekt: für die Reservierung der Busverbindung und um eigene Speicherungen zu erkennen
+  const init = { method, headers: { 'X-SB-Window': WINDOW_ID,
+    'X-SB-Project': encodeURIComponent(backend.projectId), ...(opts.headers || {}) } };
   if (body !== undefined && body !== null) {
     if (typeof body === 'string' || body instanceof ArrayBuffer || body instanceof Uint8Array) {
       init.body = body;
@@ -47,9 +59,23 @@ async function request(method, path, body, opts = {}) {
     const msg = data && data.error ? data.error : ('HTTP ' + res.status);
     const err = new Error(msg);
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
+}
+
+/* Liest ein Projekt samt Revision (ETag). Mit ihr wird später gespeichert; hat
+   inzwischen ein anderes Fenster gespeichert, lehnt der Dienst ab (409). */
+async function readProjectRev(id) {
+  const res = await fetch('/api/projects/' + encodeURIComponent(id), { headers: { 'X-SB-Window': WINDOW_ID } });
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  const rev = (res.headers.get('ETag') || '').replace(/"/g, '') || null;
+  return { doc: JSON.parse(await res.text()), rev };
 }
 
 /* Holt eine Binaerantwort (Produktdatei). request() liest immer Text und
@@ -76,45 +102,83 @@ const post = (p, b, o) => request('POST', p, b ?? {}, o);
 const put  = (p, b, o) => request('PUT', p, b, o);
 const del  = (p)       => request('DELETE', p, null);
 
-/* ---------- Speichern: gebuendelt, damit jeder Tastendruck nicht schreibt ---------- */
+/* ---------- Speichern: gebuendelt, damit jeder Tastendruck nicht schreibt ---------- *
+ * Gespeichert wird auf der zuletzt bekannten Revision. Hat ein anderes Fenster
+ * dazwischen gespeichert, hält der Speicher an, bis die Bedienung entschieden
+ * hat: neu laden oder den anderen Stand überschreiben.                       */
 
 function makeSaver() {
   let pendingJson = null, timer = 0, inFlight = false;
   let lastError = '';
+  let conflict = null;
+  const conflictHandlers = new Set();
+
+  const headers = () => (backend.rev ? { 'If-Match': '"' + backend.rev + '"' } : {});
 
   async function drain() {
-    if (inFlight || pendingJson === null) return;
+    if (inFlight || conflict || pendingJson === null) return;
     const json = pendingJson;
     pendingJson = null;
     inFlight = true;
     try {
-      await put('/api/projects/' + encodeURIComponent(backend.projectId), json);
+      const r = await request('PUT', '/api/projects/' + encodeURIComponent(backend.projectId), json,
+        { headers: headers() });
+      if (r && r.rev) backend.rev = r.rev;
       lastError = '';
     } catch (e) {
-      lastError = 'Speichern auf dem PC fehlgeschlagen: ' + e.message;
-      if (window.KNXApp) window.KNXApp.warn(lastError);
+      if (e.status === 409) {
+        // Nicht verlieren: Der Stand bleibt vorgemerkt, bis entschieden ist
+        if (pendingJson === null) pendingJson = json;
+        raise({ rev: e.data && e.data.rev, by: null });
+      } else {
+        lastError = 'Speichern auf dem PC fehlgeschlagen: ' + e.message;
+        if (window.KNXApp) window.KNXApp.warn(lastError);
+      }
     } finally {
       inFlight = false;
-      if (pendingJson !== null) drain();
+      if (pendingJson !== null && !conflict) drain();
     }
+  }
+
+  function raise(info) {
+    if (conflict) return;
+    conflict = info;
+    conflictHandlers.forEach(h => h(info));
   }
 
   return {
     queue(json) {
       pendingJson = json;
       clearTimeout(timer);
+      // Solange ein Konflikt offen ist, erinnert jede Änderung daran
+      if (conflict) { conflictHandlers.forEach(h => h(conflict)); return; }
       timer = setTimeout(drain, 300);
     },
     /** Beim Verlassen der Seite: sofort und ohne auf die Antwort zu warten. */
     flushNow() {
       clearTimeout(timer);
-      if (pendingJson === null) return;
+      if (pendingJson === null || conflict) return;
       const json = pendingJson;
       pendingJson = null;
-      request('PUT', '/api/projects/' + encodeURIComponent(backend.projectId), json, { keepalive: true })
-        .catch(() => {});
+      request('PUT', '/api/projects/' + encodeURIComponent(backend.projectId), json,
+        { keepalive: true, headers: headers() }).catch(() => {});
     },
-    error: () => lastError
+    error: () => lastError,
+    /* Konflikt: von außen gemeldet (Ereignis eines anderen Fensters) oder beim Speichern erkannt. */
+    conflict: () => conflict,
+    raise,
+    onConflict(fn) { conflictHandlers.add(fn); },
+    /** Den anderen Stand überschreiben: Ab jetzt gilt dessen Revision als Grundlage. */
+    overwrite(rev) {
+      if (rev) backend.rev = rev;
+      conflict = null;
+      // KNX ist eine globale Konstante der später geladenen knx-data.js, kein window.KNX
+      if (pendingJson === null && typeof KNX !== 'undefined') pendingJson = JSON.stringify(KNX.project());
+      drain();
+    },
+    hasPending: () => pendingJson !== null || inFlight,
+    /** Neu laden ist gewählt: Was hier noch nicht gespeichert ist, wird bewusst verworfen. */
+    discard() { clearTimeout(timer); pendingJson = null; }
   };
 }
 
@@ -122,14 +186,16 @@ function makeSaver() {
 
 function makeEvents() {
   let source = null;
-  const handlers = { log: new Set(), job: new Set(), bus: new Set(), state: new Set() };
+  const KINDS = ['log', 'job', 'bus', 'project', 'mcp', 'mcp-call'];
+  const handlers = { state: new Set() };
+  KINDS.forEach(k => { handlers[k] = new Set(); });
 
   function ensure() {
     if (source) return;
-    source = new EventSource('/api/events');
-    source.addEventListener('log', e => emit('log', e));
-    source.addEventListener('job', e => emit('job', e));
-    source.addEventListener('bus', e => emit('bus', e));
+    // Fenster und Projekt melden sich an: KI-Aufrufe gehen gezielt an dieses Fenster
+    source = new EventSource('/api/events?window=' + encodeURIComponent(WINDOW_ID)
+      + '&project=' + encodeURIComponent(backend.projectId));
+    KINDS.forEach(k => source.addEventListener(k, e => emit(k, e)));
     source.addEventListener('open', () => handlers.state.forEach(h => h('offen')));
     source.onerror = () => handlers.state.forEach(h => h('gestoert'));
   }
@@ -145,16 +211,22 @@ function makeEvents() {
 
 /* ---------- Die Schnittstelle, die der Rest der Anwendung sieht ---------- */
 
-const saver = makeSaver();
 const backend = {
   mode: 'server',
   info: null,
   projectId: DEFAULT_PROJECT_ID,
+  // Revision des geladenen Stands; null, solange die Datei noch nicht existiert
+  rev: null,
+  windowId: WINDOW_ID,
   events: null,
 
   saveProject(json) { saver.queue(json); },
   saveError: () => saver.error(),
   flush: () => saver.flushNow(),
+  saver: null,
+  /* Adresse, unter der ein Projekt in einem Fenster aufgeht — jedes Fenster
+     behält so sein Projekt, auch wenn ein anderes inzwischen ein anderes zeigt. */
+  projectUrl: id => location.pathname + '?p=' + encodeURIComponent(id),
 
   listProjects: () => get('/api/projects').then(r => r.projects || []),
   readProject: id => get('/api/projects/' + encodeURIComponent(id)),
@@ -195,7 +267,8 @@ const backend = {
     status:      ()      => get('/api/bus/status'),
     discover:    (s = 3) => get('/api/bus/discover?timeout=' + s, { timeout: (s + 6) * 1000 }),
     interfaces:  ()      => get('/api/bus/interfaces'),
-    connect:     opts    => post('/api/bus/connect', opts, { timeout: 40000 }),
+    // takeover: die Verbindung eines anderen Fensters ausdrücklich übernehmen
+    connect:     (opts, takeover) => post('/api/bus/connect' + (takeover ? '?takeover=1' : ''), opts, { timeout: 40000 }),
     disconnect:  ()      => post('/api/bus/disconnect', {}, { timeout: 30000 }),
     scan:        (area, line) => post('/api/bus/scan', { area, line }),
     job:         id      => get('/api/bus/jobs/' + encodeURIComponent(id)),
@@ -214,6 +287,15 @@ const backend = {
     keys:        body    => post('/api/bus/keys', body)
   },
 
+  /* KI-Zugang (MCP). Der Zugangsschlüssel selbst kommt hier nie vorbei. */
+  mcp: {
+    status:  project       => get('/api/mcp/status?project=' + encodeURIComponent(project)),
+    mode:    (project, mode) => post('/api/mcp/mode', { project, mode }),
+    result:  body          => post('/api/mcp/result', body, { timeout: 30000 }),
+    preview: body          => post('/api/mcp/preview', body, { timeout: 30000 }),
+    rotateToken: ()        => post('/api/mcp/token', {})
+  },
+
   /* KNX Secure: Die Schlüssel bleiben im Dienst. Hinein gehen Passwort und
      Gerätezertifikat, heraus kommt nur, ob etwas vorhanden ist. */
   secure: {
@@ -225,6 +307,8 @@ const backend = {
     removeCertificate: body => post('/api/secure/certificate/remove', body)
   }
 };
+const saver = makeSaver();
+backend.saver = saver;
 
 /* ---------- Start ---------- */
 
@@ -246,13 +330,17 @@ async function bootServer() {
   try { settings = await backend.readSettings(); } catch (e) { settings = {}; }
 
   const projects = await backend.listProjects();
-  let id = settings.current;
+  // Das Projekt dieses Fensters steht in der Adresse; sonst das zuletzt geöffnete
+  let id = new URLSearchParams(location.search).get('p');
+  if (!id || !projects.some(p => p.id === id)) id = settings.current;
   if (!id || !projects.some(p => p.id === id)) id = projects.length ? projects[0].id : null;
 
   if (id) {
     backend.projectId = id;
     try {
-      window.KNXBoot.project = await backend.readProject(id);
+      const r = await readProjectRev(id);
+      window.KNXBoot.project = r.doc;
+      backend.rev = r.rev;
     } catch (e) {
       window.KNXBoot.project = null;
     }
@@ -265,7 +353,15 @@ async function bootServer() {
   window.KNXBoot.settings = settings;
   window.KNXBackend = backend;
 
-  window.addEventListener('pagehide', () => backend.flush());
+  // Bei offenem Konflikt sind Änderungen dieses Fensters noch nicht gespeichert
+  window.addEventListener('beforeunload', e => {
+    if (saver.conflict() && saver.hasPending()) e.preventDefault();
+  });
+  window.addEventListener('pagehide', () => {
+    backend.flush();
+    // Freigaben dieses Fensters sollen nicht erst beim nächsten Ping des Dienstes fallen
+    try { navigator.sendBeacon('/api/events/bye?window=' + encodeURIComponent(WINDOW_ID)); } catch (e) { /* egal */ }
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') backend.flush();
   });

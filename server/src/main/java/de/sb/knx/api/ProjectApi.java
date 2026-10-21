@@ -2,6 +2,7 @@ package de.sb.knx.api;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
 import de.sb.knx.json.Json;
 import de.sb.knx.secure.KeyVault;
@@ -12,16 +13,22 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-/** Projektablage: Liste, Laden, Speichern, Umbenennen, Loeschen. */
+/**
+ * Projektablage: Liste, Laden, Speichern, Umbenennen, Loeschen.
+ * Gespeichert wird mit Revisionspruefung: Wer auf einem veralteten Stand speichert (If-Match),
+ * bekommt 409 statt die Aenderung eines anderen Fensters zu ueberschreiben.
+ */
 public final class ProjectApi implements HttpHandler {
 
     private final ProjectStore store;
     private final KeyVault vault;
+    private final Events events;
     private final int port;
 
-    public ProjectApi(ProjectStore store, KeyVault vault, int port) {
+    public ProjectApi(ProjectStore store, KeyVault vault, Events events, int port) {
         this.store = store;
         this.vault = vault;
+        this.events = events;
         this.port = port;
     }
 
@@ -58,12 +65,34 @@ public final class ProjectApi implements HttpHandler {
                 switch (method) {
                     case "GET" -> {
                         byte[] data = store.read(id);
-                        if (data == null) Http.error(ex, 404, "Projekt nicht gefunden: " + id);
-                        else Http.rawJson(ex, 200, data);
+                        if (data == null) {
+                            Http.error(ex, 404, "Projekt nicht gefunden: " + id);
+                        } else {
+                            ex.getResponseHeaders().set("ETag", quote(ProjectStore.revision(data)));
+                            Http.rawJson(ex, 200, data);
+                        }
                     }
                     case "PUT" -> {
-                        store.write(id, Http.text(ex, ProjectStore.MAX_BYTES));
-                        ok(ex);
+                        String expected = unquote(ex.getRequestHeaders().getFirst("If-Match"));
+                        String rev;
+                        try {
+                            rev = store.write(id, Http.text(ex, ProjectStore.MAX_BYTES), expected);
+                        } catch (ProjectStore.Conflict c) {
+                            Map<String, Object> m = Json.obj();
+                            m.put("error", c.getMessage());
+                            m.put("rev", c.current);
+                            Http.json(ex, 409, m);
+                            return;
+                        }
+                        Map<String, Object> ev = Json.obj();
+                        ev.put("id", id);
+                        ev.put("rev", rev);
+                        ev.put("by", Events.windowId(ex.getRequestHeaders().getFirst("X-SB-Window")));
+                        events.publish("project", ev);
+                        Map<String, Object> m = Json.obj();
+                        m.put("ok", true);
+                        m.put("rev", rev);
+                        Http.json(ex, 200, m);
                     }
                     case "DELETE" -> {
                         store.delete(id);
@@ -98,6 +127,19 @@ public final class ProjectApi implements HttpHandler {
         Map<String, Object> m = Json.obj();
         m.put("ok", true);
         Http.json(ex, 200, m);
+    }
+
+    private static String quote(String rev) {
+        return "\"" + rev + "\"";
+    }
+
+    /** If-Match kommt mit oder ohne Anfuehrungszeichen. Fehlt er, wird bedingungslos geschrieben. */
+    private static String unquote(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) s = s.substring(1, s.length() - 1);
+        if (!s.matches("[0-9a-f]{20}")) throw new IllegalArgumentException("If-Match ist keine Projektrevision");
+        return s;
     }
 
     private static String decode(String s) {

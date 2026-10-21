@@ -1414,6 +1414,94 @@ KNXI18n.add('en', {
   'Werkszustand wird hergestellt …': 'Resetting to factory state …',
   'zurückgesetzt': 'reset',
 
+  /* ---------- KI-Zugang (app-mcp.js) ---------- */
+  'Aus': 'Off',
+  'Vorschlag': 'Propose',
+  'Einzelschritte': 'Step by step',
+  'Auto': 'Auto',
+  'Keine KI-Sitzung erreicht dieses Projekt.': 'No AI session can reach this project.',
+  'KI-Sitzungen dürfen das Projekt lesen — mit Platzhaltern für Namen und Anschriften, ohne Notizen.':
+    'AI sessions may read the project — with placeholders for names and postal addresses, without notes.',
+  'Die KI sammelt Änderungen als Vorschläge; übernommen wird erst von Hand.':
+    'The AI collects changes as proposals; nothing is applied until you accept it.',
+  'Jede Änderung der KI wartet auf Bestätigung.': 'Every change by the AI waits for confirmation.',
+  'Änderungen der KI gelten sofort, jede als eigener Rückgängig-Schritt.':
+    'Changes by the AI apply at once, each as its own undo step.',
+  'KI: {0}': 'AI: {0}',
+  'KI-Zugang für dieses Projekt: {0}': 'AI access for this project: {0}',
+  '1 KI-Sitzung verbunden': '1 AI session connected',
+  '{0} KI-Sitzungen verbunden': '{0} AI sessions connected',
+  'KI-Zugang: {0}': 'AI access: {0}',
+  'KI-Zugang nicht umschaltbar: {0}': 'Could not switch AI access: {0}',
+  '(kommt mit den Planungswerkzeugen)': '(comes with the planning tools)',
+  'KI-Zugang einrichten …': 'Set up AI access …',
+  'KI möchte die IP-Konfiguration lesen': 'An AI session wants to read the IP configuration',
+  'Sitzung {0} ({1}) fragt nach der Multicast-Adresse des IP-Backbones und nach Adresse, Maske und Gateway der IP-Geräte. Diese Angaben gehen dann an den KI-Anbieter.':
+    'Session {0} ({1}) asks for the multicast address of the IP backbone and for address, mask and gateway of the IP devices. These details would then go to the AI provider.',
+  'Ablehnen': 'Decline',
+  'Für diese Sitzung erlauben': 'Allow for this session',
+  'Einmal erlauben': 'Allow once',
+  'KI-Rückfrage': 'AI request',
+  'Sitzung': 'Session',
+  'Programm': 'Client',
+  'Seit': 'Since',
+  'Aufrufe': 'Calls',
+  'Keine KI-Sitzung verbunden.': 'No AI session connected.',
+  'Zeit': 'Time',
+  'Werkzeug': 'Tool',
+  'Ergebnis': 'Result',
+  'ok': 'ok',
+  '{0} Felder zurückgehalten': '{0} fields withheld',
+  'Für dieses Projekt noch keine Aufrufe.': 'No calls for this project yet.',
+  'Wird berechnet …': 'Calculating …',
+  'Vorschau nicht möglich: {0}': 'Preview not possible: {0}',
+  'KI-Zugang': 'AI access',
+  'Freigabe für dieses Projekt': 'Access for this project',
+  'Gilt nur, solange dieses Fenster offen ist. Nach jedem Start des Dienstes ist der Zugang aus. Auf den Bus schreibt eine KI-Sitzung in keinem Modus — programmiert wird weiterhin über „Programmieren“.':
+    'Applies only while this window is open. After every start of the service, access is off. In no mode does an AI session write to the bus — devices are still programmed via “Program”.',
+  'Datenschutz': 'Privacy',
+  'Nie an den KI-Anbieter gehen: Notizen, Objektbeschreibungen, Seriennummern, KNX-Secure-Angaben, Einstellungen und Dateipfade. IP-Adressen nur nach Rückfrage. Projekt- und Liegenschaftsname, erkannte Anschriften, Telefonnummern und E-Mail-Adressen werden durch Platzhalter wie «Name1» ersetzt — die Zuordnung bleibt auf diesem Rechner.':
+    'Never sent to the AI provider: notes, object descriptions, serial numbers, KNX Secure data, settings and file paths. IP addresses only after asking. Project and site name, detected postal addresses, phone numbers and e-mail addresses are replaced by placeholders such as «Name1» — the mapping stays on this computer.',
+  'Weitere Begriffe, die nie hinausgehen — einer je Zeile (etwa Familienname, Vornamen in Raumnamen, Straße)':
+    'More terms that never leave this computer — one per line (e.g. family name, first names in room names, street)',
+  'Vorschau: Was die KI von der Projektübersicht sieht': 'Preview: what the AI sees of the project overview',
+  'Verbundene KI-Sitzungen': 'Connected AI sessions',
+  'Letzte Aufrufe': 'Recent calls',
+  'Einrichtung in Claude Code': 'Setup in Claude Code',
+  'Einmal im Terminal ausführen. Der Befehl liest den Zugangsschlüssel aus der Datei; über die Oberfläche geht er nie.':
+    'Run once in a terminal. The command reads the access key from its file; the key never passes through this interface.',
+  'Befehl kopieren': 'Copy command',
+  'Schlüssel erneuern': 'Renew key',
+  'Befehl kopiert': 'Command copied',
+  'Kopieren nicht möglich: {0}': 'Copy failed: {0}',
+  'Wirklich erneuern? Alle KI-Sitzungen werden getrennt': 'Really renew? All AI sessions will be disconnected',
+  'Neuer Schlüssel — die Einrichtung in der KI bitte wiederholen': 'New key — please repeat the setup in the AI client',
+  'Schlüssel nicht erneuert: {0}': 'Key not renewed: {0}',
+  'Zu kurz und deshalb nicht übernommen: {0}': 'Too short, not applied: {0}',
+
+  /* ---------- Mehrere Fenster ---------- */
+  'In einem weiteren Fenster öffnen — so lässt sich an mehreren Projekten gleichzeitig arbeiten':
+    'Open in another window — to work on several projects at the same time',
+  'Neues Fenster': 'New window',
+  'Projekt „{0}“ angelegt': 'Project “{0}” created',
+  'Anlegen fehlgeschlagen: {0}': 'Creating failed: {0}',
+  'Dieses Projekt wurde an anderer Stelle gespeichert — hier wird nicht mehr gespeichert, bis entschieden ist.':
+    'This project was saved elsewhere — this window stops saving until you decide.',
+  'Projekt wurde an anderer Stelle gespeichert': 'Project was saved elsewhere',
+  'Ein anderes Fenster hat dieses Projekt gespeichert, nachdem es hier geladen wurde. Damit dessen Änderungen nicht verloren gehen, speichert dieses Fenster vorerst nicht mehr.':
+    'Another window saved this project after it was loaded here. So that those changes are not lost, this window stops saving for now.',
+  '„Neu laden“ übernimmt den gespeicherten Stand; was hier seitdem geändert wurde, geht verloren. „Stand dieses Fensters speichern“ behält, was hier zu sehen ist, und verwirft den anderen Stand.':
+    '“Reload” takes the saved state; what was changed here since then is lost. “Save the state of this window” keeps what you see here and discards the other state.',
+  'Stand dieses Fensters speichern': 'Save the state of this window',
+  'Neu laden': 'Reload',
+  'Stand dieses Fensters gespeichert': 'State of this window saved',
+  'Busverbindung übernehmen?': 'Take over the bus connection?',
+  'Die Busverbindung gehört gerade dem Fenster mit Projekt „{0}“. Übernimmt dieses Fenster sie, hat das andere keinen Zugang mehr zum Bus, bis es selbst wieder verbindet.':
+    'The bus connection currently belongs to the window with project “{0}”. If this window takes it over, the other one has no bus access until it connects again.',
+  'Verbindung übernehmen': 'Take over connection',
+  'Die Busverbindung bleibt beim anderen Fenster.': 'The bus connection stays with the other window.',
+  'Belegt vom Fenster mit Projekt „{0}“': 'In use by the window with project “{0}”',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'

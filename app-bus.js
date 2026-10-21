@@ -40,6 +40,7 @@ async function openProjects() {
       <td>${new Date(p.modified).toLocaleString(A.t('de-DE'))}</td>
       <td class="col-act">
         <button class="btn btn-sm" data-open="${esc(p.id)}"${p.id === B.projectId ? ' disabled' : ''}>${T18('Öffnen')}</button>
+        <button class="btn btn-sm" data-win="${esc(p.id)}" title="${T18('In einem weiteren Fenster öffnen — so lässt sich an mehreren Projekten gleichzeitig arbeiten')}">${T18('Neues Fenster')}</button>
         <button class="btn btn-sm btn-danger" data-del="${esc(p.id)}"${p.id === B.projectId ? ' disabled' : ''}>${T18('Löschen')}</button>
       </td>
     </tr>`).join('');
@@ -60,19 +61,20 @@ async function openProjects() {
 
   $('#modal-body').querySelectorAll('[data-open]').forEach(b =>
     b.onclick = () => { A.closeModal(); switchProject(b.dataset.open); });
+  $('#modal-body').querySelectorAll('[data-win]').forEach(b =>
+    b.onclick = () => { window.open(B.projectUrl(b.dataset.win), '_blank'); });
   $('#modal-body').querySelectorAll('[data-del]').forEach(b =>
     b.onclick = () => deleteProject(b.dataset.del, b));
 }
 
+/* Jedes Fenster trägt sein Projekt in der Adresse; „current“ bleibt nur die
+   Vorgabe für ein neues Fenster ohne Angabe. */
 async function switchProject(id) {
   try {
     B.flush();
-    const doc = await B.readProject(id);
-    B.projectId = id;
+    await B.readProject(id);
     await B.writeSettings({ current: id });
-    KNX.setProject(doc);
-    A.resetHistory();
-    location.reload();
+    location.href = B.projectUrl(id);
   } catch (e) {
     A.warn(T18('Projekt nicht ladbar: {0}', e.message));
   }
@@ -84,13 +86,42 @@ async function createProject(name) {
     if (existing.some(p => p.id === name)) { A.warn(T18('Es gibt schon ein Projekt namens {0}', name)); return; }
     await B.writeProject(name, JSON.stringify(KNX.project()));
     await B.writeSettings({ current: name });
-    B.projectId = name;
-    A.toast('Projekt „' + name + '“ angelegt');
-    location.reload();
+    A.toast(T18('Projekt „{0}“ angelegt', name));
+    location.href = B.projectUrl(name);
   } catch (e) {
-    A.warn('Anlegen fehlgeschlagen: ' + e.message);
+    A.warn(T18('Anlegen fehlgeschlagen: {0}', e.message));
   }
 }
+
+/* ---------- Gleichzeitiges Arbeiten: ein anderer Stand wurde gespeichert ---------- *
+ * Ein zweites Fenster (oder später eine KI-Sitzung) hat dasselbe Projekt
+ * gespeichert. Hier wird nichts mehr gespeichert, bis entschieden ist — sonst
+ * ginge dessen Änderung stillschweigend verloren.                          */
+
+function showConflict(info) {
+  // Ein offener Dialog hat Vorrang; gefragt wird beim nächsten Ändern wieder
+  if ($('#modal-backdrop').classList.contains('open')) {
+    if (!$('#m-overwrite'))
+      A.warn(T18('Dieses Projekt wurde an anderer Stelle gespeichert — hier wird nicht mehr gespeichert, bis entschieden ist.'));
+    return;
+  }
+  A.openModal(T18('Projekt wurde an anderer Stelle gespeichert'), `
+    <p>${T18('Ein anderes Fenster hat dieses Projekt gespeichert, nachdem es hier geladen wurde. Damit dessen Änderungen nicht verloren gehen, speichert dieses Fenster vorerst nicht mehr.')}</p>
+    <p class="hint">${T18('„Neu laden“ übernimmt den gespeicherten Stand; was hier seitdem geändert wurde, geht verloren. „Stand dieses Fensters speichern“ behält, was hier zu sehen ist, und verwirft den anderen Stand.')}</p>
+    <p><button class="btn btn-danger" id="m-overwrite">${T18('Stand dieses Fensters speichern')}</button></p>
+  `, () => { B.saver.discard(); location.reload(); });
+  $('#modal-ok').textContent = T18('Neu laden');
+  $('#m-overwrite').onclick = () => {
+    A.closeModal();
+    B.saver.overwrite(info.rev);
+    A.toast(T18('Stand dieses Fensters gespeichert'));
+  };
+}
+B.saver.onConflict(showConflict);
+B.events.on('project', ev => {
+  if (!ev || ev.id !== B.projectId || ev.by === B.windowId || ev.rev === B.rev) return;
+  B.saver.raise({ rev: ev.rev, by: ev.by });
+});
 
 async function deleteProject(id, btn) {
   try {
@@ -99,6 +130,37 @@ async function deleteProject(id, btn) {
     A.toast(T18('Projekt „{0}“ gelöscht', id));
   } catch (e) {
     A.warn(T18('Löschen fehlgeschlagen: {0}', e.message));
+  }
+}
+
+/* ---------- Eine Busverbindung, reserviert für ein Fenster ---------- *
+ * Die Verbindung gehört dem Fenster, das sie aufgebaut hat. Arbeitet ein
+ * anderes Fenster gerade am Bus eines anderen Gebäudes, fragt dieses hier,
+ * bevor es sie übernimmt — der Dienst lehnt ab, solange dort etwas läuft.  */
+
+function confirmTakeover(project) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (!done) { done = true; watch.disconnect(); resolve(v); } };
+    A.openModal(T18('Busverbindung übernehmen?'), `
+      <p>${T18('Die Busverbindung gehört gerade dem Fenster mit Projekt „{0}“. Übernimmt dieses Fenster sie, hat das andere keinen Zugang mehr zum Bus, bis es selbst wieder verbindet.', esc(project))}</p>
+    `, () => { finish(true); });
+    $('#modal-ok').textContent = T18('Verbindung übernehmen');
+    // Abbrechen, Escape oder ein anderer Dialog: nicht übernehmen
+    const watch = new MutationObserver(() => {
+      if (!$('#modal-backdrop').classList.contains('open')) finish(false);
+    });
+    watch.observe($('#modal-backdrop'), { attributes: true, attributeFilter: ['class'] });
+  });
+}
+
+async function connectBus(opts) {
+  try {
+    return await B.bus.connect(opts);
+  } catch (e) {
+    if (e.status !== 409 || !e.data || !e.data.busyProject) throw e;
+    if (!(await confirmTakeover(e.data.busyProject))) throw new Error(T18('Die Busverbindung bleibt beim anderen Fenster.'));
+    return B.bus.connect(opts, true);
   }
 }
 
@@ -758,7 +820,7 @@ function connect() {
   bus.lastConnect = opts;
   const target = opts.mode === 'routing' ? 'Routing' : opts.host;
   runTask({ btn: q('#bus-connect'), label: T18('Verbinden mit {0}', target), busyText: T18('Verbindet …') }, async () => {
-    applyStatus(await B.bus.connect(opts));
+    applyStatus(await connectBus(opts));
     return bus.connected
       ? { level: 'ok', message: bus.linkAddress ? T18('Verbunden als {0}', bus.linkAddress) : T18('Verbunden') }
       : { level: 'warn', message: T18('Verbindung kam nicht zustande') };
@@ -773,7 +835,8 @@ function disconnect() {
 }
 
 function applyStatus(status) {
-  bus.connected = !!status.connected;
+  // Gehört die Verbindung einem anderen Fenster, ist sie für dieses keine
+  bus.connected = !!status.connected && !status.busyProject;
   bus.linkAddress = status.linkAddress || '';
   if (status.interfaceAddress !== undefined) bus.interfaceAddress = status.interfaceAddress || '';
   const c = status.connection || {};
@@ -786,6 +849,7 @@ function applyStatus(status) {
     ? (c.mode === 'routing' ? T18('Routing über {0}', c.multicast || '224.0.23.12')
        : c.host ? T18('Tunneling zu {0}', `${c.host}:${c.port}${c.nat ? ' (NAT)' : ''}`)
          + (bus.interfaceAddress ? ' — ' + T18('Schnittstelle {0}', bus.interfaceAddress) : '') : '')
+    : status.busyProject ? T18('Belegt vom Fenster mit Projekt „{0}“', status.busyProject)
     : (status.reason ? T18('Zuletzt getrennt: {0}', status.reason) : '');
   if (bus.connected) q('#bus-reconnect').hidden = true;
   syncControls();
@@ -1460,7 +1524,7 @@ $('#btn-bus').addEventListener('click', openOverlay);
 window.KNXBus = {
   available: true, debug: DEBUG, open: openOverlay, openProjects, program: programDevice,
   busy: () => (task.current ? task.current.label : ''),
-  lock,
+  lock, connect: connectBus,
   feedback: { prefs, savePrefs, chime, unlockAudio, canNotify, isAway, desktopNotify, setTitleBadge, toggleDesktop }
 };
 

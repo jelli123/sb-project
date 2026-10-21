@@ -154,6 +154,19 @@ Dort liegen die Projekte und der aus .knxprod-Dateien eingelesene
 Produktkatalog. Das Paket selbst enthaelt keine Herstellerdaten; Produkte
 werden in der Oberflaeche ueber "Import" aus eigenen .knxprod-Dateien geladen.
 
+KI-Zugang (MCP)
+---------------
+Eine KI wie Claude Code kann Projekte lesen und bei der Planung helfen.
+Der Zugang ist nach jedem Start aus. Er gilt nur fuer Projekte, die in
+einem Fenster offen und dort ueber den Schalter "KI" freigegeben sind.
+Den Befehl zum Einrichten zeigt "KI" > "KI-Zugang einrichten".
+Nie an den KI-Anbieter gehen Notizen, Objektbeschreibungen, Seriennummern,
+KNX-Secure-Daten, Einstellungen und Dateipfade, IP-Adressen nur nach
+Rueckfrage. Projekt- und Liegenschaftsname, erkannte Anschriften,
+Telefonnummern und E-Mail-Adressen ersetzt der Dienst durch Platzhalter.
+Auf den Bus schreibt eine KI nie. Jeder Aufruf steht in mcp/audit.log
+im Datenverzeichnis.
+
 Zum Ausprobieren
 ----------------
 beispiel/haus-musterstrasse-12.knx.json laesst sich ueber "Import" laden.

@@ -4,6 +4,7 @@ import de.sb.knx.json.Json;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -82,6 +83,16 @@ public final class Jobs {
         m.put("error", job.error);
         m.put("result", job.result);
         return m;
+    }
+
+    /** Laeuft gerade ein Auftrag dieser Arten oder wartet einer? */
+    public boolean active(Set<String> kinds) {
+        synchronized (jobs) {
+            for (Job j : jobs.values()) {
+                if (kinds.contains(j.kind) && (j.future == null || !j.future.isDone())) return true;
+            }
+        }
+        return false;
     }
 
     public boolean cancel(String id) {

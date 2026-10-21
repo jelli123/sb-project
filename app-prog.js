@@ -600,7 +600,8 @@ function refreshStatus() {
 
 function applyStatus(st) {
   conn.status = st;
-  conn.connected = !!st.connected;
+  // Gehört die Verbindung einem anderen Fenster, ist sie für dieses keine
+  conn.connected = !!st.connected && !st.busyProject;
   conn.linkAddress = st.linkAddress || '';
   if (st.interfaceAddress !== undefined) conn.interfaceAddress = st.interfaceAddress || '';
   const c = st.connection || {};
@@ -617,6 +618,7 @@ function applyStatus(st) {
     ? (c.mode === 'routing' ? T18('Routing über {0}', c.multicast || '224.0.23.12')
       : c.host ? T18('Tunneling zu {0}', `${c.host}:${c.port}${c.nat ? ' (NAT)' : ''}`)
         + (conn.interfaceAddress ? ' — ' + T18('Schnittstelle {0}', conn.interfaceAddress) : '') : '')
+    : st.busyProject ? T18('Belegt vom Fenster mit Projekt „{0}“', st.busyProject)
     : (st.reason ? T18('Zuletzt getrennt: {0}', st.reason) : '');
   syncControls();
 }
@@ -689,7 +691,7 @@ function connect() {
   const opts = { mode: 'tunneling', host: s.host, port: s.port, nat: q('#pg-nat').checked,
                  deviceAddress: s.address, deviceSerial: s.serial };
   connOp(q('#pg-connect'), T18('Verbindet …'), T18('Verbinden mit {0}', s.host), false, async () => {
-    applyStatus(await B.bus.connect(opts));
+    applyStatus(await BUS.connect(opts));
     if (!conn.connected) return { level: 'warn', message: T18('Verbindung kam nicht zustande') };
     conn.last = opts;
     try { localStorage.setItem(IFACE_KEY, JSON.stringify({ host: s.host, port: s.port })); } catch (e) { /* nur Komfort */ }

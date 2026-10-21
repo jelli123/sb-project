@@ -415,7 +415,8 @@ const KNX = (() => {
       groups: [],        // { id, raw, name, dpt, note }
       gaNames: {},       // '1' / '1/2' → Name der Haupt- bzw. Mittelgruppe
       functions: [],     // { id, nodeId, type, name, icon, note, gas[{ ga, role }] }
-      catalog: []        // aus .knxprod übernommene Produkte
+      catalog: [],       // aus .knxprod übernommene Produkte
+      privacy: { terms: [] }  // Begriffe, die nie an einen KI-Anbieter gehen (app-mcp.js)
     };
   }
 
@@ -447,6 +448,7 @@ const KNX = (() => {
     p.gaStyle  = GA_STYLES[p.gaStyle] ? p.gaStyle : 'three';
     p.isSample = !!p.isSample;
     p.gaNames  = (p.gaNames && typeof p.gaNames === 'object') ? p.gaNames : {};
+    p.privacy  = normPrivacy(p.privacy);
 
     let seq = Math.max(+p.seq || 0, +p.nextNodeId || 0, +p.nextGaId || 0, 1);
     const takeId = (cur, pfx, seen) => {
@@ -874,6 +876,22 @@ const KNX = (() => {
     }
     const t = String(v == null ? '' : v).trim().slice(0, NAME_MAX);
     return t || dflt;
+  };
+  /* Sperrliste für den KI-Zugang: einzelne Begriffe (Namen, Straße), je höchstens
+     100 Zeichen, höchstens 200. Kürzere als 3 Zeichen nimmt der Dienst nicht an —
+     sie träfen halbe Wörter; hier werden sie gar nicht erst gespeichert. */
+  const PRIVACY_TERM_MIN = 3, PRIVACY_TERM_MAX = 100, PRIVACY_TERMS_MAX = 200;
+  const normPrivacy = v => {
+    const raw = v && typeof v === 'object' && Array.isArray(v.terms) ? v.terms : [];
+    const seen = new Set(), terms = [];
+    raw.forEach(t => {
+      if (typeof t !== 'string' || terms.length >= PRIVACY_TERMS_MAX) return;
+      const x = t.trim().replace(/\s+/g, ' ').slice(0, PRIVACY_TERM_MAX);
+      if (x.length < PRIVACY_TERM_MIN || seen.has(x.toLowerCase())) return;
+      seen.add(x.toLowerCase());
+      terms.push(x);
+    });
+    return { terms };
   };
   /* Beschreibung eines Objekts (Spalte „Beschreibung“ der ETS): freier Text,
      immer einsprachig. */
@@ -2395,7 +2413,7 @@ const KNX = (() => {
     DPT, dptById, dptGroups,
     GA_STYLES, GA_MAX, gaStyle, gaSplit, gaJoin, gaStr, addrStr,
     PA_MAX, paJoin, paSplit, paStr, paFree, freePa, hasPa, byPa,
-    NOTE_MAX, normNote, normSerial,
+    NOTE_MAX, normNote, normSerial, normPrivacy, PRIVACY_TERM_MIN,
     NODE_KINDS, DEVICE_HOSTS, KO_FLAGS, MEDIA, kindDe, kindHolds, flagStr, objLabel,
     FN_CATS, FN_TYPES, fnType, fnRole, fnIcon,
     functionById, functionsAt, functionsOfGa, functionsUnder, functionDevices,

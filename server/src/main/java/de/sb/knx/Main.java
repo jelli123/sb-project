@@ -3,6 +3,7 @@ package de.sb.knx;
 import com.sun.net.httpserver.HttpServer;
 import de.sb.knx.api.BusApi;
 import de.sb.knx.api.CatalogApi;
+import de.sb.knx.api.McpUiApi;
 import de.sb.knx.api.OnlineApi;
 import de.sb.knx.api.ProjectApi;
 import de.sb.knx.api.SecureApi;
@@ -12,7 +13,10 @@ import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
 import de.sb.knx.http.StaticFiles;
 import de.sb.knx.json.Json;
+import de.sb.knx.mcp.McpApi;
+import de.sb.knx.mcp.McpGate;
 import de.sb.knx.online.OnlineCatalog;
+import de.sb.knx.store.FileStore;
 import de.sb.knx.secure.KeyVault;
 import de.sb.knx.store.CatalogStore;
 import de.sb.knx.store.ProjectStore;
@@ -74,6 +78,7 @@ public final class Main {
         BusService bus = new BusService(events);
         KeyVault vault = new KeyVault(dataDir);
         bus.vault(vault);
+        McpGate mcp = new McpGate(dataDir, events);
 
         HttpServer http = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         http.setExecutor(Executors.newCachedThreadPool(r -> {
@@ -84,16 +89,32 @@ public final class Main {
 
         int boundPort = port;
         boolean debugUi = debug;
-        http.createContext("/api/projects", new ProjectApi(projects, vault, boundPort));
-        http.createContext("/api/settings", new ProjectApi(projects, vault, boundPort));
+        http.createContext("/api/projects", new ProjectApi(projects, vault, events, boundPort));
+        http.createContext("/api/settings", new ProjectApi(projects, vault, events, boundPort));
         http.createContext("/api/secure", new SecureApi(vault, boundPort));
         http.createContext("/api/catalog", new CatalogApi(catalog, boundPort));
         http.createContext("/api/online", new OnlineApi(online, jobs, events, boundPort));
         http.createContext("/api/bus", new BusApi(bus, jobs, events, boundPort));
         http.createContext("/api/events", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
-            events.subscribe(ex);
+            Map<String, String> q = Http.query(ex);
+            if (ex.getRequestURI().getPath().equals("/api/events/bye")) {
+                // Das Fenster schliesst sich - seine KI-Freigabe soll nicht erst beim naechsten Ping fallen
+                events.bye(Events.windowId(q.get("window")));
+                Http.send(ex, 204, "text/plain", new byte[0]);
+                return;
+            }
+            String project = null;
+            try {
+                if (q.get("project") != null) project = FileStore.safeId(q.get("project"));
+            } catch (IllegalArgumentException e) {
+                project = null;
+            }
+            events.subscribe(ex, q.get("window"), project);
         });
+        String version = Main.class.getPackage().getImplementationVersion();
+        http.createContext("/mcp", new McpApi(mcp, boundPort, version));
+        http.createContext("/api/mcp", new McpUiApi(mcp, boundPort));
         http.createContext("/api/info", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
             Map<String, Object> m = Json.obj();
@@ -108,6 +129,7 @@ public final class Main {
         http.createContext("/", new StaticFiles(webDir, boundPort));
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            mcp.close();
             bus.close();
             events.close();
             http.stop(0);
@@ -118,6 +140,7 @@ public final class Main {
         System.out.println("SB-Projekt laeuft auf " + url);
         System.out.println("  Daten:  " + dataDir);
         System.out.println("  Web:    " + webDir);
+        System.out.println("  KI:     " + url + "mcp (Zugang erst nach Freigabe im Fenster)");
         if (debug) System.out.println("  Debug:  Inbetriebnahme-Fenster eingeblendet");
         System.out.println("Beenden mit Strg+C.");
 

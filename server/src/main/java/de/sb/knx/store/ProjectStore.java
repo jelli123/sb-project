@@ -7,7 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -50,16 +53,54 @@ public final class ProjectStore extends FileStore {
     }
 
     public void write(String id, String json) throws IOException {
-        validateJson(json);
-        writeAtomic(file(id, EXT), utf8(json), true);
+        write(id, json, null);
     }
 
-    public void delete(String id) throws IOException {
+    /**
+     * Schreibt nur, wenn die Datei noch den Stand {@code expected} hat - sonst hat ein anderes
+     * Fenster oder eine KI-Sitzung dazwischen gespeichert, und blindes Ueberschreiben verloere
+     * deren Aenderung. Ohne {@code expected} wird wie bisher bedingungslos geschrieben.
+     *
+     * @return die Revision des neuen Stands
+     */
+    public synchronized String write(String id, String json, String expected) throws IOException {
+        validateJson(json);
+        Path p = file(id, EXT);
+        if (expected != null && Files.isRegularFile(p)) {
+            String now = revision(Files.readAllBytes(p));
+            if (!now.equals(expected)) throw new Conflict(now);
+        }
+        byte[] data = utf8(json);
+        writeAtomic(p, data, true);
+        return revision(data);
+    }
+
+    /** Kennung eines Dateistands. Aus dem Inhalt berechnet, damit sie einen Neustart uebersteht. */
+    public static String revision(byte[] data) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(data);
+            return HexFormat.of().formatHex(h, 0, 10);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Die Datei hat inzwischen einen anderen Stand als der, auf dem die Aenderung beruht. */
+    public static final class Conflict extends IOException {
+        public final String current;
+
+        Conflict(String current) {
+            super("Das Projekt wurde inzwischen an anderer Stelle gespeichert");
+            this.current = current;
+        }
+    }
+
+    public synchronized void delete(String id) throws IOException {
         Files.deleteIfExists(file(id, EXT));
         Files.deleteIfExists(file(id, EXT + ".bak"));
     }
 
-    public void rename(String id, String newId) throws IOException {
+    public synchronized void rename(String id, String newId) throws IOException {
         Path from = file(id, EXT);
         Path to = file(newId, EXT);
         if (!Files.isRegularFile(from)) throw new IOException("Projekt nicht gefunden: " + id);

@@ -1543,29 +1543,109 @@ table.ga.pg-table { table-layout: auto; }
 .ctx-ic { flex: 0 0 14px; display: inline-grid; place-items: center; line-height: 0; }
 .ctx-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 
+/* ---------- KI-Zugang (app-mcp.js) ---------- *
+ * Der Schalter steht neben dem Projektnamen, weil die Freigabe genau diesem
+ * Projekt gilt. Farbe und Punkt sagen auf einen Blick, was eine KI darf.  */
+#btn-ai { position: relative; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ai-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bar-faint);
+  background: transparent;
+  flex: 0 0 auto;
+}
+.ai-dot[data-mode="read"], #btn-ai[data-mode="read"] .ai-dot { background: var(--ok); border-color: var(--ok); }
+.ai-dot[data-mode="propose"], .ai-dot[data-mode="step"],
+#btn-ai[data-mode="propose"] .ai-dot, #btn-ai[data-mode="step"] .ai-dot { background: var(--warn); border-color: var(--warn); }
+.ai-dot[data-mode="auto"], #btn-ai[data-mode="auto"] .ai-dot { background: var(--danger); border-color: var(--danger); }
+.ctx-ic .ai-dot, .mcp-mode .ai-dot { border-color: var(--muted); }
+#topbar #btn-ai[data-mode="read"] { border-color: color-mix(in oklch, var(--ok) 70%, transparent); }
+#topbar #btn-ai[data-mode="propose"], #topbar #btn-ai[data-mode="step"] { border-color: var(--warn); }
+#topbar #btn-ai[data-mode="auto"] { border-color: var(--danger); background: color-mix(in oklch, var(--danger) 30%, transparent); }
+#btn-ai.busy .ai-dot { animation: ai-pulse 0.9s ease-in-out infinite alternate; }
+@keyframes ai-pulse { from { transform: scale(1); } to { transform: scale(1.6); } }
+
+#modal:has(#mcp-dlg) { max-width: 760px; }
+.mcp-dlg { display: flex; flex-direction: column; gap: 18px; }
+.mcp-dlg section { display: flex; flex-direction: column; gap: 8px; }
+.mcp-dlg h4 { margin: 0; font-size: 13px; font-weight: 650; }
+.mcp-dlg .hint { margin: 0; }
+.mcp-modes { display: flex; flex-direction: column; gap: 4px; }
+.mcp-mode { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; }
+.mcp-mode input { accent-color: var(--accent); }
+.mcp-mode:has(input:disabled) { color: var(--muted); cursor: default; }
+.mcp-mode em { font-style: normal; font-size: 12px; }
+.mcp-row { display: flex; gap: 8px; margin: 0; }
+.mcp-dlg textarea { font: 13px/1.4 var(--font); resize: vertical; min-height: 70px; }
+.mcp-preview, .mcp-cmd {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  font: 12px/1.45 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mcp-preview { max-height: 260px; overflow: auto; }
+.mcp-cmd { user-select: all; }
+
+/* Rückfrage einer KI-Sitzung: über allem, auch über einem offenen Dialog */
+.mcp-ask {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  z-index: 70;
+  width: min(400px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.mcp-ask p { margin: 0; }
+.mcp-ask-btns { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
 /* ---------- Enge Fenster ---------- *
  * Die Topbar ist eine einzige Zeile mit fester Hoehe; umbrechen darf sie
- * nicht, ohne das Rasterlayout darunter zu verschieben. Gemessen braucht sie
- * rund 1610 px. Reicht das nicht, weichen zuerst die entbehrlichen Texte -
- * erst der Markentext (205 px), dann die Beschriftung des Adressfelds
- * (70 px). Die Knoepfe selbst bleiben in voller Breite erreichbar.        */
-@media (max-width: 1620px) {
+ * nicht, ohne das Rasterlayout darunter zu verschieben. Gemessen mit dem
+ * laengsten Schalterstand („KI: Einzelschritte“, deutsch): 1892 px mit
+ * Markentext, 1676 px ohne, 1531 px ohne Feldbeschriftungen; --debug kostet
+ * 44 px mehr. Reicht der Platz nicht, weichen zuerst die entbehrlichen Texte -
+ * Markentext, Beschriftung der Auswahlfelder, zuletzt der Modusname am
+ * KI-Schalter (Farbe und Tooltip sagen ihn weiter). Die Knoepfe bleiben.  */
+@media (max-width: 1900px) {
   #topbar .brand-text { display: none; }
   #topbar .brand { padding-right: 0; border-right: none; }
 }
-@media (max-width: 1420px) {
+@media (max-width: 1680px) {
   #topbar .topbar-field > span { display: none; }
+}
+@media (max-width: 1540px) {
+  #btn-ai .ai-label { display: none; }
 }
 /* Die Teile eines Downloads stehen nebeneinander, solange Platz ist */
 @media (max-width: 1260px) {
   .pg-chips { white-space: normal; }
 }
 /* Mit --debug steht das Inbetriebnahme-Werkzeug zusätzlich da */
-@media (max-width: 1660px) {
+@media (max-width: 1725px) {
   #topbar[data-debug] .topbar-field > span { display: none; }
+}
+@media (max-width: 1585px) {
+  #topbar[data-debug] #btn-ai .ai-label { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  #btn-ai.busy .ai-dot { animation: none; }
   .ovl-activity.running::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
   .btn[data-busy="1"]::before, .ovl-activity.running .act-text::before, .pg-st.run::before { animation-duration: 2s; }
   /* Dialoge und Meldungen blenden nur noch ein, statt heranzugleiten */
