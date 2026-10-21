@@ -38,6 +38,7 @@ head.innerHTML = `
 const svgIc = d => `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const NEW_IC = svgIc('<path d="M13.5 9v3.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1H7"/><path d="M11.8 2.2l2 2L8.5 9.5 6 10l.5-2.5z"/>');
 const HISTORY_IC = svgIc('<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.3 2.6v2.6h2.6"/><path d="M8 5v3.2l2 1.3"/>');
+const MANUAL_IC = svgIc('<path d="M3 2.5h7.5a1 1 0 0 1 1 1V13.5H4a1 1 0 0 1-1-1z"/><path d="M3 12.5a1 1 0 0 1 1-1h7.5"/><path d="M5.5 5h3.5M5.5 7.2h3.5"/>');
 const EFFORT_IC = svgIc('<path d="M3 13a6 6 0 1 1 10 0"/><path d="M8 9.5l2.6-3"/>');
 
 /* Aufwand als Schieberegler: Stellung 0 heißt „wie im Konto eingestellt“. */
@@ -76,6 +77,9 @@ box.innerHTML = `
               aria-label="${T18('Neues Gespräch')}">${NEW_IC}</button>
       <button type="button" class="btn btn-sm btn-icon" id="chat-history" title="${T18('Verlauf: gespeicherte Gespräche öffnen oder löschen')}"
               aria-label="${T18('Verlauf')}">${HISTORY_IC}</button>
+      ${window.KNXManuals && window.KNXManuals.available ? `
+      <button type="button" class="btn btn-sm btn-icon" id="chat-manuals" title="${T18('Handbücher: PDF hochladen, die die KI lesen darf')}"
+              aria-label="${T18('Handbücher')}">${MANUAL_IC}</button>` : ''}
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm" id="chat-stop" hidden>${T18('Anhalten')}</button>
       <button type="submit" class="btn btn-sm btn-primary" id="chat-send">${T18('Senden')}</button>
@@ -204,7 +208,7 @@ const unmarked = html => html.replace(/\uE000([^\uE001\uE002]*)\uE001([^\uE002]*
 /* Kennungen aus dem Projekt (g8, d193, n185 …) zeigt das Fenster mit Namen an —
    nur hier, aus dem aktuellen Projekt. Gespeichert und an die KI zurück geht
    weiter ihr eigener Text. Ein Klick wählt das Element im Projekt aus. */
-const REF_KINDS = { g: 'ga', d: 'dev', n: 'node', f: 'fn', l: 'line', a: 'area' };
+const REF_KINDS = { g: 'ga', d: 'dev', n: 'node', f: 'fn', l: 'line', a: 'area', c: 'catalog' };
 const L = v => (v && typeof v === 'object' ? A.L(v) : String(v ?? ''));
 function refLabel(p, id) {
   switch (p) {
@@ -214,10 +218,11 @@ function refLabel(p, id) {
     case 'f': { const f = KNX.functionById(id); return f && L(f.name); }
     case 'l': { const l = KNX.lineById(id); return l && KNX.lineLabel(id).replace(/\s+/g, ' '); }
     case 'a': { const a = KNX.project().areas.find(x => x.id === id); return a && `${a.addr} ${L(a.name)}`; }
+    case 'c': { const c = KNX.catalogById(id); return c && L(c.name); }
     default: return null;
   }
 }
-const refs = html => html.replace(/(<[^>]*>)|\b([gdnfla])(\d{1,6})\b/g, (m, tag, p, n) => {
+const refs = html => html.replace(/(<[^>]*>)|\b([gdnflac])(\d{1,6})\b/g, (m, tag, p, n) => {
   if (tag) return tag;
   const id = p + n, label = refLabel(p, id);
   return label ? `<button type="button" class="chat-ref" data-kind="${REF_KINDS[p]}" data-id="${id}"`
@@ -278,6 +283,14 @@ function toolLine(name, input) {
   let args = '';
   try {
     const o = JSON.parse(input);
+    // Lesen im Handbuch: Titel und Seiten statt des Dateipfads
+    if (name === 'Read' && o && typeof o.file_path === 'string') {
+      const file = o.file_path.split(/[\\/]/).pop();
+      const title = window.KNXManuals && window.KNXManuals.titleOf && window.KNXManuals.titleOf(file);
+      add('chat-tool', `${MANUAL_IC}<span>${esc(T18('Handbuch „{0}“', title || file))}${o.pages
+        ? ' · ' + esc(T18('Seiten {0}', String(o.pages))) : ''}</span>`);
+      return;
+    }
     args = Object.entries(o).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
   } catch (e) { args = input || ''; }
   if (args.length > 160) args = args.slice(0, 160) + '…';
@@ -301,6 +314,10 @@ B.events.on('chat', ev => {
       break;
     case 'toolError':
       add('chat-tool err', `${TOOL_IC}<span>${unmarked(esc(ev.text || T18('Werkzeug meldet einen Fehler')))}</span>`);
+      break;
+    case 'notice':
+      chat.bubble = null;
+      add('chat-sys', esc(T18(ev.text || '')));
       break;
     case 'quota':
       if (chat.cli) chat.cli.quota = ev.quota;
@@ -364,7 +381,7 @@ function replay(e) {
     case 'ai': add('chat-msg ai', md(e.text || '')); break;
     case 'tool': toolLine(e.name, e.input); break;
     case 'toolError': add('chat-tool err', `${TOOL_IC}<span>${unmarked(esc(e.text || ''))}</span>`); break;
-    case 'sys': add('chat-sys', esc(e.text || '')); break;
+    case 'sys': add('chat-sys', esc(T18(e.text || ''))); break;
     case 'err': add('chat-sys err', unmarked(esc(T18('Fehler: {0}', e.text || '')))); break;
     case 'usage': usageLine(e.usage); break;
     default:
@@ -417,6 +434,18 @@ async function openHistory() {
   });
 }
 $('#chat-history').addEventListener('click', openHistory);
+if ($('#chat-manuals')) $('#chat-manuals').addEventListener('click', () => window.KNXManuals.open({
+  onUpload: done => {
+    // Die KI erfährt es mit der nächsten Nachricht; im Feld steht schon ein Anfang
+    const input = $('#chat-input');
+    if (!input.value.trim()) {
+      input.value = done.length === 1 ? T18('Im Handbuch „{0}“: ', done[0].title)
+        : T18('In den neuen Handbüchern ({0}): ', done.map(m => m.title).join(', '));
+    }
+    add('chat-sys', esc(done.length === 1 ? T18('Handbuch „{0}“ hochgeladen — die KI findet es mit list_manuals.', done[0].title)
+      : T18('{0} Handbücher hochgeladen — die KI findet sie mit list_manuals.', done.length)));
+  }
+}));
 
 /* Nach einem Neustart: das letzte Gespräch dieses Projekts wieder zeigen. */
 async function restoreLast() {
@@ -449,7 +478,11 @@ window.KNXI18n.onChange(paintEffort);
 log.addEventListener('click', e => {
   const b = e.target.closest('.chat-ref');
   if (!b) return;
-  if (b.dataset.kind === 'node') A.selectNode(b.dataset.id);
+  // Katalogprodukte stehen nicht im Baum — ein Klick öffnet ihre Handbücher
+  if (b.dataset.kind === 'catalog') {
+    const c = KNX.catalogById(b.dataset.id);
+    if (c && window.KNXManuals && window.KNXManuals.available) window.KNXManuals.open({ item: c });
+  } else if (b.dataset.kind === 'node') A.selectNode(b.dataset.id);
   else A.select(b.dataset.kind, b.dataset.id);
 });
 

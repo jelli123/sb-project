@@ -337,6 +337,33 @@ const TOOLS = {
     };
   },
 
+  /* Handbücher liegen beim Dienst, für alle Projekte gemeinsam. Zugeordnet sind
+     sie Produkten über Hersteller und Bestellnummer — hier werden daraus die
+     Katalogeinträge dieses Projekts. */
+  async list_manuals(a) {
+    const MN = window.KNXManuals;
+    if (!MN || !MN.available) throw new Error('Handbücher gibt es nur mit dem lokalen Dienst.');
+    const all = await MN.load(), q = lower(a.query), p = P();
+    const byKey = new Map(p.catalog.map(c => [MN.productKey(MN.asProduct(c)), c]));
+    const rows = all.map(m => {
+      const products = [], otherProducts = [];
+      (m.products || []).forEach(x => {
+        const c = byKey.get(MN.productKey(x));
+        if (c) products.push(c.id);
+        else otherProducts.push([x.manufacturer, x.name, x.order].filter(Boolean).join(' · '));
+      });
+      return { m, products, otherProducts };
+    }).filter(r => has(q, r.m.title, ...(r.m.products || []).flatMap(x => [x.name, x.order, x.manufacturer])));
+    rows.sort((x, y) => (y.products.length > 0) - (x.products.length > 0));
+    return {
+      total: rows.length,
+      manuals: rows.slice(0, a.limit || 50).map(r => ({
+        file: r.m.file, title: S(r.m.title), pages: r.m.pages ?? null,
+        products: r.products, otherProducts: r.otherProducts
+      }))
+    };
+  },
+
   list_function_types() {
     return {
       types: KNX.FN_TYPES.map(t => ({

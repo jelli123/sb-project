@@ -34,6 +34,7 @@ const IC = {
   params:   '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.6" fill="currentColor" stroke="none"/><circle cx="10.5" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="5" cy="11.5" r="1.6" fill="currentColor" stroke="none"/></svg>'
 };
 const IC_PENCIL = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M11.2 2.8l2 2L5 13H3v-2z"/></svg>';
+const IC_BOOK   = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 2.5h7.5a1 1 0 0 1 1 1V13.5H4a1 1 0 0 1-1-1z"/><path d="M3 12.5a1 1 0 0 1 1-1h7.5"/></svg>';
 const IC_TRASH  = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M6.5 4V3h3v1M4.5 4.5 5 13h6l.5-8.5"/></svg>';
 const IC_LOCK   = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7.5" width="9" height="6.5" rx="1"/><path d="M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2"/></svg>';
 const IC_LINK   = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.5 9.5a3 3 0 0 0 4.2.3l2-2a3 3 0 0 0-4.2-4.2l-1.2 1.2"/><path d="M9.5 6.5a3 3 0 0 0-4.2-.3l-2 2a3 3 0 0 0 4.2 4.2l1.2-1.2"/></svg>';
@@ -773,7 +774,7 @@ window.KNXApp = {
   pickDialog, trailOf, moveNode, actPickChildren, actPickDevices, setDeviceRoom, parentOptions,
   iconBtn, t: T18, L,
   openMenu, closeMenu, contextMenuFor, nativeMenuWins,
-  IC, IC_PENCIL, IC_TRASH, IC_LINK, IC_LOCK
+  IC, IC_PENCIL, IC_TRASH, IC_BOOK, IC_LINK, IC_LOCK
 };
 
 })();

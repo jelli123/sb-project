@@ -15,7 +15,7 @@ window.KNXBackend = null;
 const SCRIPTS = [
   'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-crypt.js', 'knx-proj.js', 'knx-download.js',
   'app.js', 'app-ga.js', 'app-fn.js', 'app-secure.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-prog.js',
-  'app-mcp.js', 'app-chat.js', 'app-init.js'
+  'app-mcp.js', 'app-manuals.js', 'app-chat.js', 'app-init.js'
 ];
 
 const DEFAULT_PROJECT_ID = 'Projekt';
@@ -305,6 +305,15 @@ const backend = {
     history: project      => get('/api/chat/history?project=' + encodeURIComponent(project)),
     open:   (project, id) => post('/api/chat/open', { project, id }),
     remove: (project, id) => post('/api/chat/delete', { project, id })
+  },
+
+  /* Handbücher (PDF) für die KI — hochgeladen vom Nutzer, nie aus dem Internet. */
+  manuals: {
+    list:   ()     => get('/api/manuals'),
+    upload: (title, bytes) => post('/api/manuals/upload?title=' + encodeURIComponent(title), bytes, { timeout: 120000 }),
+    update: body   => post('/api/manuals/update', body),
+    remove: id     => post('/api/manuals/delete', { id }),
+    fileUrl: id    => '/api/manuals/file?id=' + encodeURIComponent(id)
   },
 
   /* KNX Secure: Die Schlüssel bleiben im Dienst. Hinein gehen Passwort und

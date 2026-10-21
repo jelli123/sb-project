@@ -498,6 +498,7 @@ function actCatalog(onPick, target) {
   if (bulk && !KNX.lineById(tgt.lineId)) tgt.lineId = (KNX.regularAreas()[0].lines[0] || {}).id || null;
   const QTY_MAX = 99;
 
+  const MN = window.KNXManuals && window.KNXManuals.available ? window.KNXManuals : null;
   const render = () => {
     const items = KNX.project().catalog;
     return `
@@ -508,6 +509,8 @@ function actCatalog(onPick, target) {
         <button type="button" class="btn btn-sm btn-primary" id="m-load">${T18('Produktdatei laden …')}</button>
         <button type="button" class="btn btn-sm" id="m-online"
                 title="${T18('Produktdaten aus dem offenen KNX-Onlinekatalog holen')}">${T18('Onlinekatalog …')}</button>
+        ${MN ? `<button type="button" class="btn btn-sm" id="m-manuals"
+                title="${T18('PDF-Handbücher, die die KI im Chat lesen darf')}">${T18('Handbücher …')}</button>` : ''}
       </div>
       <div class="pick-row">
         <input class="input" id="m-search" placeholder="${T18('Katalog durchsuchen …')}">
@@ -526,6 +529,9 @@ function actCatalog(onPick, target) {
               : Object.keys(c.params || {}).length + ' P'}</span>
             ${bulk ? `<input class="input mono cat-qty" type="number" min="1" max="${QTY_MAX}" value="${picks.get(c.id) || 1}"
                        aria-label="${T18('Stückzahl')}" title="${T18('Stückzahl')}"${picks.has(c.id) ? '' : ' disabled'}>` : ''}
+            ${MN ? (n => `<button type="button" class="icon-btn cat-man${n ? ' has' : ''}" data-id="${c.id}"
+                    title="${n ? T18('{0} Handbücher — verwalten oder weitere hochladen', n) : T18('Handbuch (PDF) hochladen')}">
+              ${A.IC_BOOK}${n ? `<small>${n}</small>` : ''}</button>`)(MN.forItem(c).length) : ''}
             <button type="button" class="icon-btn cat-del" data-id="${c.id}" title="${T18('Aus dem Katalog entfernen')}">
               ${A.IC_TRASH}</button>
           </div>`).join('')
@@ -586,7 +592,7 @@ function actCatalog(onPick, target) {
     const list = $('#m-cat-list');
     list.querySelectorAll('.cat-row').forEach(row => {
       row.addEventListener('click', e => {
-        if (e.target.closest('.cat-del, .cat-qty')) return;
+        if (e.target.closest('.cat-del, .cat-qty, .cat-man')) return;
         if (bulk) {
           // Die Box schaltet selbst um; ein Klick auf die Zeile tut dasselbe
           setPick(row, e.target.classList.contains('cat-chk') ? e.target.checked : !picks.has(row.dataset.id));
@@ -596,7 +602,7 @@ function actCatalog(onPick, target) {
         list.querySelectorAll('.cat-row').forEach(r => r.classList.toggle('sel', r === row));
       });
       row.addEventListener('dblclick', e => {
-        if (e.target.closest('.cat-del, .cat-qty, .cat-chk')) return;
+        if (e.target.closest('.cat-del, .cat-qty, .cat-chk, .cat-man')) return;
         picks.clear();
         picked = row.dataset.id;
         if (bulk) picks.set(picked, 1);
@@ -606,6 +612,17 @@ function actCatalog(onPick, target) {
       if (qty) qty.addEventListener('input', () => {
         if (picks.has(row.dataset.id)) { picks.set(row.dataset.id, qtyOf(row)); sync(); }
       });
+    });
+    // Handbücher: Der Katalog geht zu, der Handbuchdialog auf
+    list.querySelectorAll('.cat-man').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const c = KNX.catalogById(b.dataset.id);
+      A.closeModal();
+      A.nextModal(() => MN.open({ item: c }));
+    }));
+    if ($('#m-manuals')) $('#m-manuals').addEventListener('click', () => {
+      A.closeModal();
+      A.nextModal(() => MN.open());
     });
     list.querySelectorAll('.cat-del').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();

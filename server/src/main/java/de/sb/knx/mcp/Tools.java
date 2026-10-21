@@ -16,6 +16,7 @@ import static de.sb.knx.mcp.Shape.id;
 import static de.sb.knx.mcp.Shape.integer;
 import static de.sb.knx.mcp.Shape.ipv4;
 import static de.sb.knx.mcp.Shape.key;
+import static de.sb.knx.mcp.Shape.manualFile;
 import static de.sb.knx.mcp.Shape.list;
 import static de.sb.knx.mcp.Shape.nullable;
 import static de.sb.knx.mcp.Shape.obj;
@@ -316,6 +317,23 @@ final class Tools {
                             f("roles", list(obj(f("role", word()), f("name", catalogText(100)), f("dpt", dpt())), 16))),
                             32))),
                     Level.READ, 20),
+
+            new Tool("list_manuals", "List product manuals",
+                    "Lists the product manuals (PDF) the user uploaded, with title, page count and the products of "
+                            + "this project's catalogue they belong to (catalogue ids as in list_catalog). Manuals of "
+                            + "products not in this project are listed after the others. Inside the SB-Projekt chat a "
+                            + "manual can be read with the Read tool using `file` as path; other clients cannot read "
+                            + "them. Read the table of contents first, then only the pages needed.",
+                    obj(PROJECT, opt("query", text(100), "Case-insensitive filter on title, product name and order number."),
+                            limit(200, 50)),
+                    obj(f("total", count()),
+                            f("manuals", list(obj(
+                                    f("file", manualFile()),
+                                    f("title", text(200)),
+                                    f("pages", nullable(count())),
+                                    f("products", list(id(), 50)),
+                                    f("otherProducts", list(catalogText(200), 50))), 200))),
+                    Level.READ, 30),
 
             new Tool("get_change_status", "Change status",
                     "Returns the state of changes this session requested: applied, pending (waiting for the user's "

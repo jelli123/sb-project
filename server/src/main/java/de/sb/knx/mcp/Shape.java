@@ -69,6 +69,11 @@ public abstract class Shape {
         return new Token("[A-Za-z0-9_.:#-]{1,120}", "Kennung");
     }
 
+    /** Dateiname eines hochgeladenen Handbuchs, relativ zum Arbeitsverzeichnis des Chats. */
+    static Shape manualFile() {
+        return new Token("[a-f0-9]{16}\\.pdf", "Handbuchdatei");
+    }
+
     /** Kennung eines freigegebenen Projekts, wie list_projects sie nennt. */
     static Shape handle() {
         return new Token("p\\d{1,3}", "Projektkennung wie p1 (siehe list_projects)");

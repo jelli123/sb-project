@@ -4,12 +4,14 @@ import com.sun.net.httpserver.HttpServer;
 import de.sb.knx.api.BusApi;
 import de.sb.knx.api.CatalogApi;
 import de.sb.knx.api.ChatApi;
+import de.sb.knx.api.ManualApi;
 import de.sb.knx.api.McpUiApi;
 import de.sb.knx.api.OnlineApi;
 import de.sb.knx.api.ProjectApi;
 import de.sb.knx.api.SecureApi;
 import de.sb.knx.bus.BusService;
 import de.sb.knx.chat.ChatService;
+import de.sb.knx.chat.ManualStore;
 import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
@@ -129,7 +131,9 @@ public final class Main {
         String version = Main.class.getPackage().getImplementationVersion();
         http.createContext("/mcp", new McpApi(mcp, boundPort, version));
         http.createContext("/api/mcp", new McpUiApi(mcp, boundPort));
-        ChatService chat = new ChatService(dataDir, events, mcp, boundPort, claude, chatApi);
+        ManualStore manuals = new ManualStore(dataDir);
+        http.createContext("/api/manuals", new ManualApi(manuals, boundPort));
+        ChatService chat = new ChatService(dataDir, manuals.filesDir(), events, mcp, boundPort, claude, chatApi);
         http.createContext("/api/chat", new ChatApi(chat, boundPort));
         http.createContext("/api/info", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;

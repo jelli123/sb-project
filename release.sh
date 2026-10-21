@@ -209,6 +209,14 @@ Gespraeche werden je Projekt in chat/history im Datenverzeichnis gespeichert
 (nur fuer den Nutzer lesbar) und lassen sich nach einem Neustart fortsetzen;
 die Zuordnung der Platzhalter liegt dafuer in mcp/privacy.
 
+Handbuecher (PDF) laedt man selbst hoch - im Chat ueber das Buchsymbol oder
+im Produktkatalog - und ordnet sie Produkten zu; aus dem Internet wird nichts
+geladen. Sie liegen in manuals/files im Datenverzeichnis. Der Chat laeuft in
+diesem Ordner und darf nur dort lesen: erst das Inhaltsverzeichnis, dann die
+passenden Seiten. Mehr als 20 Seiten fuer eine Frage liest er nur nach
+Rueckfrage. Gelesene Seiten gehen an den KI-Anbieter - deshalb nur
+Herstellerunterlagen hochladen.
+
 Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
 bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter
 reicht alles an den laufenden Dienst weiter; laeuft er nicht, melden die
