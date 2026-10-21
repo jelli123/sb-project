@@ -35,6 +35,17 @@ head.innerHTML = `
     <button class="tab" data-right="chat" role="tab">${T18('KI-Chat')}</button>
   </div>`;
 
+const svgIc = d => `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const NEW_IC = svgIc('<path d="M13.5 9v3.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1H7"/><path d="M11.8 2.2l2 2L8.5 9.5 6 10l.5-2.5z"/>');
+const HISTORY_IC = svgIc('<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.3 2.6v2.6h2.6"/><path d="M8 5v3.2l2 1.3"/>');
+const EFFORT_IC = svgIc('<path d="M3 13a6 6 0 1 1 10 0"/><path d="M8 9.5l2.6-3"/>');
+
+/* Aufwand als Schieberegler: Stellung 0 heißt „wie im Konto eingestellt“. */
+const EFFORTS = [
+  { v: '', label: 'Standard' }, { v: 'low', label: 'niedrig' }, { v: 'medium', label: 'mittel' },
+  { v: 'high', label: 'hoch' }, { v: 'xhigh', label: 'sehr hoch' }
+];
+
 const box = document.createElement('div');
 box.id = 'chat';
 box.className = 'chat';
@@ -53,17 +64,18 @@ box.innerHTML = `
         <option value="sonnet">${T18('Ausgewogen (Sonnet)')}</option>
         <option value="haiku">${T18('Schnell (Haiku)')}</option>
       </select>
-      <select class="select" id="chat-effort" title="${T18('Mehr Aufwand plant gründlicher, braucht aber länger und mehr Kontingent')}">
-        <option value="">${T18('Aufwand: Standard')}</option>
-        <option value="low">${T18('Aufwand: niedrig')}</option>
-        <option value="medium">${T18('Aufwand: mittel')}</option>
-        <option value="high">${T18('Aufwand: hoch')}</option>
-        <option value="xhigh">${T18('Aufwand: sehr hoch')}</option>
-      </select>
+      <label class="chat-effort" title="${T18('Mehr Aufwand plant gründlicher, braucht aber länger und mehr Kontingent')}">
+        ${EFFORT_IC}
+        <input type="range" id="chat-effort" min="0" max="${EFFORTS.length - 1}" step="1" value="0"
+               aria-label="${T18('Aufwand')}">
+        <span id="chat-effort-label"></span>
+      </label>
     </div>
     <div class="chat-btns">
-      <button type="button" class="btn btn-sm" id="chat-new" title="${T18('Die KI vergisst das bisherige Gespräch')}">${T18('Neues Gespräch')}</button>
-      <button type="button" class="btn btn-sm" id="chat-history">${T18('Verlauf …')}</button>
+      <button type="button" class="btn btn-sm btn-icon" id="chat-new" title="${T18('Neues Gespräch — die KI vergisst das bisherige')}"
+              aria-label="${T18('Neues Gespräch')}">${NEW_IC}</button>
+      <button type="button" class="btn btn-sm btn-icon" id="chat-history" title="${T18('Verlauf: gespeicherte Gespräche öffnen oder löschen')}"
+              aria-label="${T18('Verlauf')}">${HISTORY_IC}</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm" id="chat-stop" hidden>${T18('Anhalten')}</button>
       <button type="submit" class="btn btn-sm btn-primary" id="chat-send">${T18('Senden')}</button>
@@ -189,8 +201,31 @@ function add(cls, html) {
 const unmarked = html => html.replace(/\uE000([^\uE001\uE002]*)\uE001([^\uE002]*)\uE002/g,
   (m, tag, text) => `<span class="chat-ph" title="${T18('Die KI sieht hier nur {0} — der Klartext bleibt auf diesem Rechner.', tag)}">${text}</span>`);
 
+/* Kennungen aus dem Projekt (g8, d193, n185 …) zeigt das Fenster mit Namen an —
+   nur hier, aus dem aktuellen Projekt. Gespeichert und an die KI zurück geht
+   weiter ihr eigener Text. Ein Klick wählt das Element im Projekt aus. */
+const REF_KINDS = { g: 'ga', d: 'dev', n: 'node', f: 'fn', l: 'line', a: 'area' };
+const L = v => (v && typeof v === 'object' ? A.L(v) : String(v ?? ''));
+function refLabel(p, id) {
+  switch (p) {
+    case 'g': { const g = KNX.gaById(id); return g && `${KNX.addrStr(g)} ${L(g.name)}`; }
+    case 'd': { const d = KNX.deviceById(id); return d && (KNX.hasPa(d) ? KNX.paStr(d.addr) + ' ' : '') + L(d.name); }
+    case 'n': { const n = KNX.findNode(id); return n && L(n.name); }
+    case 'f': { const f = KNX.functionById(id); return f && L(f.name); }
+    case 'l': { const l = KNX.lineById(id); return l && KNX.lineLabel(id).replace(/\s+/g, ' '); }
+    case 'a': { const a = KNX.project().areas.find(x => x.id === id); return a && `${a.addr} ${L(a.name)}`; }
+    default: return null;
+  }
+}
+const refs = html => html.replace(/(<[^>]*>)|\b([gdnfla])(\d{1,6})\b/g, (m, tag, p, n) => {
+  if (tag) return tag;
+  const id = p + n, label = refLabel(p, id);
+  return label ? `<button type="button" class="chat-ref" data-kind="${REF_KINDS[p]}" data-id="${id}"`
+    + ` title="${esc(T18('{0} — im Projekt zeigen', id))}">${esc(label)}</button>` : m;
+});
+
 function inline(t) {
-  return unmarked(esc(t))
+  return refs(unmarked(esc(t)))
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
     .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, '$1<i>$2</i>');
@@ -246,7 +281,7 @@ function toolLine(name, input) {
     args = Object.entries(o).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
   } catch (e) { args = input || ''; }
   if (args.length > 160) args = args.slice(0, 160) + '…';
-  add('chat-tool', `${TOOL_IC}<code>${esc(name)}</code> <span>${unmarked(esc(args))}</span>`);
+  add('chat-tool', `${TOOL_IC}<code>${esc(name)}</code> <span>${refs(unmarked(esc(args)))}</span>`);
 }
 
 B.events.on('chat', ev => {
@@ -297,7 +332,7 @@ async function send() {
   sync();
   try {
     const r = await B.chat.send({ project: B.projectId, text, model: $('#chat-model').value,
-                                  effort: $('#chat-effort').value, ...M.privacyContext() });
+                                  effort: EFFORTS[+$('#chat-effort').value].v, ...M.privacyContext() });
     chat.turn = r.turn;
     chat.conversation = r.conversation;
   } catch (e) {
@@ -396,13 +431,26 @@ B.events.on('mcp', () => setTimeout(sync, 0));
 B.events.on('state', s => { if (s === 'offen') checkCli(); });
 
 /* Modell und Aufwand merkt sich der Browser. */
-[['#chat-model', 'knx-chat-model-v1'], ['#chat-effort', 'knx-chat-effort-v1']].forEach(([sel, key]) => {
-  const el = $(sel);
-  try {
-    const v = localStorage.getItem(key) || '';
-    if ([...el.options].some(o => o.value === v)) el.value = v;
-  } catch (e) { /* nur Komfort */ }
-  el.addEventListener('change', () => { try { localStorage.setItem(key, el.value); } catch (e) { /* nur Komfort */ } });
+const remember = (key, get, set, el) => {
+  try { set(localStorage.getItem(key) || ''); } catch (e) { /* nur Komfort */ }
+  el.addEventListener('input', () => { try { localStorage.setItem(key, get()); } catch (e) { /* nur Komfort */ } });
+  el.addEventListener('change', () => { try { localStorage.setItem(key, get()); } catch (e) { /* nur Komfort */ } });
+};
+const model$ = $('#chat-model'), effort$ = $('#chat-effort');
+remember('knx-chat-model-v1', () => model$.value,
+  v => { if ([...model$.options].some(o => o.value === v)) model$.value = v; }, model$);
+const paintEffort = () => { $('#chat-effort-label').textContent = T18(EFFORTS[+effort$.value].label); };
+remember('knx-chat-effort-v1', () => EFFORTS[+effort$.value].v,
+  v => { const i = EFFORTS.findIndex(e => e.v === v); effort$.value = String(Math.max(0, i)); }, effort$);
+effort$.addEventListener('input', paintEffort);
+paintEffort();
+window.KNXI18n.onChange(paintEffort);
+
+log.addEventListener('click', e => {
+  const b = e.target.closest('.chat-ref');
+  if (!b) return;
+  if (b.dataset.kind === 'node') A.selectNode(b.dataset.id);
+  else A.select(b.dataset.kind, b.dataset.id);
 });
 
 let start = 'detail';
@@ -411,6 +459,6 @@ show(start);
 checkCli();
 restoreLast();
 
-window.KNXChat = { available: true, open: () => show('chat') };
+window.KNXChat = { available: true, open: () => show('chat'), replay };
 
 })();

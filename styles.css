@@ -1659,6 +1659,20 @@ table.ga.chat-table td, table.ga.chat-table th { white-space: nowrap; overflow: 
 .chat-btns select { width: auto; font-size: 12.5px; padding: 3px 6px; }
 .chat-info { margin: 0; font-size: 11.5px; color: var(--faint); }
 .chat-btns select { flex: 1 1 0; min-width: 0; }
+.chat-btns .btn-icon { padding: 0; width: 30px; display: inline-grid; place-items: center; line-height: 0; }
+.chat-effort { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.chat-effort input { width: 72px; accent-color: var(--accent); }
+.chat-effort span { min-width: 52px; }
+.chat-ref {
+  font: inherit;
+  padding: 0 4px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--accent);
+  cursor: pointer;
+}
+.chat-ref:hover { border-color: var(--accent); }
 .chat-usage { align-self: flex-end; font-size: 11px; color: var(--faint); margin-top: -4px; }
 table.ga.chat-hist { table-layout: auto; }
 table.ga.chat-hist td { white-space: normal; }
