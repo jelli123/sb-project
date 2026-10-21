@@ -292,6 +292,9 @@ class McpEndToEndTest {
         assertFalse(out.contains("224.0.23.12"), out);
         assertTrue(out.contains("«Name"), out);
         assertTrue(out.contains("\"project\":\"p1\""), out);
+        Path saved = dir.resolve("mcp").resolve("privacy").resolve(PROJECT + ".json");
+        assertTrue(Files.isRegularFile(saved), "Platzhalter nicht gespeichert");
+        assertTrue(Files.readString(saved).contains("Schmidt"));
         String log = Files.readString(dir.resolve("mcp").resolve("audit.log"));
         assertTrue(log.contains("\"tool\":\"get_overview\""));
         assertTrue(log.contains("\"dropped\":3"), log);

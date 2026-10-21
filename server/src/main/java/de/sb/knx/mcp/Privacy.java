@@ -1,5 +1,14 @@
 package de.sb.knx.mcp;
 
+import de.sb.knx.json.Json;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -103,6 +112,56 @@ public final class Privacy {
     private final Map<String, String> byText = new HashMap<>();
     private final Map<String, String> byTag = new HashMap<>();
     private final Map<Kind, Integer> counters = new EnumMap<>(Kind.class);
+    private boolean dirty;
+
+    /*
+     * Die Zuordnung bleibt ueber einen Neustart erhalten, damit «Name1» in einem gespeicherten Gespraech
+     * auch morgen noch dasselbe meint. Sie enthaelt den Klartext und liegt deshalb wie die Schluessel
+     * nur fuer den Nutzer lesbar im Datenverzeichnis.
+     */
+
+    /** Liest eine gespeicherte Zuordnung; eine fehlende oder kaputte Datei ergibt eine leere. */
+    public static Privacy load(Path file) {
+        Privacy p = new Privacy();
+        if (file == null || !Files.isRegularFile(file)) return p;
+        try {
+            Map<String, Object> doc = Json.parseObject(Files.readString(file, StandardCharsets.UTF_8));
+            if (doc.get("tags") instanceof Map<?, ?> tags) {
+                for (Map.Entry<?, ?> e : tags.entrySet()) {
+                    if (!(e.getKey() instanceof String tag) || !(e.getValue() instanceof String original)) continue;
+                    Matcher m = PLACEHOLDER.matcher(tag);
+                    if (!m.matches() || original.length() > MAX_TERM * 4 || p.byText.size() >= MAX_ENTRIES) continue;
+                    Kind kind = null;
+                    for (Kind k : Kind.values()) if (k.tag.equals(m.group(1))) kind = k;
+                    int n = Integer.parseInt(m.group(2));
+                    p.byTag.put(tag, original);
+                    p.byText.put(original.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT), tag);
+                    p.counters.merge(kind, n, Math::max);
+                }
+            }
+        } catch (IOException | IllegalArgumentException e) {
+            return new Privacy();
+        }
+        return p;
+    }
+
+    /** Schreibt die Zuordnung, wenn seit dem letzten Mal etwas dazukam. */
+    public synchronized void saveIfChanged(Path file) throws IOException {
+        if (!dirty || file == null) return;
+        Files.createDirectories(file.getParent());
+        Map<String, Object> tags = Json.obj();
+        byTag.forEach(tags::put);
+        Map<String, Object> doc = Json.obj();
+        doc.put("tags", tags);
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.deleteIfExists(tmp);
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            Files.createFile(tmp, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        }
+        Files.writeString(tmp, Json.write(doc), StandardCharsets.UTF_8);
+        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+        dirty = false;
+    }
 
     /**
      * Sperrbegriffe fuer einen Namen, der als Ganzes nie hinausgeht (Projekt, Liegenschaft): der Name
@@ -191,6 +250,7 @@ public final class Privacy {
         String tag = "«" + kind.tag + n + "»";
         byText.put(key, tag);
         byTag.put(tag, original.strip());
+        dirty = true;
         return tag;
     }
 

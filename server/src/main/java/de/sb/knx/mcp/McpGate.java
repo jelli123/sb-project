@@ -2,6 +2,7 @@ package de.sb.knx.mcp;
 
 import de.sb.knx.http.Events;
 import de.sb.knx.json.Json;
+import de.sb.knx.store.FileStore;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -134,9 +135,11 @@ public final class McpGate implements AutoCloseable {
     private final Map<String, Privacy> privacy = new HashMap<>();
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private final Deque<Map<String, Object>> recent = new ArrayDeque<>();
+    private final Path privacyDir;
 
     public McpGate(Path dataDir, Events events) throws IOException {
         Path dir = dataDir.resolve("mcp");
+        this.privacyDir = dir.resolve("privacy");
         this.events = events;
         this.token = new AccessToken(dir);
         this.audit = new Audit(dir);
@@ -306,6 +309,7 @@ public final class McpGate implements AutoCloseable {
         m.put("result", t.output().out(data, ctx, ""));
         m.put("dropped", ctx.dropped);
         m.put("droppedPaths", new ArrayList<>(ctx.droppedPaths));
+        persist(project);
         return m;
     }
 
@@ -369,6 +373,7 @@ public final class McpGate implements AutoCloseable {
             if (!sb.isEmpty()) sb.append('\n');
             sb.append(ctx.privacy.mask(Shape.clean(line, 8000), ctx.terms));
         }
+        persist(project);
         return sb.toString();
     }
 
@@ -401,6 +406,7 @@ public final class McpGate implements AutoCloseable {
                 if (clean instanceof Map<?, ?> cm) {
                     for (Map.Entry<?, ?> x : cm.entrySet()) e.put(String.valueOf(x.getKey()), x.getValue());
                 }
+                persist(project);
             } catch (ToolError err) {
                 // Ohne Zusammenfassung bleibt wenigstens die Kennung
             }
@@ -506,7 +512,20 @@ public final class McpGate implements AutoCloseable {
     }
 
     private synchronized Privacy privacyOf(String project) {
-        return privacy.computeIfAbsent(project, k -> new Privacy());
+        return privacy.computeIfAbsent(project, k -> Privacy.load(privacyFile(k)));
+    }
+
+    private Path privacyFile(String project) {
+        return privacyDir.resolve(FileStore.safeId(project) + ".json");
+    }
+
+    /** Neue Platzhalter festhalten - gerufen, nachdem etwas maskiert wurde. */
+    private void persist(String project) {
+        try {
+            privacyOf(project).saveIfChanged(privacyFile(project));
+        } catch (IOException | IllegalArgumentException e) {
+            events.log("warn", "Platzhalter nicht gespeichert: " + e.getMessage());
+        }
     }
 
     private synchronized String handleOf(String project) {
@@ -553,6 +572,7 @@ public final class McpGate implements AutoCloseable {
             e.put("droppedPaths", new ArrayList<>(ctx.droppedPaths));
         }
         audit.write(e);
+        if (project != null) persist(project);
         synchronized (this) {
             recent.addFirst(e);
             while (recent.size() > RECENT) recent.removeLast();

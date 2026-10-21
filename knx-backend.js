@@ -301,7 +301,10 @@ const backend = {
     status: ()   => get('/api/chat/status'),
     send:   body => post('/api/chat/send', body, { timeout: 30000 }),
     stop:   ()   => post('/api/chat/stop', {}),
-    reset:  ()   => post('/api/chat/reset', {})
+    reset:  ()   => post('/api/chat/reset', {}),
+    history: project      => get('/api/chat/history?project=' + encodeURIComponent(project)),
+    open:   (project, id) => post('/api/chat/open', { project, id }),
+    remove: (project, id) => post('/api/chat/delete', { project, id })
   },
 
   /* KNX Secure: Die Schlüssel bleiben im Dienst. Hinein gehen Passwort und

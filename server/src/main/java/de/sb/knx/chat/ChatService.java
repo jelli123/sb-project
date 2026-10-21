@@ -75,7 +75,9 @@ public final class ChatService implements AutoCloseable {
      * Nachricht ueber die API abgerechnet. Deshalb geht er nur mit --chat-api an den Chat weiter.
      */
     private static final List<String> API_ENV = List.of("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN");
-    static final Set<String> MODELS = Set.of("opus", "sonnet");
+    static final Set<String> MODELS = Set.of("opus", "sonnet", "haiku");
+    /* „max“ fehlt mit Absicht: im Chat kaum besser als „xhigh“, aber deutlich langsamer. */
+    static final Set<String> EFFORTS = Set.of("low", "medium", "high", "xhigh");
     private static final long AUTH_TTL_MS = 60_000;
     private static final Pattern VERSION = Pattern.compile("(\\d+(?:\\.\\d+)+)");
 
@@ -84,7 +86,12 @@ public final class ChatService implements AutoCloseable {
 
     private volatile Cli cli;
 
-    private record Conversation(String project, String session) {}
+    /** Das Gespraech eines Fensters: gespeichert unter `id`, bei Claude Code als `session`. */
+    private record Conversation(String project, String id, String session) {}
+
+    private final ChatHistory history;
+    /** Auslastung des Abos, wie Claude Code sie zuletzt gemeldet hat - fuer alle Fenster gleich. */
+    private volatile Map<String, Object> quota;
 
     private final Map<String, Turn> running = new ConcurrentHashMap<>();
     private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
@@ -92,6 +99,7 @@ public final class ChatService implements AutoCloseable {
     public ChatService(Path dataDir, Events events, McpGate gate, int port, Path claudeOverride, boolean allowApi)
             throws IOException {
         this.dir = dataDir.resolve("chat");
+        this.history = new ChatHistory(dir);
         Files.createDirectories(dir);
         if (posix()) Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
         this.events = events;
@@ -119,8 +127,34 @@ public final class ChatService implements AutoCloseable {
             m.put("blocked", blockReason(c));
         }
         m.put("allowApi", allowApi);
+        m.put("quota", quota);
         m.put("running", window != null && running.containsKey(window));
+        Conversation conv = window == null ? null : conversations.get(window);
+        m.put("conversation", conv == null ? null : conv.id());
         return m;
+    }
+
+    /* ---------------- Gespeicherte Gespraeche ---------------- */
+
+    public List<Object> conversations(String project) throws IOException {
+        return history.list(project);
+    }
+
+    /** Ein gespeichertes Gespraech in diesem Fenster fortsetzen. Liefert, was angezeigt war. */
+    public Map<String, Object> open(String window, String project, String id) throws IOException {
+        if (window == null || !events.windowsOf(project).contains(window)) {
+            throw new IllegalStateException("Das Fenster ist nicht an der Ereignisleitung angemeldet");
+        }
+        if (running.containsKey(window)) throw new IllegalStateException("Es laeuft noch eine Anfrage");
+        Map<String, Object> doc = history.read(project, id);
+        if (doc == null) throw new IllegalArgumentException("Dieses Gespraech gibt es nicht mehr");
+        conversations.put(window, new Conversation(project, id, Json.str(doc, "session", null)));
+        return doc;
+    }
+
+    public boolean delete(String project, String id) throws IOException {
+        conversations.entrySet().removeIf(e -> e.getValue().id().equals(id) && e.getValue().project().equals(project));
+        return history.delete(project, id);
     }
 
     /** Warum nicht gesendet werden darf - oder null. */
@@ -202,10 +236,18 @@ public final class ChatService implements AutoCloseable {
         Path claude = c.path();
         String model = Json.str(body, "model", "");
         if (!model.isEmpty() && !MODELS.contains(model)) throw new IllegalArgumentException("Unbekanntes Modell: " + model);
+        String effort = Json.str(body, "effort", "");
+        if (!effort.isEmpty() && !EFFORTS.contains(effort)) throw new IllegalArgumentException("Unbekannter Aufwand: " + effort);
         String prompt = gate.maskInput(project, text, body);
 
+        if (running.containsKey(window)) throw new IllegalStateException("Es laeuft schon eine Anfrage");
         Conversation conv = conversations.get(window);
         if (conv != null && !conv.project().equals(project)) conv = null;
+        if (conv == null) {
+            conv = new Conversation(project, history.create(project, text), null);
+            conversations.put(window, conv);
+        }
+        history.append(project, conv.id(), entry("me", "text", text));
 
         List<String> cmd = new ArrayList<>(List.of(claude.toString(), "-p",
                 "--output-format", "stream-json", "--verbose", "--include-partial-messages",
@@ -221,8 +263,12 @@ public final class ChatService implements AutoCloseable {
             cmd.add("--model");
             cmd.add(model);
         }
+        if (!effort.isEmpty()) {
+            cmd.add("--effort");
+            cmd.add(effort);
+        }
 
-        Turn t = new Turn("t" + seq.incrementAndGet(), window, project);
+        Turn t = new Turn("t" + seq.incrementAndGet(), window, project, conv.id());
         if (running.putIfAbsent(window, t) != null) throw new IllegalStateException("Es laeuft schon eine Anfrage");
         Process p;
         try {
@@ -242,6 +288,14 @@ public final class ChatService implements AutoCloseable {
         Map<String, Object> m = Json.obj();
         m.put("ok", true);
         m.put("turn", t.id);
+        m.put("conversation", conv.id());
+        return m;
+    }
+
+    private static Map<String, Object> entry(String kind, String key, Object value) {
+        Map<String, Object> m = Json.obj();
+        m.put("k", kind);
+        m.put(key, value);
         return m;
     }
 
@@ -299,22 +353,33 @@ public final class ChatService implements AutoCloseable {
     /* ================= Eine Nachricht und ihre Antwort ================= */
 
     private final class Turn {
-        final String id, window, project;
+        final String id, window, project, conv;
         volatile Process process;
         volatile boolean stopped;
         final StringBuilder text = new StringBuilder();
         long lastEmit;
+        String model;
+        Map<String, Object> usage;
         final Deque<String> errors = new ArrayDeque<>();
 
-        Turn(String id, String window, String project) {
+        Turn(String id, String window, String project, String conv) {
             this.id = id;
             this.window = window;
             this.project = project;
+            this.conv = conv;
+        }
+
+        /** Was angezeigt wurde, kommt auch ins gespeicherte Gespraech. */
+        private void keep(Map<String, Object> entry) {
+            try {
+                history.append(project, conv, entry);
+            } catch (IOException | IllegalArgumentException e) {
+                events.log("warn", "Chatverlauf nicht gespeichert: " + e.getMessage());
+            }
         }
 
         void run(Process p) {
             String error = null;
-            Double cost = null;
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
@@ -324,9 +389,8 @@ public final class ChatService implements AutoCloseable {
                     } catch (IllegalArgumentException ex) {
                         continue;
                     }
-                    Object c = handle(e);
-                    if (c instanceof Double d) cost = d;
-                    if (c instanceof String s) error = s;
+                    String failed = handle(e);
+                    if (failed != null) error = failed;
                 }
                 if (!p.waitFor(TURN_LIMIT_MIN, TimeUnit.MINUTES)) {
                     p.destroyForcibly();
@@ -341,19 +405,29 @@ public final class ChatService implements AutoCloseable {
                 Map<String, Object> m = msg("done");
                 m.put("stopped", stopped);
                 if (error != null && !stopped) m.put("error", gate.unmask(project, error));
-                if (cost != null) m.put("cost", cost);
+                if (usage != null) m.put("usage", usage);
                 events.send(window, "chat", m);
+                if (stopped) keep(entry("sys", "text", "Angehalten."));
+                else if (error != null) keep(entry("err", "text", gate.unmask(project, error)));
+                if (usage != null) keep(entry("usage", "usage", usage));
             }
         }
 
-        /** Liefert die Kosten aus dem Schlussereignis oder einen Fehlertext, sonst null. */
-        private Object handle(Map<String, Object> e) {
+        /** Liefert einen Fehlertext, wenn Claude Code die Antwort als gescheitert meldet. */
+        private String handle(Map<String, Object> e) {
             String type = Json.str(e, "type", "");
             switch (type) {
                 case "system" -> {
                     if ("init".equals(Json.str(e, "subtype", ""))) {
                         String sid = Json.str(e, "session_id", null);
-                        if (sid != null) conversations.put(window, new Conversation(project, sid));
+                        if (sid != null) {
+                            conversations.put(window, new Conversation(project, conv, sid));
+                            try {
+                                history.setSession(project, conv, sid);
+                            } catch (IOException | IllegalArgumentException ex) {
+                                events.log("warn", "Chatverlauf nicht gespeichert: " + ex.getMessage());
+                            }
+                        }
                     }
                 }
                 case "stream_event" -> {
@@ -362,6 +436,7 @@ public final class ChatService implements AutoCloseable {
                     if ("message_start".equals(et)) {
                         // Neue Nachricht der KI - nach Werkzeugaufrufen eine neue Sprechblase
                         text.setLength(0);
+                        if (ev.get("message") instanceof Map<?, ?> msg && msg.get("model") instanceof String mo) model = mo;
                         events.send(window, "chat", msg("start"));
                     } else if ("content_block_delta".equals(et) && ev.get("delta") instanceof Map<?, ?> d
                             && "text_delta".equals(d.get("type")) && d.get("text") instanceof String s) {
@@ -379,6 +454,7 @@ public final class ChatService implements AutoCloseable {
                             text.setLength(0);
                             text.append(s);
                             emitText(true);
+                            keep(entry("ai", "text", gate.unmask(project, s)));
                         } else if ("tool_use".equals(block.get("type"))) {
                             Map<String, Object> m = msg("tool");
                             String name = String.valueOf(block.get("name"));
@@ -386,6 +462,9 @@ public final class ChatService implements AutoCloseable {
                             String input = Json.write(block.get("input"));
                             m.put("input", gate.unmask(project, input.length() > 400 ? input.substring(0, 400) + "…" : input));
                             events.send(window, "chat", m);
+                            Map<String, Object> k = entry("tool", "name", m.get("name"));
+                            k.put("input", m.get("input"));
+                            keep(k);
                         }
                     }
                 }
@@ -395,18 +474,44 @@ public final class ChatService implements AutoCloseable {
                             Map<String, Object> m = msg("toolError");
                             m.put("text", gate.unmask(project, firstText(block.get("content"))));
                             events.send(window, "chat", m);
+                            keep(entry("toolError", "text", m.get("text")));
                         }
                     }
                 }
+                case "rate_limit_event" -> {
+                    if (e.get("rate_limit_info") instanceof Map<?, ?> info && info.get("unifiedWindows") instanceof Map<?, ?> w) {
+                        Map<String, Object> q = Json.obj();
+                        q.put("fiveHour", share(w.get("five_hour")));
+                        q.put("week", share(w.get("seven_day")));
+                        q.put("at", System.currentTimeMillis());
+                        quota = q;
+                        Map<String, Object> m = msg("quota");
+                        m.put("quota", q);
+                        events.send(window, "chat", m);
+                    }
+                }
                 case "result" -> {
+                    usage = usageOf(e);
                     if (Json.bool(e, "is_error", false) || !"success".equals(Json.str(e, "subtype", "success"))) {
                         return Json.str(e, "result", Json.str(e, "subtype", "Fehler"));
                     }
-                    return e.get("total_cost_usd") instanceof Number n ? n.doubleValue() : null;
                 }
                 default -> { }
             }
             return null;
+        }
+
+        /** Tokens und Dauer der ganzen Antwort - ueber alle Zwischenschritte summiert. */
+        private Map<String, Object> usageOf(Map<String, Object> e) {
+            Map<String, Object> u = Json.obj();
+            Map<?, ?> raw = e.get("usage") instanceof Map<?, ?> m ? m : Map.of();
+            u.put("model", model);
+            u.put("input", num(raw.get("input_tokens")));
+            u.put("cacheRead", num(raw.get("cache_read_input_tokens")));
+            u.put("cacheWrite", num(raw.get("cache_creation_input_tokens")));
+            u.put("output", num(raw.get("output_tokens")));
+            u.put("ms", num(e.get("duration_ms")));
+            return u;
         }
 
         private void emitText(boolean done) {
@@ -442,6 +547,16 @@ public final class ChatService implements AutoCloseable {
                 return errors.isEmpty() ? "Claude Code ist mit einem Fehler beendet worden" : String.join("\n", errors);
             }
         }
+    }
+
+    private static long num(Object o) {
+        return o instanceof Number n ? n.longValue() : 0;
+    }
+
+    /** Auslastung eines Abo-Fensters in Prozent, oder null. */
+    private static Object share(Object window) {
+        return window instanceof Map<?, ?> m && m.get("utilization") instanceof Number n
+                ? Math.round(n.doubleValue() * 100) : null;
     }
 
     private static List<Map<?, ?>> blocks(Map<String, Object> e) {

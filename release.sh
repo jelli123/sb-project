@@ -205,6 +205,9 @@ bekommt die Platzhalter, bevor sie hinausgeht. Der Chat arbeitet nur mit
 einer Claude-Abo-Anmeldung (Pro/Max, kein Abrechnen je Nachricht); ein
 gesetzter ANTHROPIC_API_KEY bleibt aussen vor. Wer bewusst ueber die API
 abrechnen will, startet den Dienst mit --chat-api.
+Gespraeche werden je Projekt in chat/history im Datenverzeichnis gespeichert
+(nur fuer den Nutzer lesbar) und lassen sich nach einem Neustart fortsetzen;
+die Zuordnung der Platzhalter liegt dafuer in mcp/privacy.
 
 Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
 bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter

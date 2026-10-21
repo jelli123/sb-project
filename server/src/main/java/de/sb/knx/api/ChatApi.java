@@ -43,6 +43,23 @@ public final class ChatApi implements HttpHandler {
                     m.put("stopped", chat.stop(window));
                     Http.json(ex, 200, m);
                 }
+                case "/api/chat/history" -> {
+                    Map<String, Object> m = Json.obj();
+                    m.put("conversations", chat.conversations(project(Http.query(ex).get("project"))));
+                    Http.json(ex, 200, m);
+                }
+                case "/api/chat/open" -> {
+                    requirePost(ex);
+                    Map<String, Object> body = Http.jsonBody(ex);
+                    Http.json(ex, 200, chat.open(window, project(Json.str(body, "project", null)), Json.str(body, "id", null)));
+                }
+                case "/api/chat/delete" -> {
+                    requirePost(ex);
+                    Map<String, Object> body = Http.jsonBody(ex);
+                    Map<String, Object> m = Json.obj();
+                    m.put("deleted", chat.delete(project(Json.str(body, "project", null)), Json.str(body, "id", null)));
+                    Http.json(ex, 200, m);
+                }
                 case "/api/chat/reset" -> {
                     requirePost(ex);
                     chat.reset(window);
@@ -55,6 +72,11 @@ public final class ChatApi implements HttpHandler {
         } catch (IllegalArgumentException | IllegalStateException e) {
             Http.error(ex, 400, String.valueOf(e.getMessage()));
         }
+    }
+
+    private static String project(String raw) {
+        if (raw == null) throw new IllegalArgumentException("Feld project fehlt");
+        return FileStore.safeId(raw);
     }
 
     private static void requirePost(HttpExchange ex) {

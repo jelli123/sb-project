@@ -107,6 +107,23 @@ class PrivacyTest {
     }
 
     @Test
+    void mappingSurvivesARestart(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path f = dir.resolve("P.json");
+        mask("Büro Müller", "Müller");
+        mask("Hauptstraße 3");
+        p.saveIfChanged(f);
+        Privacy again = Privacy.load(f);
+        assertEquals("Licht Müller", again.restore("Licht «Name1»"));
+        // Neue Platzhalter zaehlen weiter und treffen keine alten
+        assertEquals("«Name2»", again.mask("Schmidt", Privacy.compileTerms(List.of("Schmidt"))));
+        assertEquals("Büro «Name1»", again.mask("Büro Müller", Privacy.compileTerms(List.of("Müller"))));
+        if (java.nio.file.FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(
+                    java.nio.file.Files.getPosixFilePermissions(f)));
+        }
+    }
+
+    @Test
     void unknownPlaceholderIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> p.restore("Licht «Name7»"));
     }
