@@ -491,23 +491,95 @@ function groupsByRaw() {
   };
 }
 
-function objectOf(devId, num) {
-  const d = KNX.deviceById(devId);
-  if (!d) throw new Error('Gerät ' + devId + ' gibt es nicht.');
-  const o = d.objs.find(x => x.num === num);
-  if (!o) throw new Error('Gerät ' + devId + ' hat kein Objekt ' + num + '.');
-  return { d, o };
-}
-
+/* Gerät in einer Plan-Zeile: Adresse und gekürzter Name — Produktnamen sind oft
+   eine halbe Zeile lang, und die Adresse macht das Gerät ohnehin eindeutig. */
+const devLine = d => {
+  const n = S(d.name);
+  return `${KNX.paStr(d.addr)} ${q(n.length > 32 ? n.slice(0, 31) + '…' : n)}`;
+};
 /* Name des Objekts ohne Beschreibung des Nutzers — die geht nie hinaus. */
-const objLine = (d, o) => `${KNX.paStr(d.addr)} ${q(d.name)} ` + T18('Objekt {0} {1}', o.num, q(o.name));
+const objLine = (d, o) => `${devLine(d)} ` + T18('Objekt {0} {1}', o.num, q(o.name));
 
 const newOut = warnings => ({ created: [], changed: [], removed: [], warnings });
 
 /* Was ein Aufruf neu anlegt, ist über seine Schlüssel erreichbar — auch aus
    den anderen Teilen von change_project. Knoten bekommen ihre Kennung erst
    beim Anwenden, Adressen werden dann über ihren geplanten Rohwert gefunden. */
-const newCtx = () => ({ nodes: new Map(), groups: new Map(), taken: null });
+const newCtx = () => ({ nodes: new Map(), groups: new Map(), taken: null, objs: new Map() });
+
+/* Ein Objekt für Verknüpfungen und Flags. Ändert derselbe Aufruf die Parameter
+   des Geräts, steht die neue Objektliste schon fest (ctx.objs) — dann gilt sie.
+   Angewendet wird auf das Objekt, das beim Anwenden diese Nummer trägt: Das
+   Neuableiten nach einer Parameteränderung ersetzt die Objekte. */
+function objRef(devId, num, ctx) {
+  const d = KNX.deviceById(devId);
+  if (!d) throw new Error('Gerät ' + devId + ' gibt es nicht.');
+  const live = () => d.objs.find(x => x.num === num && !x.stale);
+  const o = live();
+  const planned = ctx.objs.get(d.id);
+  let view = o;
+  if (planned) {
+    const src = planned.get(num);
+    if (!src) throw new Error('Gerät ' + devId + ' hat nach der Parameteränderung kein Objekt ' + num + '.');
+    if (!o || o.ref !== src.ref) {
+      const f = String(src.f || '');
+      view = { num, name: S(src.name) || 'Objekt ' + num, dpt: KNX.dptById(src.dpt).id, gas: [],
+               flags: { c: f.includes('c'), r: f.includes('r'), w: f.includes('w'), t: f.includes('t'), u: f.includes('u'), i: !!src.ri } };
+    }
+  } else if (!o) {
+    throw new Error('Gerät ' + devId + ' hat kein Objekt ' + num + '.');
+  }
+  return {
+    d, o: view,
+    get: () => {
+      const x = live();
+      if (!x) throw new Error('Gerät ' + devId + ' hat kein Objekt ' + num + '.');
+      return x;
+    }
+  };
+}
+
+/* Wert für einen Parameter: so, wie ihn die Produktdatei erlaubt. Bei einer
+   Auswahl darf die KI auch den angezeigten Text nennen. */
+function paramInput(type, raw, name) {
+  const v = String(raw).trim();
+  switch (type.k) {
+    case 'enum': {
+      const opts = type.v || [];
+      let hit = opts.find(([x]) => String(x) === v);
+      if (!hit) {
+        const byLabel = opts.filter(([, t]) => S(t).trim().toLowerCase() === v.toLowerCase());
+        if (byLabel.length === 1) hit = byLabel[0];
+      }
+      if (!hit) throw new Error(`„${v}“ passt nicht zu ${name}; möglich: `
+        + opts.slice(0, 16).map(([x, t]) => `${x} (${S(t)})`).join(', ') + (opts.length > 16 ? ' …' : ''));
+      return String(hit[0]);
+    }
+    case 'num': {
+      const n = Number(v.replace(',', '.'));
+      if (!v || !Number.isFinite(n)) throw new Error(`${name} erwartet eine Zahl.`);
+      if ((type.min != null && n < +type.min) || (type.max != null && n > +type.max))
+        throw new Error(`${name}: erlaubt ist ${type.min} bis ${type.max}.`);
+      return String(n);
+    }
+    case 'time':
+      if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(v)) throw new Error(`${name} erwartet eine Uhrzeit wie 07:30.`);
+      return v;
+    case 'date':
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`${name} erwartet ein Datum wie 2026-10-21.`);
+      return v;
+    default: {
+      const max = type.max || 80;
+      if (v.length > max) throw new Error(`${name}: höchstens ${max} Zeichen.`);
+      return v;
+    }
+  }
+}
+const paramShow = (type, v) => {
+  if (type.k !== 'enum') return v === '' ? '—' : v;
+  const hit = (type.v || []).find(([x]) => String(x) === String(v));
+  return hit ? S(hit[1] || hit[0]) : String(v);
+};
 
 const nodeRef = (ref, ctx) => ctx.nodes.get(ref) || KNX.findNode(ref);
 
@@ -609,15 +681,15 @@ const PLANNERS = {
     let removes = false;
 
     (a.unlink || []).forEach(x => {
-      const { d, o } = objectOf(x.device, x.object), g = groupRef(x.ga, ctx, ga);
+      const { d, o, get } = objRef(x.device, x.object, ctx), g = groupRef(x.ga, ctx, ga);
       if (g.planned || !o.gas.includes(g.id)) { warnings.push(T18('{0} ist nicht mit {1} verknüpft.', objLine(d, o), g.addr)); return; }
       removes = true;
       lines.push({ remove: true, text: T18('Lösen {0} von {1} {2}', objLine(d, o), g.addr, q(g.name)) });
-      ops.push(() => { o.gas = o.gas.filter(id => id !== g.id); out.removed.push(`${d.id}#${o.num}→${g.addr}`); });
+      ops.push(() => { const oo = get(); oo.gas = oo.gas.filter(id => id !== g.id); out.removed.push(`${d.id}#${o.num}→${g.addr}`); });
     });
 
     (a.link || []).forEach(x => {
-      const { d, o } = objectOf(x.device, x.object), g = groupRef(x.ga, ctx, ga);
+      const { d, o, get } = objRef(x.device, x.object, ctx), g = groupRef(x.ga, ctx, ga);
       const has = !g.planned && o.gas.includes(g.id);
       if (has && (!x.send || o.gas[0] === g.id)) {
         warnings.push(T18('{0} ist schon mit {1} verknüpft.', objLine(d, o), g.addr));
@@ -628,21 +700,84 @@ const PLANNERS = {
       lines.push({ text: T18('Verknüpfen {0} mit {1} {2}', objLine(d, o), g.addr, q(g.name))
         + (x.send ? ' (' + T18('sendend') + ')' : '') });
       ops.push(() => {
-        const id = g.get().id;
-        if (x.send) { o.gas = [id, ...o.gas.filter(y => y !== id)]; o.flags.t = true; }
-        else if (!o.gas.includes(id)) o.gas.push(id);
+        const id = g.get().id, oo = get();
+        if (x.send) { oo.gas = [id, ...oo.gas.filter(y => y !== id)]; oo.flags.t = true; }
+        else if (!oo.gas.includes(id)) oo.gas.push(id);
         out.changed.push(`${d.id}#${o.num}→${g.addr}`);
       });
     });
 
     (a.flags || []).forEach(x => {
-      const { d, o } = objectOf(x.device, x.object), set = {};
+      const { d, o, get } = objRef(x.device, x.object, ctx), set = {};
       KNX.KO_FLAGS.forEach(f => { if (typeof x[f.key] === 'boolean' && !!o.flags[f.key] !== x[f.key]) set[f.key] = x[f.key]; });
       if (!Object.keys(set).length) return;
       lines.push({ text: T18('Flags {0}: {1} → {2}', objLine(d, o), KNX.flagStr(o.flags), KNX.flagStr({ ...o.flags, ...set })) });
-      ops.push(() => { Object.assign(o.flags, set); out.changed.push(`${d.id}#${o.num}`); });
+      ops.push(() => { Object.assign(get().flags, set); out.changed.push(`${d.id}#${o.num}`); });
     });
     return { lines, warnings, removes, apply: () => { ops.forEach(f => f()); return out; } };
+  },
+
+  /* Parameter wie im Parameterdialog: nur sichtbare, nicht zugewiesene, nicht
+     gesperrte; danach wird die Objektliste neu abgeleitet. Wird immer bestätigt. */
+  change_parameters(a, ctx = newCtx()) {
+    const lines = [], ops = [], warnings = [], out = newOut(warnings);
+    let removes = false;
+    const byDev = new Map();
+    (a.set || []).forEach(x => {
+      if (!byDev.has(x.device)) byDev.set(x.device, []);
+      byDev.get(x.device).push(x);
+    });
+    byDev.forEach((list, devId) => {
+      const d = KNX.deviceById(devId);
+      if (!d) throw new Error('Gerät ' + devId + ' gibt es nicht.');
+      const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
+      if (!item) throw new Error(`${KNX.paStr(d.addr)} ${S(d.name)} hat keine Produktdaten — Parameter gibt es nur mit Produkt.`);
+      const draft = { ...(d.params || {}) };
+      const dev = devLine(d);
+      let changed = 0;
+      list.forEach(x => {
+        // Nach jeder Änderung neu: Eine Auswahl kann weitere Parameter sichtbar machen
+        const r = KNX.resolveProduct(item, draft);
+        const grp = r.groups.find(g => g.params.includes(x.ref));
+        const prm = item.params[x.ref];
+        if (!prm || !grp) throw new Error(`Parameter ${x.ref} ist bei ${devId} unbekannt oder gerade nicht sichtbar.`);
+        const type = item.types[prm.pt] || { k: 'text' };
+        const name = S(prm.t).trim();
+        if (!name || type.k === 'none') throw new Error(`${x.ref} ist kein einstellbarer Parameter.`);
+        if (type.k === 'ip') throw new Error(`${name} ist eine IP-Einstellung — die vergibt der Nutzer in SB-Projekt.`);
+        if (Object.prototype.hasOwnProperty.call(r.assigned || {}, x.ref)) throw new Error(`${name} wird von der Produktdatei fest zugewiesen.`);
+        if (prm.ro) throw new Error(`${name} ist schreibgeschützt.`);
+        const value = paramInput(type, x.value, name);
+        const before = KNX.paramValue(item, draft, x.ref);
+        if (before === value) return;
+        lines.push({ text: `${dev} · ${grp.label} · ${name}: ${paramShow(type, before)} → ${paramShow(type, value)}` });
+        draft[x.ref] = value;
+        changed++;
+      });
+      if (!changed) return;
+      // Welche Objekte die neue Einstellung zeigt — wie applyProduct es gleich tun wird
+      const next = KNX.resolveProduct(item, draft).objs;
+      const keep = new Set(next);
+      const had = new Set(d.objs.filter(o => o.ref && !o.stale).map(o => o.ref));
+      d.objs.filter(o => o.ref && !o.stale && !keep.has(o.ref)).forEach(o => {
+        if (o.gas.length) {
+          removes = true;
+          lines.push({ remove: true, text: T18('{0} entfällt — bleibt mit {1} Adressen als überzählig stehen', objLine(d, o), o.gas.length) });
+        } else lines.push({ text: T18('{0} entfällt', objLine(d, o)) });
+      });
+      next.filter(ref => !had.has(ref)).forEach(ref => {
+        const src = item.objs[ref];
+        lines.push({ text: T18('Neu: {0} Objekt {1} {2} ({3})', dev, src.num, q(src.name), KNX.dptById(src.dpt).id) });
+      });
+      ctx.objs.set(d.id, new Map(next.map(ref => [item.objs[ref].num, { ...item.objs[ref], ref }])));
+      ops.push(() => {
+        d.params = draft;
+        KNX.applyProduct(d);
+        KNX.touch();
+        out.changed.push(d.id);
+      });
+    });
+    return { lines, warnings, removes, confirm: lines.length > 0, apply: () => { ops.forEach(f => f()); return out; } };
   },
 
   change_structure(a, ctx = newCtx()) {
@@ -818,12 +953,14 @@ const PLANNERS = {
     const ctx = newCtx(), parts = [];
     if (a.structure) parts.push(PLANNERS.change_structure(a.structure, ctx));
     if (a.groups) parts.push(PLANNERS.change_group_addresses(a.groups, ctx));
+    if (a.parameters) parts.push(PLANNERS.change_parameters(a.parameters, ctx));
     if (a.functions) parts.push(PLANNERS.change_functions(a.functions, ctx));
     if (a.links) parts.push(PLANNERS.change_links(a.links, ctx));
     return {
       lines: parts.flatMap(x => x.lines),
       warnings: parts.flatMap(x => x.warnings),
       removes: parts.some(x => x.removes),
+      confirm: parts.some(x => x.confirm),
       apply: () => {
         const out = newOut([]);
         parts.forEach(x => {
@@ -883,7 +1020,7 @@ function changeResult(ch) {
 async function runChange(ev) {
   const plan = PLANNERS[ev.tool](ev.args || {});
   const ch = { id: 'c' + (++changeSeq), tool: ev.tool, args: ev.args || {}, session: ev.session, client: ev.client,
-               at: Date.now(), lines: plan.lines, warnings: plan.warnings, removes: plan.removes,
+               at: Date.now(), lines: plan.lines, warnings: plan.warnings, removes: plan.removes, confirm: !!plan.confirm,
                state: 'pending', result: null, message: '' };
   changes.push(ch);
   // Alte Einträge fallen weg; offene bleiben
@@ -894,7 +1031,7 @@ async function runChange(ev) {
     ch.state = 'applied';
     ch.result = newOut(plan.warnings);
     ch.message = 'Nichts zu ändern.';
-  } else if (ev.mode === 'auto' && !plan.removes) {
+  } else if (ev.mode === 'auto' && !plan.removes && !plan.confirm) {
     applyChange(ch, plan);
   } else if (ev.mode === 'propose') {
     ch.state = 'proposed';
@@ -931,12 +1068,16 @@ function showConfirm() {
   const shown = ch.lines.slice(0, 30);
   const box = panel('mcp-ask mcp-change');
   box.innerHTML = `
-    <b>${ch.removes ? T18('KI-Sitzung {0} möchte etwas entfernen', esc(ch.session)) : T18('KI-Sitzung {0} möchte ändern', esc(ch.session))}
+    <b>${ch.confirm ? T18('KI-Sitzung {0} möchte Parameter ändern', esc(ch.session))
+      : ch.removes ? T18('KI-Sitzung {0} möchte etwas entfernen', esc(ch.session))
+      : T18('KI-Sitzung {0} möchte ändern', esc(ch.session))}
       <span class="mcp-count"></span></b>
     <ul class="mcp-lines">${shown.map(l => `<li${l.remove ? ' class="rm"' : ''}>${esc(l.text)}</li>`).join('')}
       ${ch.lines.length > shown.length ? `<li class="more">${T18('… und {0} weitere', ch.lines.length - shown.length)}</li>` : ''}</ul>
     ${(ch.warnings || []).length ? `<p class="hint warn">${ch.warnings.slice(0, 5).map(esc).join('<br>')}</p>` : ''}
-    ${ch.removes ? `<p class="hint">${T18('Entfernen braucht immer eine Bestätigung.')}</p>` : ''}
+    ${ch.confirm ? `<p class="hint">${T18('Parameteränderungen brauchen immer eine Bestätigung. Ins Gerät kommen sie erst beim Programmieren.')}`
+        + (ch.removes ? ' ' + T18('Rot markierte Objekte mit Adressen entfallen.') : '') + '</p>'
+      : ch.removes ? `<p class="hint">${T18('Entfernen braucht immer eine Bestätigung.')}</p>` : ''}
     <div class="mcp-ask-btns">
       <button class="btn btn-sm" data-a="no">${T18('Ablehnen')}</button>
       <button class="btn btn-sm btn-primary" data-a="yes">${T18('Übernehmen')}</button>

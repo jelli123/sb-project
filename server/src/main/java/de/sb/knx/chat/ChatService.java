@@ -61,7 +61,9 @@ public final class ChatService implements AutoCloseable {
             Auto. Sag nach jeder Aenderung, ob sie angewendet wurde oder noch auf den Nutzer wartet. Geht es um \
             mehrere Teile (Raum, Adressen, Funktion, Verknuepfungen), nimm change_project, damit der Nutzer es \
             als eine Aenderung pruefen und rueckgaengig machen kann.
-            Geraete anlegen oder kopieren, Parameter aendern, physikalische Adressen vergeben und Programmieren \
+            Parameter aenderst du mit change_parameters; lies sie vorher mit get_parameters und frag nach, wenn \
+            die Bedeutung eines Parameters nicht klar ist. Parameteraenderungen bestaetigt der Nutzer immer.
+            Geraete anlegen oder kopieren, physikalische Adressen und IP-Einstellungen vergeben und Programmieren \
             kannst du nicht - das macht der Nutzer in SB-Projekt. Schlag in solchen Faellen vor, was er tun soll.""";
 
     private final Path dir;

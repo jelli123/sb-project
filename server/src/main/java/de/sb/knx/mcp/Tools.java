@@ -419,6 +419,15 @@ final class Tools {
                     "Always waits for the user's confirmation.")
     };
 
+    private static final Shape.Field[] PARAMETER_FIELDS = {
+            req("set", list(obj(
+                    req("device", id(), "Device id."),
+                    req("ref", id(), "Parameter ref from get_parameters."),
+                    req("value", text(300), "New value: for choices the option value (or its label), "
+                            + "for numbers the number, for texts the text.")), 500),
+                    "Parameters to set, applied in order - setting one can make others visible.")
+    };
+
     private static Shape.Obj withProject(Shape.Field[] fields) {
         Shape.Field[] all = new Shape.Field[fields.length + 1];
         all[0] = PROJECT;
@@ -433,11 +442,13 @@ final class Tools {
                             + "the single change_* tool of the same name takes. Your own keys (starting with a letter) "
                             + "work across sections: a structure key as a function's node or a later item's parent, a "
                             + "group key wherever a group address is expected. Applied in the order structure, groups, "
-                            + "functions, links. The user reviews and undoes it as one change, so prefer this tool "
+                            + "parameters, functions, links - so links may use objects that a parameter change in the "
+                            + "same call creates. The user reviews and undoes it as one change, so prefer this tool "
                             + "whenever a task touches more than one part.",
                     obj(PROJECT,
                             opt("structure", obj(STRUCTURE_FIELDS), "Same as change_structure."),
                             opt("groups", obj(GROUP_FIELDS), "Same as change_group_addresses."),
+                            opt("parameters", obj(PARAMETER_FIELDS), "Same as change_parameters."),
                             opt("functions", obj(FUNCTION_FIELDS), "Same as change_functions."),
                             opt("links", obj(LINK_FIELDS), "Same as change_links.")),
                     CHANGE, Level.WRITE, 60),
@@ -448,6 +459,15 @@ final class Tools {
                             + "free = 2305). For new addresses give `addr` for an exact address, `range` for the next "
                             + "free one in a main or middle group, or neither for the next free one anywhere.",
                     withProject(GROUP_FIELDS), CHANGE, Level.WRITE, 60),
+
+            new Tool("change_parameters", "Change device parameters",
+                    "Sets device parameters as the ETS parameter dialog would, as one change. Only parameters that are "
+                            + "currently visible, not assigned by the product file and not read-only can be set; values "
+                            + "are checked against the product file. The device's communication objects are derived "
+                            + "again afterwards: the result lists objects that appear, objects that disappear keep their "
+                            + "links as surplus objects. Parameter changes always wait for the user's confirmation, "
+                            + "whatever the approval mode. IP settings stay with the user.",
+                    withProject(PARAMETER_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_links", "Change object links",
                     "Links communication objects to group addresses, unlinks them and sets object flags, as one "
