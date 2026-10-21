@@ -1573,6 +1573,48 @@ const KNX = (() => {
     invalidate();
     return true;
   }
+
+  /* Ein weiteres Gerät wie `srcId`: dasselbe Produkt mit denselben Parametern,
+     Objekten, Flags und DPTs, dazu Busstrom, Einspeisung und IP-Einstellungen.
+     Nicht mit gehen, was nur dieses eine Gerät betrifft: die physikalische
+     Adresse (die Kopie bekommt die nächste freie ihrer Linie), Seriennummer,
+     Notiz, Programmierstand und eine feste IP-Adresse. Verknüpfungen und
+     Objektbeschreibungen nur mit `links` — sonst schalteten Original und
+     Kopie dieselben Adressen. Liefert null, wenn auf der Linie keine
+     Adresse mehr frei ist. */
+  function copyDevice(srcId, { name, lineId, roomId, links = false } = {}) {
+    const src = deviceById(srcId);
+    if (!src) return null;
+    const line = lineId && lineById(lineId) ? lineId : src.lineId;
+    let addr = null;
+    if (hasPa(src)) {
+      addr = freePa(line);
+      if (paSplit(addr)[2] === 0) return null;
+    }
+    const copy = JSON.parse(JSON.stringify(src));
+    Object.assign(copy, {
+      id: nid('d'),
+      name: normName(name, src.name),
+      lineId: line,
+      segmentId: line === src.lineId ? src.segmentId : null,
+      roomId: roomId === undefined ? src.roomId : roomId,
+      addr, serial: '', note: ''
+    });
+    delete copy.loaded;
+    copy.objs.forEach(o => {
+      o.id = nid('o');
+      if (!links) { o.gas = []; o.desc = ''; }
+    });
+    if (copy.ip) {
+      copy.ip = { ...copy.ip, name: '', tunnelAddrs: [] };
+      if (copy.ip.mode === 'manual') copy.ip.addr = '';
+    }
+    project.devices.push(copy);
+    invalidate();
+    ensureTunnelAddrs(copy);
+    return copy;
+  }
+
   function deleteLine(lineId) {
     const a = areaOfLine(lineId);
     if (!a || a.backbone || isMainLine(lineId)) return false;
@@ -2436,7 +2478,7 @@ const KNX = (() => {
     lineById, areaOfLine, lineLabel, deviceById, objById,
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
     couplerScope, filterTable, powerBudget, deviceMa,
-    addDevice, deleteDevice, deleteLine, deleteArea,
+    addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
     catalogById, addCatalogItems, deleteCatalogItem,
     resolveProduct, applyProduct, paramValue, testHits,
     gaTree, issues,

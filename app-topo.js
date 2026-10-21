@@ -326,6 +326,92 @@ function moveDevice(id, lineId, segmentId) {
     : T18('„{0}“ verschoben: {1} → {2}', d.name, KNX.paStr(before), KNX.paStr(addr)));
 }
 
+/* ---------- Kopieren ---------- *
+ * Noch einmal dasselbe Gerät — gleiches Produkt, gleiche Parameter — mit der
+ * nächsten freien Adresse. Ohne Häkchen ohne Verknüpfungen: Sonst schalteten
+ * Original und Kopie dieselben Gruppenadressen.                             */
+
+const COPY_MAX = 20;
+
+/* Name der n-ten Kopie: Endet der Name auf eine Zahl, wird weitergezählt
+   („Taster 2“ → „Taster 3“), sonst angehängt („Aktor“ → „Aktor 2“). */
+function copyName(base, n) {
+  const m = /^(.*?)(\d+)$/.exec(base);
+  return m ? m[1] + (+m[2] + n) : n ? base + ' ' + (n + 1) : base;
+}
+const firstCopyName = name => (/\d$/.test(name) ? copyName(name, 1) : name + ' 2');
+
+function actCopyDevice(id) {
+  const d = KNX.deviceById(id);
+  if (!d) return;
+  const links = d.objs.reduce((s, o) => s + o.gas.length, 0);
+  const manualIp = !!(d.ip && d.ip.mode === 'manual');
+  A.openModal(T18('Gerät kopieren — {0}', d.name), `
+    <p class="hint">${T18('Die Kopie bekommt dasselbe Produkt mit denselben Parametern und Objekten samt Flags — und die nächste freie physikalische Adresse ihrer Linie. Seriennummer, Notiz und Programmierstand bleiben beim Original.')}</p>
+    <label class="field"><span>${T18('Name')}</span>
+      <input class="input" id="m-name" maxlength="60" value="${esc(firstCopyName(d.name))}">
+    </label>
+    <div class="addr-grid" style="grid-template-columns:1fr 3fr">
+      <label class="field"><span>${T18('Anzahl')}</span>
+        <input class="input mono" id="m-count" type="number" min="1" max="${COPY_MAX}" value="1">
+      </label>
+      <label class="field"><span>${T18('Linie')}</span>
+        <select class="select" id="m-line">${lineOptions(d.lineId)}</select>
+      </label>
+    </div>
+    <label class="field"><span>${T18('Verbaut in')}</span>
+      <select class="select" id="m-room">${roomOptions(d.roomId)}</select>
+    </label>
+    ${links ? `<label class="chk"><input type="checkbox" id="m-links"> ${T18('Verknüpfungen und Objektbeschreibungen übernehmen ({0})', links)}</label>
+      <p class="hint">${T18('Ohne Häkchen hört die Kopie auf keine Gruppenadresse; mit Häkchen schalten Original und Kopie dieselben.')}</p>` : ''}
+    ${d.secure ? `<p class="hint warn">${T18('KNX Secure: Jede Kopie braucht ihr eigenes Gerätezertifikat (FDSK).')}</p>` : ''}
+    ${manualIp ? `<p class="hint warn">${T18('Die feste IP-Adresse geht nicht mit — bitte bei der Kopie eine eigene eintragen.')}</p>` : ''}
+    <p class="hint" id="m-names"></p>
+    <div id="m-err"></div>
+  `, () => {
+    const name = $('#m-name').value.trim();
+    const n = $('#m-count').valueAsNumber;
+    const lineId = $('#m-line').value;
+    if (!name) { showErr(T18('Bitte einen Namen vergeben.')); return false; }
+    if (!Number.isInteger(n) || n < 1 || n > COPY_MAX) { showErr(T18('Anzahl 1 bis {0}.', COPY_MAX)); return false; }
+    const to = KNX.segmentInfo(lineId === d.lineId && d.segmentId ? d.segmentId : lineId);
+    const media = KNX.deviceMedia(d);
+    if (!to || !media.has(to.medium)) {
+      showErr(T18('Das Medium passt nicht: Ziel {0}, Gerät {1}.', T18(KNX.MEDIA[to ? to.medium : '?'] || '?'),
+        [...media].map(m => T18(KNX.MEDIA[m])).join(' / ')));
+      return false;
+    }
+    const made = [];
+    for (let i = 0; i < n; i++) {
+      const c = KNX.copyDevice(id, { name: copyName(name, i), lineId, roomId: $('#m-room').value || null,
+                                     links: !!($('#m-links') && $('#m-links').checked) });
+      if (!c) break;
+      made.push(c);
+    }
+    if (made.length < n) {
+      // Nichts halb anlegen: was schon da ist, wieder entfernen
+      made.forEach(c => KNX.deleteDevice(c.id));
+      showErr(T18('Auf dieser Linie sind nur noch {0} Adressen frei.', made.length));
+      return false;
+    }
+    state.sel = { kind: 'dev', id: made[0].id };
+    A.commit();
+    A.status(n === 1
+      ? T18('„{0}“ angelegt: {1}', made[0].name, KNX.paStr(made[0].addr))
+      : T18('{0} Kopien angelegt: {1}', n, made.map(c => KNX.paStr(c.addr)).join(', ')));
+  });
+  const preview = () => {
+    const n = Math.max(1, Math.min(COPY_MAX, $('#m-count').valueAsNumber || 1));
+    const name = $('#m-name').value.trim();
+    $('#m-names').textContent = n > 1 && name
+      ? T18('Namen: {0} bis {1}', copyName(name, 0), copyName(name, n - 1)) : '';
+  };
+  $('#m-count').addEventListener('input', preview);
+  $('#m-name').addEventListener('input', preview);
+  $('#m-name').focus();
+  $('#m-name').select();
+}
+
 function actDeleteDevice(id) {
   const d = KNX.deviceById(id);
   if (!d) return;
@@ -1597,7 +1683,7 @@ function actRenameGaGroup(key) {
 }
 
 window.KNXTopo = {
-  actNewDevice, actEditDevice, actDeleteDevice, moveDevice, actParams,
+  actNewDevice, actEditDevice, actCopyDevice, actDeleteDevice, moveDevice, actParams,
   actNewObj, actEditObj, actDeleteObj, actAssignObj, actSetSending, actToggleFlag,
   actNewArea, actEditArea, actDeleteArea,
   actNewLine, actEditLine, actDeleteLine,

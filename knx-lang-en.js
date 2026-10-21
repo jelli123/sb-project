@@ -1482,6 +1482,25 @@ KNXI18n.add('en', {
   'Schlüssel nicht erneuert: {0}': 'Key not renewed: {0}',
   'Zu kurz und deshalb nicht übernommen: {0}': 'Too short, not applied: {0}',
 
+  /* ---------- Gerät kopieren ---------- */
+  'Gerät kopieren — {0}': 'Copy device — {0}',
+  'Die Kopie bekommt dasselbe Produkt mit denselben Parametern und Objekten samt Flags — und die nächste freie physikalische Adresse ihrer Linie. Seriennummer, Notiz und Programmierstand bleiben beim Original.':
+    'The copy gets the same product with the same parameters and objects including flags — and the next free individual address of its line. Serial number, note and programming state stay with the original.',
+  'Anzahl': 'Count',
+  'Verknüpfungen und Objektbeschreibungen übernehmen ({0})': 'Take over links and object descriptions ({0})',
+  'Ohne Häkchen hört die Kopie auf keine Gruppenadresse; mit Häkchen schalten Original und Kopie dieselben.':
+    'Without the tick the copy listens to no group address; with it, original and copy switch the same ones.',
+  'KNX Secure: Jede Kopie braucht ihr eigenes Gerätezertifikat (FDSK).': 'KNX Secure: every copy needs its own device certificate (FDSK).',
+  'Die feste IP-Adresse geht nicht mit — bitte bei der Kopie eine eigene eintragen.':
+    'The fixed IP address is not copied — please enter a separate one for the copy.',
+  'Anzahl 1 bis {0}.': 'Count 1 to {0}.',
+  'Auf dieser Linie sind nur noch {0} Adressen frei.': 'Only {0} addresses are left on this line.',
+  '„{0}“ angelegt: {1}': '“{0}” created: {1}',
+  '{0} Kopien angelegt: {1}': '{0} copies created: {1}',
+  'Namen: {0} bis {1}': 'Names: {0} to {1}',
+  'Kopieren …': 'Copy …',
+  'Noch ein Gerät dieser Art anlegen — mit denselben Parametern': 'Create another device of this kind — with the same parameters',
+
   /* ---------- KI-Änderungen (Stufe 2) ---------- */
   'KI: {0} · {1}': 'AI: {0} · {1}',
   '{0} offene Vorschläge': '{0} open proposals',

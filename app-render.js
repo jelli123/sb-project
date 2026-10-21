@@ -1500,6 +1500,7 @@ function detailDev(d) {
       ${progOn() && KNXProg.state(d)
         ? `<button class="btn btn-sm" id="d-program" title="${A.t('Adresse, Applikation, Parameter und Gruppenadressen ins Gerät laden')}">${A.t('Programmieren …')}</button>` : ''}
       ${item ? '' : `<button class="btn btn-sm" id="d-addobj">${A.t('+ Objekt')}</button>`}
+      <button class="btn btn-sm" id="d-copy" title="${A.t('Noch ein Gerät dieser Art anlegen — mit denselben Parametern')}">${A.t('Kopieren …')}</button>
       <button class="btn btn-sm" id="d-rename">${A.IC_PENCIL} ${A.t('Bearbeiten')}</button>
       <button class="btn btn-sm btn-danger" id="d-delete">${A.IC_TRASH} ${A.t('Löschen')}</button>
     </div>
@@ -1832,6 +1833,7 @@ function renderDetail() {
     on('#d-addobj', () => T.actNewObj(target.id));
     on('#d-params', () => T.actParams(target.id));
     on('#d-program', () => KNXProg.open({ devices: [target.id] }));
+    on('#d-copy', () => T.actCopyDevice(target.id));
     on('#d-rename', () => T.actEditDevice(target.id));
     on('#d-delete', () => T.actDeleteDevice(target.id));
     $('#d-room')?.addEventListener('change', e => A.setDeviceRoom(target.id, e.target.value || null));
@@ -2001,6 +2003,7 @@ function menuFor(kind, id) {
         progOn() && KNXProg.state(d) && { label: A.t('Programmieren …'), run: () => KNXProg.open({ devices: [id] }) },
         item && bus && bus.debug && { label: A.t('Inbetriebnahme (Debug) …'), run: () => bus.program(id) },
         !item && { label: A.t('Objekt anlegen …'), run: () => T.actNewObj(id) },
+        { label: A.t('Kopieren …'), run: () => T.actCopyDevice(id) },
         '-',
         { ...edit, run: () => T.actEditDevice(id) },
         { ...del, run: () => T.actDeleteDevice(id) }
