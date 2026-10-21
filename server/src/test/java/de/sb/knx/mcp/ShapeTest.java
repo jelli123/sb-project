@@ -102,6 +102,31 @@ class ShapeTest {
     }
 
     @Test
+    void groupReferencesAreAddressesOrKeys() {
+        Shape.Obj args = obj(req("ga", Shape.gref(), null));
+        assertEquals("1/2/3", args.in(Map.of("ga", "1/2/3"), null, "").get("ga"));
+        assertEquals("licht", args.in(Map.of("ga", "licht"), null, "").get("ga"));
+        assertThrows(IllegalArgumentException.class, () -> args.in(Map.of("ga", "1/x"), null, ""));
+        assertThrows(IllegalArgumentException.class, () -> args.in(Map.of("ga", "1licht"), null, ""));
+        // Im Schema geklammert, sonst bindet ^…$ nur an je eine Seite der Alternative
+        assertEquals("^(?:\\d{1,5}(?:/\\d{1,5}){0,2}|[A-Za-z][A-Za-z0-9_-]{0,39})$", Shape.gref().schema().get("pattern"));
+    }
+
+    @Test
+    void changeProjectTakesAllSections() {
+        Tools.Tool t = Tools.byName("change_project");
+        Map<String, Object> args = t.input().in(Json.parseObject("""
+                {"structure":{"create":[{"key":"eg","parent":"n1","kind":"floor","name":"EG"},
+                                        {"key":"hobby","parent":"eg","kind":"room","name":"Hobbyraum"}]},
+                 "groups":{"create":[{"key":"sw","name":"Licht","dpt":"1.001","range":"0"}]},
+                 "functions":{"create":[{"node":"hobby","type":"light-dim","name":"Licht","createGroups":false,
+                                         "groups":[{"ga":"sw","role":"switch"}]}]},
+                 "links":{"link":[{"device":"d1","object":0,"ga":"sw","send":true}]}}"""), null, "");
+        assertEquals(4, args.size());
+        assertThrows(IllegalArgumentException.class, () -> t.input().in(Map.of("rooms", List.of()), null, ""));
+    }
+
+    @Test
     void everyToolHasAValidSchema() {
         for (Tools.Tool t : Tools.ALL) {
             String json = Json.write(t.input().schema());

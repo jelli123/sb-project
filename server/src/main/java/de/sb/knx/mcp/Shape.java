@@ -93,9 +93,17 @@ public abstract class Shape {
         return new Token("(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)", "IPv4-Adresse");
     }
 
-    /** Eigene Bezeichnung der KI fuer etwas, das sie im selben Aufruf anlegt (oder eine Kennung). */
+    /**
+     * Eigene Bezeichnung der KI fuer etwas, das sie im selben Aufruf anlegt, oder eine Kennung.
+     * Beginnt mit einem Buchstaben - so ist er nie mit einer Gruppenadresse zu verwechseln.
+     */
     static Shape key() {
-        return new Token("[A-Za-z0-9_-]{1,40}", "Kennung oder eigener Schluessel");
+        return new Token("[A-Za-z][A-Za-z0-9_-]{0,39}", "Kennung oder eigener Schluessel (beginnt mit einem Buchstaben)");
+    }
+
+    /** Gruppenadresse oder Schluessel einer Adresse, die im selben Aufruf entsteht. */
+    static Shape gref() {
+        return new Token("\\d{1,5}(?:/\\d{1,5}){0,2}|[A-Za-z][A-Za-z0-9_-]{0,39}", "Gruppenadresse oder Schluessel");
     }
 
     /** Kurzes Schluesselwort (Knotentyp, Funktionsart, Medium). */
@@ -216,7 +224,7 @@ public abstract class Shape {
         Map<String, Object> schema() {
             Map<String, Object> m = Json.obj();
             m.put("type", "string");
-            m.put("pattern", "^" + pattern.pattern() + "$");
+            m.put("pattern", "^(?:" + pattern.pattern() + ")$");
             return m;
         }
     }

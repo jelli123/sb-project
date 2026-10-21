@@ -11,6 +11,7 @@ import static de.sb.knx.mcp.Shape.catalogText;
 import static de.sb.knx.mcp.Shape.dpt;
 import static de.sb.knx.mcp.Shape.f;
 import static de.sb.knx.mcp.Shape.ga;
+import static de.sb.knx.mcp.Shape.gref;
 import static de.sb.knx.mcp.Shape.id;
 import static de.sb.knx.mcp.Shape.integer;
 import static de.sb.knx.mcp.Shape.ipv4;
@@ -329,105 +330,144 @@ final class Tools {
     private static final String STRUCTURE_KINDS = "building, part (building part), floor, outdoor, room, corridor, cabinet "
             + "(distribution board)";
 
+    private static Shape kinds() {
+        return oneOf("building", "part", "floor", "outdoor", "room", "corridor", "cabinet");
+    }
+
+    /*
+     * Die Teile eines Plans. Jedes schreibende Werkzeug nimmt genau einen davon; change_project
+     * nimmt alle zusammen, damit Schluessel ueber die Teile hinweg gelten.
+     */
+
+    private static final Shape.Field[] GROUP_FIELDS = {
+            opt("create", list(obj(
+                    opt("key", key(), "Your own label (starting with a letter) for this address."),
+                    req("name", text(200), "Name, e.g. 'Licht Bad schalten'."),
+                    req("dpt", dpt(), "Datapoint type, e.g. 1.001."),
+                    opt("addr", ga(), "Exact address with all levels, e.g. 1/2/3."),
+                    opt("range", ga(), "Main or middle group, e.g. 1 or 1/2.")), 200),
+                    "New group addresses."),
+            opt("update", list(obj(
+                    req("id", id(), "Group address id from list_group_addresses."),
+                    opt("name", text(200), null),
+                    opt("dpt", dpt(), null),
+                    opt("addr", ga(), "Move to this exact address."),
+                    opt("range", ga(), "Move to the next free address in this group.")), 500),
+                    "Changes to existing group addresses; links and function roles stay attached."),
+            opt("ranges", list(obj(req("range", ga(), "Main or middle group, e.g. 1 or 1/2."),
+                    req("name", text(200), null)), 100), "Names of main and middle groups."),
+            opt("delete", list(id(), 500),
+                    "Ids of group addresses to delete; their links and function roles go with them. "
+                            + "Always waits for the user's confirmation.")
+    };
+
+    private static final Shape.Field[] LINK_FIELDS = {
+            opt("link", list(obj(
+                    req("device", id(), "Device id."),
+                    req("object", integer(0, 65535), "Object number."),
+                    req("ga", gref(), "Group address (e.g. 1/2/3) or key of an address created in the same call."),
+                    opt("send", bool(), "Make this the address the object sends to.")), 500), null),
+            opt("unlink", list(obj(
+                    req("device", id(), null),
+                    req("object", integer(0, 65535), null),
+                    req("ga", gref(), null)), 500),
+                    "Links to remove. Always waits for the user's confirmation."),
+            opt("flags", list(obj(
+                    req("device", id(), null),
+                    req("object", integer(0, 65535), null),
+                    opt("c", bool(), "communication"), opt("r", bool(), "read"), opt("w", bool(), "write"),
+                    opt("t", bool(), "transmit"), opt("u", bool(), "update"),
+                    opt("i", bool(), "read on init")), 500), "Flags to set; omitted flags stay.")
+    };
+
+    private static final Shape.Field[] STRUCTURE_FIELDS = {
+            opt("create", list(obj(
+                    opt("key", key(), "Your own label (starting with a letter), usable as parent of later items."),
+                    req("parent", key(), "Parent node id (get_overview) or key of an earlier item."),
+                    req("kind", kinds(), null),
+                    req("name", text(200), null)), 200), null),
+            opt("update", list(obj(
+                    req("id", id(), null),
+                    opt("name", text(200), null),
+                    opt("kind", kinds(), null),
+                    opt("parent", key(), "Move below this node (id or key of a node created in the same call).")), 200), null),
+            opt("delete", list(id(), 100),
+                    "Nodes to delete with everything below; devices there lose their room, functions "
+                            + "there are removed. Always waits for the user's confirmation.")
+    };
+
+    private static final Shape.Field[] FUNCTION_FIELDS = {
+            opt("create", list(obj(
+                    opt("key", key(), "Your own label (starting with a letter) for this function."),
+                    req("node", key(), "Structure node id (room, floor …) or key of a node created in the same call."),
+                    req("type", word(), "Function type from list_function_types."),
+                    req("name", text(200), null),
+                    opt("createGroups", bool(), "Create group addresses for the roles. Default true."),
+                    opt("roles", list(word(), 16), "Only these roles get new addresses. Default: all."),
+                    opt("groups", list(obj(req("ga", gref(), null), opt("role", word(), null)), 32),
+                            "Group addresses (or keys of addresses created in the same call) to attach.")), 100), null),
+            opt("update", list(obj(
+                    req("id", id(), null),
+                    opt("name", text(200), null),
+                    opt("node", key(), "Move to this structure node."),
+                    opt("attach", list(obj(req("ga", gref(), null), opt("role", word(), null)), 32), null),
+                    opt("detach", list(gref(), 32),
+                            "Group addresses to detach. Always waits for the user's confirmation.")), 100), null),
+            opt("delete", list(obj(
+                    req("id", id(), null),
+                    opt("withGroups", bool(), "Also delete its group addresses no other function uses.")), 100),
+                    "Always waits for the user's confirmation.")
+    };
+
+    private static Shape.Obj withProject(Shape.Field[] fields) {
+        Shape.Field[] all = new Shape.Field[fields.length + 1];
+        all[0] = PROJECT;
+        System.arraycopy(fields, 0, all, 1, fields.length);
+        return obj(all);
+    }
+
     private static final List<Tool> WRITE_TOOLS = List.of(
+            new Tool("change_project", "Change several parts at once",
+                    "Plans one coherent change across the building structure, group addresses, room functions and "
+                            + "object links - for example a new room with its lighting. Each section takes exactly what "
+                            + "the single change_* tool of the same name takes. Your own keys (starting with a letter) "
+                            + "work across sections: a structure key as a function's node or a later item's parent, a "
+                            + "group key wherever a group address is expected. Applied in the order structure, groups, "
+                            + "functions, links. The user reviews and undoes it as one change, so prefer this tool "
+                            + "whenever a task touches more than one part.",
+                    obj(PROJECT,
+                            opt("structure", obj(STRUCTURE_FIELDS), "Same as change_structure."),
+                            opt("groups", obj(GROUP_FIELDS), "Same as change_group_addresses."),
+                            opt("functions", obj(FUNCTION_FIELDS), "Same as change_functions."),
+                            opt("links", obj(LINK_FIELDS), "Same as change_links.")),
+                    CHANGE, Level.WRITE, 60),
+
             new Tool("change_group_addresses", "Change group addresses",
                     "Creates, changes and deletes group addresses and names main/middle groups, as one change. "
                             + "Addresses follow the project's style (get_overview gaStyle: three = 1/2/3, two = 1/234, "
                             + "free = 2305). For new addresses give `addr` for an exact address, `range` for the next "
                             + "free one in a main or middle group, or neither for the next free one anywhere.",
-                    obj(PROJECT,
-                            opt("create", list(obj(
-                                    opt("key", key(), "Your own label to find this address in the result."),
-                                    req("name", text(200), "Name, e.g. 'Licht Bad schalten'."),
-                                    req("dpt", dpt(), "Datapoint type, e.g. 1.001."),
-                                    opt("addr", ga(), "Exact address with all levels, e.g. 1/2/3."),
-                                    opt("range", ga(), "Main or middle group, e.g. 1 or 1/2.")), 200),
-                                    "New group addresses."),
-                            opt("update", list(obj(
-                                    req("id", id(), "Group address id from list_group_addresses."),
-                                    opt("name", text(200), null),
-                                    opt("dpt", dpt(), null),
-                                    opt("addr", ga(), "Move to this exact address."),
-                                    opt("range", ga(), "Move to the next free address in this group.")), 500),
-                                    "Changes to existing group addresses; links and function roles stay attached."),
-                            opt("ranges", list(obj(req("range", ga(), "Main or middle group, e.g. 1 or 1/2."),
-                                    req("name", text(200), null)), 100), "Names of main and middle groups."),
-                            opt("delete", list(id(), 500),
-                                    "Ids of group addresses to delete; their links and function roles go with them. "
-                                            + "Always waits for the user's confirmation.")),
-                    CHANGE, Level.WRITE, 60),
+                    withProject(GROUP_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_links", "Change object links",
                     "Links communication objects to group addresses, unlinks them and sets object flags, as one "
                             + "change. Objects are named by device id and object number (see get_device). The first "
                             + "group address of an object is the one it sends to; `send: true` makes a link that one "
                             + "and switches the transmit flag on.",
-                    obj(PROJECT,
-                            opt("link", list(obj(
-                                    req("device", id(), "Device id."),
-                                    req("object", integer(0, 65535), "Object number."),
-                                    req("ga", ga(), "Group address, e.g. 1/2/3."),
-                                    opt("send", bool(), "Make this the address the object sends to.")), 500), null),
-                            opt("unlink", list(obj(
-                                    req("device", id(), null),
-                                    req("object", integer(0, 65535), null),
-                                    req("ga", ga(), null)), 500),
-                                    "Links to remove. Always waits for the user's confirmation."),
-                            opt("flags", list(obj(
-                                    req("device", id(), null),
-                                    req("object", integer(0, 65535), null),
-                                    opt("c", bool(), "communication"), opt("r", bool(), "read"), opt("w", bool(), "write"),
-                                    opt("t", bool(), "transmit"), opt("u", bool(), "update"),
-                                    opt("i", bool(), "read on init")), 500), "Flags to set; omitted flags stay.")),
-                    CHANGE, Level.WRITE, 60),
+                    withProject(LINK_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_structure", "Change building structure",
                     "Creates, renames, moves and deletes nodes of the building structure, as one change. Kinds: "
                             + STRUCTURE_KINDS + ". A site holds buildings and outdoor areas, a building or part holds "
                             + "parts, floors, rooms, corridors and cabinets, a floor holds rooms, corridors and cabinets. "
                             + "`parent` may name a node created earlier in the same call by its key.",
-                    obj(PROJECT,
-                            opt("create", list(obj(
-                                    opt("key", key(), "Your own label, usable as parent of later items."),
-                                    req("parent", key(), "Parent node id (get_overview) or key of an earlier item."),
-                                    req("kind", oneOf("building", "part", "floor", "outdoor", "room", "corridor", "cabinet"), null),
-                                    req("name", text(200), null)), 200), null),
-                            opt("update", list(obj(
-                                    req("id", id(), null),
-                                    opt("name", text(200), null),
-                                    opt("kind", oneOf("building", "part", "floor", "outdoor", "room", "corridor", "cabinet"), null),
-                                    opt("parent", id(), "Move below this node.")), 200), null),
-                            opt("delete", list(id(), 100),
-                                    "Nodes to delete with everything below; devices there lose their room, functions "
-                                            + "there are removed. Always waits for the user's confirmation.")),
-                    CHANGE, Level.WRITE, 60),
+                    withProject(STRUCTURE_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_functions", "Change room functions",
                     "Creates, changes and deletes functions in the building structure (see list_function_types), as "
                             + "one change. New functions get group addresses for their roles in the matching main and "
                             + "middle group unless createGroups is false.",
-                    obj(PROJECT,
-                            opt("create", list(obj(
-                                    opt("key", key(), "Your own label to find this function in the result."),
-                                    req("node", id(), "Structure node id (room, floor …)."),
-                                    req("type", word(), "Function type from list_function_types."),
-                                    req("name", text(200), null),
-                                    opt("createGroups", bool(), "Create group addresses for the roles. Default true."),
-                                    opt("roles", list(word(), 16), "Only these roles get new addresses. Default: all."),
-                                    opt("groups", list(obj(req("ga", ga(), null), opt("role", word(), null)), 32),
-                                            "Existing group addresses to attach.")), 100), null),
-                            opt("update", list(obj(
-                                    req("id", id(), null),
-                                    opt("name", text(200), null),
-                                    opt("node", id(), "Move to this structure node."),
-                                    opt("attach", list(obj(req("ga", ga(), null), opt("role", word(), null)), 32), null),
-                                    opt("detach", list(ga(), 32),
-                                            "Group addresses to detach. Always waits for the user's confirmation.")), 100), null),
-                            opt("delete", list(obj(
-                                    req("id", id(), null),
-                                    opt("withGroups", bool(), "Also delete its group addresses no other function uses.")), 100),
-                                    "Always waits for the user's confirmation.")),
-                    CHANGE, Level.WRITE, 60));
+                    withProject(FUNCTION_FIELDS), CHANGE, Level.WRITE, 60));
 
     static final List<Tool> ALL = concat(READ_TOOLS, WRITE_TOOLS);
 

@@ -503,9 +503,31 @@ const objLine = (d, o) => `${KNX.paStr(d.addr)} ${q(d.name)} ` + T18('Objekt {0}
 
 const newOut = warnings => ({ created: [], changed: [], removed: [], warnings });
 
+/* Was ein Aufruf neu anlegt, ist über seine Schlüssel erreichbar — auch aus
+   den anderen Teilen von change_project. Knoten bekommen ihre Kennung erst
+   beim Anwenden, Adressen werden dann über ihren geplanten Rohwert gefunden. */
+const newCtx = () => ({ nodes: new Map(), groups: new Map(), taken: null });
+
+const nodeRef = (ref, ctx) => ctx.nodes.get(ref) || KNX.findNode(ref);
+
+function groupRef(ref, ctx, byRaw) {
+  const pl = ctx.groups.get(ref);
+  if (pl) return {
+    planned: true, id: null, addr: KNX.gaStr(pl.raw), name: pl.name, dpt: pl.dpt,
+    get: () => {
+      const g = P().groups.find(x => x.raw === pl.raw);
+      if (!g) throw new Error('Adresse ' + ref + ' wurde nicht angelegt.');
+      return g;
+    }
+  };
+  if (/^[A-Za-z]/.test(String(ref))) throw new Error('Schlüssel ' + ref + ' wird in diesem Aufruf nicht angelegt.');
+  const g = byRaw(ref);
+  return { planned: false, id: g.id, addr: KNX.addrStr(g), name: g.name, dpt: g.dpt, get: () => g };
+}
+
 const PLANNERS = {
-  change_group_addresses(a) {
-    const p = P(), taken = new Set(p.groups.map(g => g.raw));
+  change_group_addresses(a, ctx = newCtx()) {
+    const p = P(), taken = ctx.taken || (ctx.taken = new Set(p.groups.map(g => g.raw)));
     const lines = [], ops = [], warnings = [], out = newOut(warnings), del = new Set();
 
     (a.delete || []).forEach(id => {
@@ -567,6 +589,10 @@ const PLANNERS = {
         if (!raw) throw new Error((c.range ? 'In ' + c.range : 'Im Projekt') + ' ist keine Adresse mehr frei.');
       }
       taken.add(raw);
+      if (c.key) {
+        if (ctx.groups.has(c.key)) throw new Error('Schlüssel ' + c.key + ' ist doppelt.');
+        ctx.groups.set(c.key, { raw, name, dpt });
+      }
       lines.push({ text: T18('Neu {0} {1} ({2})', KNX.gaStr(raw), q(name), dpt) });
       ops.push(() => {
         const g = KNX.addGa({ id: KNX.uid('g'), raw, name, dpt, note: '' });
@@ -576,34 +602,35 @@ const PLANNERS = {
     return { lines, warnings, removes: del.size > 0, apply: () => { ops.forEach(f => f()); return out; } };
   },
 
-  change_links(a) {
+  change_links(a, ctx = newCtx()) {
     const ga = groupsByRaw();
     const lines = [], ops = [], warnings = [], out = newOut(warnings);
     let removes = false;
 
     (a.unlink || []).forEach(x => {
-      const { d, o } = objectOf(x.device, x.object), g = ga(x.ga);
-      if (!o.gas.includes(g.id)) { warnings.push(T18('{0} ist nicht mit {1} verknüpft.', objLine(d, o), KNX.addrStr(g))); return; }
+      const { d, o } = objectOf(x.device, x.object), g = groupRef(x.ga, ctx, ga);
+      if (g.planned || !o.gas.includes(g.id)) { warnings.push(T18('{0} ist nicht mit {1} verknüpft.', objLine(d, o), g.addr)); return; }
       removes = true;
-      lines.push({ remove: true, text: T18('Lösen {0} von {1} {2}', objLine(d, o), KNX.addrStr(g), q(g.name)) });
-      ops.push(() => { o.gas = o.gas.filter(id => id !== g.id); out.removed.push(`${d.id}#${o.num}→${KNX.addrStr(g)}`); });
+      lines.push({ remove: true, text: T18('Lösen {0} von {1} {2}', objLine(d, o), g.addr, q(g.name)) });
+      ops.push(() => { o.gas = o.gas.filter(id => id !== g.id); out.removed.push(`${d.id}#${o.num}→${g.addr}`); });
     });
 
     (a.link || []).forEach(x => {
-      const { d, o } = objectOf(x.device, x.object), g = ga(x.ga);
-      const has = o.gas.includes(g.id);
+      const { d, o } = objectOf(x.device, x.object), g = groupRef(x.ga, ctx, ga);
+      const has = !g.planned && o.gas.includes(g.id);
       if (has && (!x.send || o.gas[0] === g.id)) {
-        warnings.push(T18('{0} ist schon mit {1} verknüpft.', objLine(d, o), KNX.addrStr(g)));
+        warnings.push(T18('{0} ist schon mit {1} verknüpft.', objLine(d, o), g.addr));
         return;
       }
       if (o.dpt !== g.dpt)
-        warnings.push(T18('DPT weicht ab: {0} hat {1}, {2} hat {3}.', objLine(d, o), o.dpt, KNX.addrStr(g), g.dpt));
-      lines.push({ text: T18('Verknüpfen {0} mit {1} {2}', objLine(d, o), KNX.addrStr(g), q(g.name))
+        warnings.push(T18('DPT weicht ab: {0} hat {1}, {2} hat {3}.', objLine(d, o), o.dpt, g.addr, g.dpt));
+      lines.push({ text: T18('Verknüpfen {0} mit {1} {2}', objLine(d, o), g.addr, q(g.name))
         + (x.send ? ' (' + T18('sendend') + ')' : '') });
       ops.push(() => {
-        if (x.send) { o.gas = [g.id, ...o.gas.filter(id => id !== g.id)]; o.flags.t = true; }
-        else if (!o.gas.includes(g.id)) o.gas.push(g.id);
-        out.changed.push(`${d.id}#${o.num}→${KNX.addrStr(g)}`);
+        const id = g.get().id;
+        if (x.send) { o.gas = [id, ...o.gas.filter(y => y !== id)]; o.flags.t = true; }
+        else if (!o.gas.includes(id)) o.gas.push(id);
+        out.changed.push(`${d.id}#${o.num}→${g.addr}`);
       });
     });
 
@@ -617,8 +644,8 @@ const PLANNERS = {
     return { lines, warnings, removes, apply: () => { ops.forEach(f => f()); return out; } };
   },
 
-  change_structure(a) {
-    const p = P(), planned = new Map(), dels = new Set(a.delete || []);
+  change_structure(a, ctx = newCtx()) {
+    const p = P(), planned = ctx.nodes, dels = new Set(a.delete || []);
     const lines = [], ops = [], warnings = [], out = newOut(warnings);
     dels.forEach(id => {
       const n = KNX.findNode(id);
@@ -664,9 +691,9 @@ const PLANNERS = {
         kind = u.kind;
       }
       if (u.parent && (KNX.parentOf(n.id) || {}).id !== u.parent) {
-        to = KNX.findNode(u.parent);
+        to = nodeRef(u.parent, ctx);
         if (root || !to) throw new Error('Knoten ' + u.id + ' lässt sich nicht nach ' + u.parent + ' verschieben.');
-        if (KNX.isInside(to.id, n.id)) throw new Error(q(n.name) + ' kann nicht in sich selbst liegen.');
+        if (to.id && KNX.isInside(to.id, n.id)) throw new Error(q(n.name) + ' kann nicht in sich selbst liegen.');
         if (!KNX.kindHolds(to.kind).includes(kind))
           throw new Error(KNX.kindDe(to.kind) + ' ' + q(to.name) + ' kann kein ' + KNX.kindDe(kind) + ' enthalten.');
       }
@@ -695,7 +722,7 @@ const PLANNERS = {
     return { lines, warnings, removes: dels.size > 0, apply: () => { ops.forEach(f => f()); return out; } };
   },
 
-  change_functions(a) {
+  change_functions(a, ctx = newCtx()) {
     const ga = groupsByRaw();
     const lines = [], ops = [], warnings = [], out = newOut(warnings);
     let removes = false;
@@ -711,22 +738,23 @@ const PLANNERS = {
     const roleName = (t, r) => T18((t.roles.find(x => x.key === r) || { de: r }).de);
 
     (a.create || []).forEach((c, i) => {
-      const node = KNX.findNode(c.node);
+      const node = nodeRef(c.node, ctx);
       if (!node) throw new Error('Knoten ' + c.node + ' gibt es nicht.');
       const t = typeOf(c.type), name = cleanName(c.name, 'Neue Funktion ' + (i + 1));
-      const groups = (c.groups || []).map(x => ({ g: ga(x.ga), role: roleOf(t, x.role) }));
+      const groups = (c.groups || []).map(x => ({ g: groupRef(x.ga, ctx, ga), role: roleOf(t, x.role) }));
       const held = new Set(groups.map(x => x.role).filter(Boolean));
       const roles = (c.roles || t.roles.map(r => r.key)).filter(r => { roleOf(t, r); return !held.has(r); });
       const make = c.createGroups !== false && roles.length > 0;
-      const folder = make ? KNX.functionFolder(node.id, t.key) : null;
+      // Für einen Knoten, der erst im selben Aufruf entsteht, steht der Ordner erst beim Anwenden fest
+      const folder = make && node.id ? KNX.functionFolder(node.id, t.key) : null;
       lines.push({ text: T18('Neue Funktion {0} ({1}) in {2}', q(name), T18(t.de), q(node.name))
         + (make ? ' — ' + T18('Adressen für {0}', roles.map(r => roleName(t, r)).join(', '))
           + (folder ? ' ' + T18('in {0}', folder.label) : '') : '') });
-      groups.forEach(x => lines.push({ text: T18('dazu {0} {1}', KNX.addrStr(x.g), q(x.g.name)) }));
+      groups.forEach(x => lines.push({ text: T18('dazu {0} {1}', x.g.addr, q(x.g.name)) }));
       ops.push(() => {
         const before = new Set(P().groups.map(g => g.id));
         const fn = KNX.addFunction({ id: KNX.uid('f'), nodeId: node.id, type: t.key, name, icon: '', note: '',
-                                     gas: groups.map(x => ({ ga: x.g.id, role: x.role })) });
+                                     gas: groups.map(x => ({ ga: x.g.get().id, role: x.role })) });
         const missing = make ? KNX.createRoleGas(fn, roles, KNX.functionFolder(node.id, t.key)) : 0;
         out.created.push({ key: c.key || null, type: 'function', id: fn.id, addr: null, name });
         fn.gas.forEach(x => {
@@ -742,25 +770,28 @@ const PLANNERS = {
       if (!fn) throw new Error('Funktion ' + u.id + ' gibt es nicht.');
       const t = KNX.fnType(fn.type);
       const name = u.name != null ? cleanName(u.name, u.id) : fn.name;
-      const node = u.node && u.node !== fn.nodeId ? KNX.findNode(u.node) : null;
+      const node = u.node && u.node !== fn.nodeId ? nodeRef(u.node, ctx) : null;
       if (u.node && u.node !== fn.nodeId && !node) throw new Error('Knoten ' + u.node + ' gibt es nicht.');
-      const attach = (u.attach || []).map(x => ({ g: ga(x.ga), role: roleOf(t, x.role) }))
-        .filter(x => !fn.gas.some(y => y.ga === x.g.id));
-      const detach = (u.detach || []).map(ga).filter(g => fn.gas.some(y => y.ga === g.id));
+      const attach = (u.attach || []).map(x => ({ g: groupRef(x.ga, ctx, ga), role: roleOf(t, x.role) }))
+        .filter(x => x.g.planned || !fn.gas.some(y => y.ga === x.g.id));
+      const detach = (u.detach || []).map(ref => groupRef(ref, ctx, ga))
+        .filter(g => !g.planned && fn.gas.some(y => y.ga === g.id));
       const what = [];
       if (name !== fn.name) what.push(T18('Name {0} → {1}', q(fn.name), q(name)));
       if (node) what.push(T18('nach {0}', q(node.name)));
-      attach.forEach(x => what.push(T18('dazu {0} {1}', KNX.addrStr(x.g), q(x.g.name))));
+      attach.forEach(x => what.push(T18('dazu {0} {1}', x.g.addr, q(x.g.name))));
       if (what.length) lines.push({ text: T18('Ändern Funktion {0}: {1}', q(fn.name), what.join(', ')) });
-      detach.forEach(g => lines.push({ remove: true, text: T18('Lösen Funktion {0} von {1} {2}', q(fn.name), KNX.addrStr(g), q(g.name)) }));
+      detach.forEach(g => lines.push({ remove: true, text: T18('Lösen Funktion {0} von {1} {2}', q(fn.name), g.addr, q(g.name)) }));
       if (detach.length) removes = true;
       if (!what.length && !detach.length) return;
       ops.push(() => {
         fn.name = name;
         if (node) KNX.moveFunction(fn.id, node.id);
         attach.forEach(x => {
-          if (x.role) fn.gas.push({ ga: x.g.id, role: x.role });
-          else KNX.attachGas(fn.id, [x.g.id]);
+          const id = x.g.get().id;
+          if (fn.gas.some(y => y.ga === id)) return;
+          if (x.role) fn.gas.push({ ga: id, role: x.role });
+          else KNX.attachGas(fn.id, [id]);
         });
         detach.forEach(g => KNX.detachGa(fn.id, g.id));
         KNX.touch();
@@ -777,6 +808,33 @@ const PLANNERS = {
       ops.push(() => { KNX.deleteFunction(fn.id, !!x.withGroups); out.removed.push(fn.id); });
     });
     return { lines, warnings, removes, apply: () => { ops.forEach(f => f()); return out; } };
+  },
+
+  /* Mehrere Teile in einem Aufruf: ein Vorschlag, eine Bestätigung, ein
+     Rückgängig-Schritt. Die Reihenfolge erlaubt Verweise nach vorn —
+     die Funktion in den neuen Raum, die Verknüpfung auf die neue Adresse. */
+  change_project(a) {
+    const ctx = newCtx(), parts = [];
+    if (a.structure) parts.push(PLANNERS.change_structure(a.structure, ctx));
+    if (a.groups) parts.push(PLANNERS.change_group_addresses(a.groups, ctx));
+    if (a.functions) parts.push(PLANNERS.change_functions(a.functions, ctx));
+    if (a.links) parts.push(PLANNERS.change_links(a.links, ctx));
+    return {
+      lines: parts.flatMap(x => x.lines),
+      warnings: parts.flatMap(x => x.warnings),
+      removes: parts.some(x => x.removes),
+      apply: () => {
+        const out = newOut([]);
+        parts.forEach(x => {
+          const r = x.apply();
+          out.created.push(...r.created);
+          out.changed.push(...r.changed);
+          out.removed.push(...r.removed);
+          out.warnings.push(...r.warnings);
+        });
+        return out;
+      }
+    };
   }
 };
 
