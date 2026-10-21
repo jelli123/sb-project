@@ -197,6 +197,12 @@ Telefonnummern und E-Mail-Adressen ersetzt der Dienst durch Platzhalter.
 Auf den Bus schreibt eine KI nie. Jeder Aufruf steht in mcp/audit.log
 im Datenverzeichnis.
 
+Ohne externes Programm geht es ueber den Reiter "KI-Chat" rechts: Der
+Dienst startet dafuer die Claude-Code-Kommandozeile (aus der VS-Code-
+Erweiterung, Claude Desktop oder mit --claude <pfad>) mit der Anmeldung des
+Nutzers - nur mit den Werkzeugen von SB-Projekt. Auch die eigene Nachricht
+bekommt die Platzhalter, bevor sie hinausgeht.
+
 Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
 bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter
 reicht alles an den laufenden Dienst weiter; laeuft er nicht, melden die

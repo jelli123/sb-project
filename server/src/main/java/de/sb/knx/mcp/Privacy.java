@@ -211,6 +211,38 @@ public final class Privacy {
         return out.toString();
     }
 
+    /** Wie {@link #restore}, aber fuer die Anzeige: Unbekannte Platzhalter bleiben einfach stehen. */
+    public synchronized String restoreLenient(String text) {
+        return restoreForDisplay(text, false);
+    }
+
+    /* Markiert eingesetzten Klartext fuer die Anzeige: MARK_A Platzhalter MARK_B Klartext MARK_C.
+       Zeichen aus dem privaten Bereich, die in Projekttexten nicht vorkommen. */
+    public static final char MARK_A = '\uE000', MARK_B = '\uE001', MARK_C = '\uE002';
+
+    /**
+     * Fuer den Chat: Klartext einsetzen und kenntlich machen, damit ein Satz wie „bei mir heisst es nur
+     * «Name1»“ nicht zu Unsinn wird. Was die KI selbst an Markierungszeichen liefert, faellt weg.
+     */
+    public synchronized String restoreMarked(String text) {
+        return restoreForDisplay(text, true);
+    }
+
+    private String restoreForDisplay(String text, boolean mark) {
+        if (text == null) return null;
+        if (mark) text = text.replace(String.valueOf(MARK_A), "").replace(String.valueOf(MARK_B), "").replace(String.valueOf(MARK_C), "");
+        if (text.indexOf('«') < 0) return text;
+        Matcher m = PLACEHOLDER.matcher(text);
+        StringBuilder out = new StringBuilder(text.length());
+        while (m.find()) {
+            String original = byTag.get(m.group());
+            String rep = original == null ? m.group() : mark ? MARK_A + m.group() + MARK_B + original + MARK_C : original;
+            m.appendReplacement(out, Matcher.quoteReplacement(rep));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
     synchronized int size() {
         return byText.size();
     }

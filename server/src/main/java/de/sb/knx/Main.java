@@ -3,11 +3,13 @@ package de.sb.knx;
 import com.sun.net.httpserver.HttpServer;
 import de.sb.knx.api.BusApi;
 import de.sb.knx.api.CatalogApi;
+import de.sb.knx.api.ChatApi;
 import de.sb.knx.api.McpUiApi;
 import de.sb.knx.api.OnlineApi;
 import de.sb.knx.api.ProjectApi;
 import de.sb.knx.api.SecureApi;
 import de.sb.knx.bus.BusService;
+import de.sb.knx.chat.ChatService;
 import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
@@ -44,6 +46,7 @@ public final class Main {
         boolean openBrowser = true;
         boolean debug = false;
         boolean mcpStdio = false;
+        Path claude = null;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -53,6 +56,7 @@ public final class Main {
                 case "--no-browser" -> openBrowser = false;
                 case "--debug" -> debug = true;
                 case "--mcp-stdio" -> mcpStdio = true;
+                case "--claude" -> claude = Paths.get(args[++i]);
                 case "--help", "-h" -> {
                     printUsage();
                     return;
@@ -123,6 +127,8 @@ public final class Main {
         String version = Main.class.getPackage().getImplementationVersion();
         http.createContext("/mcp", new McpApi(mcp, boundPort, version));
         http.createContext("/api/mcp", new McpUiApi(mcp, boundPort));
+        ChatService chat = new ChatService(dataDir, events, mcp, boundPort, claude);
+        http.createContext("/api/chat", new ChatApi(chat, boundPort));
         http.createContext("/api/info", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
             Map<String, Object> m = Json.obj();
@@ -139,6 +145,7 @@ public final class Main {
         http.createContext("/", new StaticFiles(webDir, boundPort));
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            chat.close();
             mcp.close();
             bus.close();
             events.close();
@@ -165,6 +172,7 @@ public final class Main {
                   --web <pfad>    Verzeichnis mit index.html und den JS-Dateien
                   --no-browser    Browser nicht automatisch oeffnen
                   --debug         Inbetriebnahme-Fenster zum Testen und Debuggen einblenden
+                  --claude <pfad> Claude-Code-Kommandozeile fuer den KI-Chat (sonst wird sie gesucht)
                   --mcp-stdio     MCP ueber stdin/stdout fuer KI-Programme wie Claude Desktop;
                                   reicht alles an den laufenden Dienst weiter (gleiche --port/--data)
                 """);

@@ -15,7 +15,7 @@ window.KNXBackend = null;
 const SCRIPTS = [
   'knx-data.js', 'knx-icons.js', 'knx-prod.js', 'knx-crypt.js', 'knx-proj.js', 'knx-download.js',
   'app.js', 'app-ga.js', 'app-fn.js', 'app-secure.js', 'app-topo.js', 'app-render.js', 'app-bus.js', 'app-prog.js',
-  'app-mcp.js', 'app-init.js'
+  'app-mcp.js', 'app-chat.js', 'app-init.js'
 ];
 
 const DEFAULT_PROJECT_ID = 'Projekt';
@@ -186,7 +186,7 @@ function makeSaver() {
 
 function makeEvents() {
   let source = null;
-  const KINDS = ['log', 'job', 'bus', 'project', 'mcp', 'mcp-call'];
+  const KINDS = ['log', 'job', 'bus', 'project', 'mcp', 'mcp-call', 'chat'];
   const handlers = { state: new Set() };
   KINDS.forEach(k => { handlers[k] = new Set(); });
 
@@ -294,6 +294,14 @@ const backend = {
     result:  body          => post('/api/mcp/result', body, { timeout: 30000 }),
     preview: body          => post('/api/mcp/preview', body, { timeout: 30000 }),
     rotateToken: ()        => post('/api/mcp/token', {})
+  },
+
+  /* KI-Chat: Der Dienst startet Claude Code; die Antwort kommt als Ereignis „chat“. */
+  chat: {
+    status: ()   => get('/api/chat/status'),
+    send:   body => post('/api/chat/send', body, { timeout: 30000 }),
+    stop:   ()   => post('/api/chat/stop', {}),
+    reset:  ()   => post('/api/chat/reset', {})
   },
 
   /* KNX Secure: Die Schlüssel bleiben im Dienst. Hinein gehen Passwort und

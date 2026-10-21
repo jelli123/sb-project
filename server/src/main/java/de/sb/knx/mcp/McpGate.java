@@ -353,6 +353,30 @@ public final class McpGate implements AutoCloseable {
         }
     }
 
+    /** Freigabe eines Projekts, wie der Chat sie braucht. */
+    public Mode mode(String project) {
+        return modeOf(project);
+    }
+
+    /**
+     * Text des Nutzers fuer die KI: dieselben Platzhalter wie in den Werkzeugergebnissen, damit
+     * „Familie Müller“ im Chat genauso verborgen bleibt wie im Projekt. Zeilenumbrueche bleiben.
+     */
+    public String maskInput(String project, String text, Map<String, Object> body) {
+        Shape.Out ctx = outContext(project, body);
+        StringBuilder sb = new StringBuilder(text.length());
+        for (String line : text.split("\n", -1)) {
+            if (!sb.isEmpty()) sb.append('\n');
+            sb.append(ctx.privacy.mask(Shape.clean(line, 8000), ctx.terms));
+        }
+        return sb.toString();
+    }
+
+    /** Antwort der KI fuer die Anzeige im Fenster: Platzhalter zurueck in Klartext, kenntlich gemacht. */
+    public String unmask(String project, String text) {
+        return privacyOf(project).restoreMarked(text);
+    }
+
     private synchronized Mode modeOf(String project) {
         Release r = releases.get(project);
         return r == null ? Mode.OFF : r.mode;

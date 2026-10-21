@@ -1482,6 +1482,28 @@ KNXI18n.add('en', {
   'Schlüssel nicht erneuert: {0}': 'Key not renewed: {0}',
   'Zu kurz und deshalb nicht übernommen: {0}': 'Too short, not applied: {0}',
 
+  /* ---------- KI-Chat ---------- */
+  'Rechte Spalte': 'Right column',
+  'KI-Chat': 'AI chat',
+  'KI-Chat öffnen': 'Open AI chat',
+  'Was soll geplant werden? Enter sendet, Umschalt+Enter macht eine neue Zeile.':
+    'What should be planned? Enter sends, Shift+Enter starts a new line.',
+  'Die KI vergisst das bisherige Gespräch': 'The AI forgets the conversation so far',
+  'Neues Gespräch': 'New conversation',
+  'Neues Gespräch.': 'New conversation.',
+  'Claude Code wurde auf diesem Rechner nicht gefunden. Es kommt mit der VS-Code-Erweiterung oder mit Claude Desktop; sonst den Dienst mit --claude <pfad> starten.':
+    'Claude Code was not found on this computer. It comes with the VS Code extension or with Claude Desktop; otherwise start the service with --claude <path>.',
+  'Der KI-Zugang ist aus. Oben am Schalter „KI“ freigeben — „Lesen“ zum Fragen, Vorschlag, Einzelschritte oder Auto zum Ändern.':
+    'AI access is off. Release it with the “AI” switch at the top — “Read” for questions, Propose, Step by step or Auto for changes.',
+  'Der KI-Zugang steht auf „Lesen“: Die KI kann antworten und planen, aber nichts ändern.':
+    'AI access is set to “Read”: the AI can answer and plan, but not change anything.',
+  'Werkzeug meldet einen Fehler': 'Tool reports an error',
+  'Angehalten.': 'Stopped.',
+  'Die KI sieht hier nur {0} — der Klartext bleibt auf diesem Rechner.': 'The AI only sees {0} here — the plain text stays on this computer.',
+  'Fehler: {0}': 'Error: {0}',
+  'Anhalten': 'Stop',
+  'Senden': 'Send',
+
   /* ---------- Gerät kopieren ---------- */
   'Gerät kopieren — {0}': 'Copy device — {0}',
   'Die Kopie bekommt dasselbe Produkt mit denselben Parametern und Objekten samt Flags — und die nächste freie physikalische Adresse ihrer Linie. Seriennummer, Notiz und Programmierstand bleiben beim Original.':

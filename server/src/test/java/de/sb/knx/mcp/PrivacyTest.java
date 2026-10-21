@@ -99,6 +99,14 @@ class PrivacyTest {
     }
 
     @Test
+    void chatDisplayMarksRestoredText() {
+        mask("Büro Müller", "Müller");
+        String shown = p.restoreMarked("Bei mir heißt es nur «Name1», «Name9» kenne ich nicht.\uE000x");
+        assertEquals("Bei mir heißt es nur \uE000«Name1»\uE001Müller\uE002, «Name9» kenne ich nicht.x", shown);
+        assertEquals("Licht Müller", p.restoreLenient("Licht «Name1»"));
+    }
+
+    @Test
     void unknownPlaceholderIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> p.restore("Licht «Name7»"));
     }

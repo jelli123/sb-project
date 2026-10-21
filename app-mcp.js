@@ -102,6 +102,7 @@ btn.addEventListener('click', () => {
     })),
     '-',
     proposals().length && { label: T18('Vorschläge ansehen ({0}) …', proposals().length), run: openProposals },
+    window.KNXChat && KNXChat.available && { label: T18('KI-Chat öffnen'), run: () => KNXChat.open() },
     { label: T18('KI-Zugang einrichten …'), run: openDialog }
   ]);
 });
@@ -1239,6 +1240,8 @@ function openDialog() {
 refresh();
 
 window.KNXMcp = { available: true, open: openDialog, openProposals, refresh, state: () => ({ ...st }),
+                  // Was im Chat nie hinausgeht — dieselben Begriffe wie bei den Werkzeugen
+                  privacyContext: () => ({ names: names(), terms: terms('chat') }),
                   tools: TOOLS, planners: PLANNERS, changes: () => changes.slice() };
 
 })();
