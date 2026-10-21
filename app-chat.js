@@ -41,10 +41,16 @@ box.innerHTML = `
   <div class="chat-log" id="chat-log" aria-live="polite"></div>
   <p class="chat-note hint" id="chat-note" hidden></p>
   <form class="chat-form" id="chat-form">
+    <p class="chat-info" id="chat-info"></p>
     <textarea class="input" id="chat-input" rows="3" maxlength="8000" spellcheck="true"
               placeholder="${T18('Was soll geplant werden? Enter sendet, Umschalt+Enter macht eine neue Zeile.')}"></textarea>
     <div class="chat-btns">
       <button type="button" class="btn btn-sm" id="chat-new" title="${T18('Die KI vergisst das bisherige Gespräch')}">${T18('Neues Gespräch')}</button>
+      <select class="select" id="chat-model" title="${T18('Opus ist gründlicher, Sonnet schneller und schont das Kontingent')}">
+        <option value="">${T18('Modell: Standard')}</option>
+        <option value="opus">${T18('Gründlich (Opus)')}</option>
+        <option value="sonnet">${T18('Schnell (Sonnet)')}</option>
+      </select>
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm" id="chat-stop" hidden>${T18('Anhalten')}</button>
       <button type="submit" class="btn btn-sm btn-primary" id="chat-send">${T18('Senden')}</button>
@@ -69,18 +75,30 @@ head.querySelectorAll('.tab[data-right]').forEach(t => t.addEventListener('click
 
 /* ---------- Zustand ---------- */
 
-const chat = { running: false, available: null, version: null, bubble: null, turn: null };
+const chat = { running: false, available: null, cli: null, bubble: null, turn: null };
 
 async function checkCli() {
   try {
     const s = await B.chat.status();
     chat.available = !!s.available;
-    chat.version = s.version || null;
+    chat.cli = s;
     chat.running = !!s.running;
   } catch (e) {
     chat.available = false;
   }
   sync();
+}
+
+/* Womit gechattet wird: Version und Anmeldung. Eine API-Anmeldung kostet pro
+   Nachricht — die steht deshalb farbig da. */
+function info() {
+  const s = chat.cli;
+  if (!s || !s.available) return { text: '', warn: false };
+  const v = s.version ? 'Claude Code ' + s.version : 'Claude Code';
+  if (!s.loggedIn) return { text: v + ' · ' + T18('nicht angemeldet'), warn: true };
+  if (s.method === 'claude.ai')
+    return { text: v + ' · ' + (s.plan ? T18('Claude-Abo ({0})', s.plan) : T18('Claude-Abo')), warn: false };
+  return { text: v + ' · ' + T18('API-Abrechnung ({0})', s.method), warn: true };
 }
 
 /* Wann gesendet werden darf: Claude Code vorhanden, KI-Zugang an, nichts läuft. */
@@ -89,6 +107,8 @@ function sync() {
   let note = '';
   if (chat.available === false)
     note = T18('Claude Code wurde auf diesem Rechner nicht gefunden. Es kommt mit der VS-Code-Erweiterung oder mit Claude Desktop; sonst den Dienst mit --claude <pfad> starten.');
+  else if (chat.cli && chat.cli.blocked)
+    note = chat.cli.blocked;
   else if (mode === 'off')
     note = T18('Der KI-Zugang ist aus. Oben am Schalter „KI“ freigeben — „Lesen“ zum Fragen, Vorschlag, Einzelschritte oder Auto zum Ändern.');
   else if (mode === 'read')
@@ -96,7 +116,10 @@ function sync() {
   const note$ = $('#chat-note');
   note$.textContent = note;
   note$.hidden = !note;
-  const blocked = chat.available === false || mode === 'off';
+  const i = info();
+  $('#chat-info').textContent = i.text;
+  $('#chat-info').classList.toggle('warn', i.warn);
+  const blocked = chat.available === false || mode === 'off' || !!(chat.cli && chat.cli.blocked);
   $('#chat-input').disabled = blocked;
   $('#chat-send').disabled = blocked || chat.running;
   $('#chat-send').hidden = chat.running;
@@ -227,12 +250,12 @@ async function send() {
   chat.turn = null;
   sync();
   try {
-    const r = await B.chat.send({ project: B.projectId, text, ...M.privacyContext() });
+    const r = await B.chat.send({ project: B.projectId, text, model: $('#chat-model').value, ...M.privacyContext() });
     chat.turn = r.turn;
   } catch (e) {
     chat.running = false;
     add('chat-sys err', esc(T18('Fehler: {0}', e.message)));
-    sync();
+    checkCli();
   }
 }
 
@@ -251,6 +274,12 @@ $('#chat-new').addEventListener('click', async () => {
 // Der Modus kann sich jederzeit ändern — am Schalter oder in einem anderen Fenster
 B.events.on('mcp', () => setTimeout(sync, 0));
 B.events.on('state', s => { if (s === 'offen') checkCli(); });
+
+const MODEL_KEY = 'knx-chat-model-v1';
+try { $('#chat-model').value = localStorage.getItem(MODEL_KEY) || ''; } catch (e) { /* nur Komfort */ }
+$('#chat-model').addEventListener('change', e => {
+  try { localStorage.setItem(MODEL_KEY, e.target.value); } catch (err) { /* nur Komfort */ }
+});
 
 let start = 'detail';
 try { start = localStorage.getItem(RIGHT_KEY) === 'chat' ? 'chat' : 'detail'; } catch (e) { /* nur Komfort */ }

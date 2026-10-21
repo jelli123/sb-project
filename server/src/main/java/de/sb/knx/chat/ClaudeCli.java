@@ -42,7 +42,9 @@ final class ClaudeCli {
         collect(found, home.resolve(".var/app/com.visualstudio.code/data/vscode/extensions"), "anthropic.claude-code-*",
                 "resources/native-binary/" + bin);
         collect(found, home.resolve(".vscode/extensions"), "anthropic.claude-code-*", "resources/native-binary/" + bin);
-        Path desktop = win ? appData("Claude") : home.resolve(".config/Claude");
+        boolean mac = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
+        Path desktop = win ? appData("Claude")
+                : mac ? home.resolve("Library/Application Support/Claude") : home.resolve(".config/Claude");
         if (desktop != null) collectDesktop(found, desktop.resolve("claude-code"), bin);
         Path best = null;
         String bestV = null;

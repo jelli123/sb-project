@@ -201,7 +201,10 @@ Ohne externes Programm geht es ueber den Reiter "KI-Chat" rechts: Der
 Dienst startet dafuer die Claude-Code-Kommandozeile (aus der VS-Code-
 Erweiterung, Claude Desktop oder mit --claude <pfad>) mit der Anmeldung des
 Nutzers - nur mit den Werkzeugen von SB-Projekt. Auch die eigene Nachricht
-bekommt die Platzhalter, bevor sie hinausgeht.
+bekommt die Platzhalter, bevor sie hinausgeht. Der Chat arbeitet nur mit
+einer Claude-Abo-Anmeldung (Pro/Max, kein Abrechnen je Nachricht); ein
+gesetzter ANTHROPIC_API_KEY bleibt aussen vor. Wer bewusst ueber die API
+abrechnen will, startet den Dienst mit --chat-api.
 
 Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
 bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter

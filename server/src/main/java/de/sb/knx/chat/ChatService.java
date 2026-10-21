@@ -20,9 +20,12 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * KI-Chat im Fenster: Jede Nachricht startet die Claude-Code-Kommandozeile im Hintergrund - mit der
@@ -64,14 +67,30 @@ public final class ChatService implements AutoCloseable {
     private final McpGate gate;
     private final int port;
     private final Path claudeOverride;
+    private final boolean allowApi;
     private final AtomicLong seq = new AtomicLong();
+
+    /*
+     * Ein gesetzter API-Schluessel hat in Claude Code Vorrang vor der Abo-Anmeldung - dann wuerde jede
+     * Nachricht ueber die API abgerechnet. Deshalb geht er nur mit --chat-api an den Chat weiter.
+     */
+    private static final List<String> API_ENV = List.of("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN");
+    static final Set<String> MODELS = Set.of("opus", "sonnet");
+    private static final long AUTH_TTL_MS = 60_000;
+    private static final Pattern VERSION = Pattern.compile("(\\d+(?:\\.\\d+)+)");
+
+    /** Was `claude auth status` und `claude --version` liefern, eine Minute zwischengespeichert. */
+    private record Cli(Path path, String version, boolean loggedIn, String method, String plan, long at) {}
+
+    private volatile Cli cli;
 
     private record Conversation(String project, String session) {}
 
     private final Map<String, Turn> running = new ConcurrentHashMap<>();
     private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
 
-    public ChatService(Path dataDir, Events events, McpGate gate, int port, Path claudeOverride) throws IOException {
+    public ChatService(Path dataDir, Events events, McpGate gate, int port, Path claudeOverride, boolean allowApi)
+            throws IOException {
         this.dir = dataDir.resolve("chat");
         Files.createDirectories(dir);
         if (posix()) Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
@@ -79,6 +98,7 @@ public final class ChatService implements AutoCloseable {
         this.gate = gate;
         this.port = port;
         this.claudeOverride = claudeOverride;
+        this.allowApi = allowApi;
         // Schliesst das Fenster, endet sein Gespraech
         events.onLeave(window -> {
             stop(window);
@@ -86,14 +106,79 @@ public final class ChatService implements AutoCloseable {
         });
     }
 
-    /** Ob der Chat ueberhaupt gehen kann - fuer die Oberflaeche, bevor jemand tippt. */
+    /** Ob der Chat gehen kann und womit - fuer die Oberflaeche, bevor jemand tippt. */
     public Map<String, Object> status(String window) {
         Map<String, Object> m = Json.obj();
-        Path claude = ClaudeCli.find(claudeOverride);
-        m.put("available", claude != null);
-        m.put("version", claude == null ? null : ClaudeCli.version(claude.toString()));
+        Cli c = cli(false);
+        m.put("available", c != null);
+        if (c != null) {
+            m.put("version", c.version());
+            m.put("loggedIn", c.loggedIn());
+            m.put("method", c.method());
+            m.put("plan", c.plan());
+            m.put("blocked", blockReason(c));
+        }
+        m.put("allowApi", allowApi);
         m.put("running", window != null && running.containsKey(window));
         return m;
+    }
+
+    /** Warum nicht gesendet werden darf - oder null. */
+    private String blockReason(Cli c) {
+        if (!c.loggedIn()) return "Claude Code ist auf diesem Rechner nicht angemeldet. Einmal im Terminal \"claude\" starten und anmelden.";
+        if (!"claude.ai".equals(c.method()) && !allowApi) {
+            return "Claude Code ist nicht mit einem Claude-Abo angemeldet (" + c.method() + "). Damit wuerde jede Nachricht "
+                    + "ueber die API abgerechnet - das geht nur, wenn der Dienst mit --chat-api gestartet wird.";
+        }
+        return null;
+    }
+
+    private Cli cli(boolean fresh) {
+        Cli c = cli;
+        Path path = ClaudeCli.find(claudeOverride);
+        if (path == null) return cli = null;
+        if (!fresh && c != null && c.path().equals(path) && System.currentTimeMillis() - c.at() < AUTH_TTL_MS) return c;
+        String version = null;
+        boolean loggedIn = false;
+        String method = "unbekannt", plan = null;
+        try {
+            String v = runQuick(path, "--version");
+            Matcher m = VERSION.matcher(v);
+            if (m.find()) version = m.group(1);
+            Map<String, Object> a = Json.parseObject(runQuick(path, "auth", "status", "--json"));
+            loggedIn = Json.bool(a, "loggedIn", false);
+            method = Json.str(a, "authMethod", "unbekannt");
+            plan = Json.str(a, "subscriptionType", null);
+        } catch (IOException | IllegalArgumentException e) {
+            method = "unbekannt";
+        }
+        return cli = new Cli(path, version, loggedIn, method, plan, System.currentTimeMillis());
+    }
+
+    /** Kurzer Aufruf mit derselben Umgebung wie der Chat; die Ausgabe wird hier nicht weitergegeben. */
+    private String runQuick(Path claude, String... args) throws IOException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add(claude.toString());
+        cmd.addAll(List.of(args));
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir.toFile()).redirectErrorStream(true);
+        env(pb);
+        Process p = pb.start();
+        p.getOutputStream().close();
+        try {
+            if (!p.waitFor(15, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                throw new IOException("claude antwortet nicht");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("unterbrochen");
+        }
+        byte[] out = p.getInputStream().readNBytes(64 << 10);
+        return new String(out, StandardCharsets.UTF_8);
+    }
+
+    private void env(ProcessBuilder pb) {
+        if (!allowApi) API_ENV.forEach(pb.environment()::remove);
     }
 
     public Map<String, Object> send(String window, String project, String text, Map<String, Object> body) throws IOException {
@@ -105,11 +190,18 @@ public final class ChatService implements AutoCloseable {
         }
         if (text == null || text.isBlank()) throw new IllegalArgumentException("Nachricht fehlt");
         if (text.length() > MAX_INPUT) throw new IllegalArgumentException("Nachricht ist laenger als " + MAX_INPUT + " Zeichen");
-        Path claude = ClaudeCli.find(claudeOverride);
-        if (claude == null) {
+        Cli c = cli(false);
+        if (c == null) {
             throw new IllegalStateException("Claude Code wurde nicht gefunden. Es kommt mit der VS-Code-Erweiterung oder "
                     + "Claude Desktop, oder der Dienst bekommt den Pfad mit --claude.");
         }
+        String blocked = blockReason(c);
+        // Vielleicht wurde inzwischen angemeldet - einmal frisch nachsehen, bevor abgelehnt wird
+        if (blocked != null) blocked = blockReason(c = cli(true));
+        if (blocked != null) throw new IllegalStateException(blocked);
+        Path claude = c.path();
+        String model = Json.str(body, "model", "");
+        if (!model.isEmpty() && !MODELS.contains(model)) throw new IllegalArgumentException("Unbekanntes Modell: " + model);
         String prompt = gate.maskInput(project, text, body);
 
         Conversation conv = conversations.get(window);
@@ -125,12 +217,18 @@ public final class ChatService implements AutoCloseable {
             cmd.add("--resume");
             cmd.add(conv.session());
         }
+        if (!model.isEmpty()) {
+            cmd.add("--model");
+            cmd.add(model);
+        }
 
         Turn t = new Turn("t" + seq.incrementAndGet(), window, project);
         if (running.putIfAbsent(window, t) != null) throw new IllegalStateException("Es laeuft schon eine Anfrage");
         Process p;
         try {
-            p = new ProcessBuilder(cmd).directory(dir.toFile()).start();
+            ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir.toFile());
+            env(pb);
+            p = pb.start();
         } catch (IOException e) {
             running.remove(window, t);
             throw new IOException("Claude Code liess sich nicht starten: " + e.getMessage(), e);

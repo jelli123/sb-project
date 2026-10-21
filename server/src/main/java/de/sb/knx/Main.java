@@ -47,6 +47,7 @@ public final class Main {
         boolean debug = false;
         boolean mcpStdio = false;
         Path claude = null;
+        boolean chatApi = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -57,6 +58,7 @@ public final class Main {
                 case "--debug" -> debug = true;
                 case "--mcp-stdio" -> mcpStdio = true;
                 case "--claude" -> claude = Paths.get(args[++i]);
+                case "--chat-api" -> chatApi = true;
                 case "--help", "-h" -> {
                     printUsage();
                     return;
@@ -127,7 +129,7 @@ public final class Main {
         String version = Main.class.getPackage().getImplementationVersion();
         http.createContext("/mcp", new McpApi(mcp, boundPort, version));
         http.createContext("/api/mcp", new McpUiApi(mcp, boundPort));
-        ChatService chat = new ChatService(dataDir, events, mcp, boundPort, claude);
+        ChatService chat = new ChatService(dataDir, events, mcp, boundPort, claude, chatApi);
         http.createContext("/api/chat", new ChatApi(chat, boundPort));
         http.createContext("/api/info", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
@@ -173,6 +175,8 @@ public final class Main {
                   --no-browser    Browser nicht automatisch oeffnen
                   --debug         Inbetriebnahme-Fenster zum Testen und Debuggen einblenden
                   --claude <pfad> Claude-Code-Kommandozeile fuer den KI-Chat (sonst wird sie gesucht)
+                  --chat-api      KI-Chat auch mit API-Schluessel bzw. API-Anmeldung (wird abgerechnet);
+                                  ohne bleibt ANTHROPIC_API_KEY beim Chat aussen vor
                   --mcp-stdio     MCP ueber stdin/stdout fuer KI-Programme wie Claude Desktop;
                                   reicht alles an den laufenden Dienst weiter (gleiche --port/--data)
                 """);
