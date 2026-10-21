@@ -22,6 +22,8 @@ KNXI18n.add('en', {
   'Verlauf': 'History',
 
   'automatisch': 'automatic',
+  '{0} · Name: {1}': '{0} · name: {1}',
+  '{0} · Verbaut in: {1} → {2}': '{0} · installed in: {1} → {2}',
   '{0} · Einspeisung: {1} → {2}': '{0} · supply: {1} → {2}',
   '{0} · Busstrom: {1} → {2}': '{0} · bus current: {1} → {2}',
   /* ---------- Handbücher (app-manuals.js) ---------- */

@@ -976,12 +976,32 @@ const PLANNERS = {
   /* Mehrere Teile in einem Aufruf: ein Vorschlag, eine Bestätigung, ein
      Rückgängig-Schritt. Die Reihenfolge erlaubt Verweise nach vorn —
      die Funktion in den neuen Raum, die Verknüpfung auf die neue Adresse. */
-  /* Einspeisung und Busstrom — die Werte aus dem Geräteformular, keine Parameter. */
-  change_devices(a) {
+  /* Name, Einbauort, Einspeisung und Busstrom — die Werte aus dem
+     Geräteformular, keine Parameter. Linie und Adresse bleiben beim Nutzer. */
+  change_devices(a, ctx = newCtx()) {
     const lines = [], ops = [], warnings = [], out = newOut(warnings);
     const mA = v => (v == null ? T18('automatisch') : v + ' mA');
     (a.set || []).forEach(x => {
       const d = device(x.device), dev = devLine(d), before = ops.length;
+      if ('name' in x) {
+        const name = cleanName(x.name, dev);
+        if (name !== S(d.name)) {
+          lines.push({ text: T18('{0} · Name: {1}', dev, q(name)) });
+          ops.push(() => { d.name = name; });
+        }
+      }
+      if ('room' in x) {
+        // Ein Raum, der im selben Aufruf entsteht, hat seine Kennung erst beim Anwenden
+        const node = x.room == null ? null : nodeRef(x.room, ctx);
+        if (x.room != null && !node) throw new Error('Knoten ' + x.room + ' gibt es nicht.');
+        if (node && !KNX.DEVICE_HOSTS.has(node.kind))
+          throw new Error(`${q(S(node.name))} ist kein Raum, Flur, Verteiler oder Außenbereich — Geräte lassen sich nur dort einbauen.`);
+        if ((node ? node.id : null) !== (d.roomId || null) || (node && !node.id)) {
+          const from = d.roomId && KNX.findNode(d.roomId);
+          lines.push({ text: T18('{0} · Verbaut in: {1} → {2}', dev, from ? q(S(from.name)) : '—', node ? q(S(node.name)) : '—') });
+          ops.push(() => { d.roomId = node ? node.id : null; });
+        }
+      }
       if ('supply' in x && x.supply !== (+d.supply || 0)) {
         lines.push({ text: T18('{0} · Einspeisung: {1} → {2}', dev, (+d.supply || 0) + ' mA', x.supply + ' mA') });
         ops.push(() => { d.supply = x.supply; });

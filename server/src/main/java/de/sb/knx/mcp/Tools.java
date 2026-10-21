@@ -451,6 +451,10 @@ final class Tools {
     private static final Shape.Field[] DEVICE_FIELDS = {
             req("set", list(obj(
                     req("device", id(), "Device id."),
+                    opt("name", text(60), "New device name (at most 60 characters)."),
+                    opt("room", nullable(key()), "Room, corridor, cabinet or outdoor area the device is installed in: "
+                            + "a structure node id or the key of a node created in the same change_project call; "
+                            + "null = no room."),
                     opt("supply", integer(0, 5000), "Rated current in mA this device feeds into its line "
                             + "(power supply, or the supply behind a choke); 0 = feeds nothing."),
                     opt("busCurrent", nullable(integer(0, 5000)), "Current in mA the device draws from the bus; "
@@ -500,12 +504,12 @@ final class Tools {
                             + "whatever the approval mode. IP settings stay with the user.",
                     withProject(PARAMETER_FIELDS), CHANGE, Level.WRITE, 60),
 
-            new Tool("change_devices", "Change device power values",
-                    "Sets the power values of devices, as the device form in SB-Projekt does: `supply` is the rated "
-                            + "current a power supply or choke feeds into its line (product files usually do not "
-                            + "contain it - it depends on the power supply used), `busCurrent` what a device draws. "
-                            + "check_project uses both for the power budget of each line. Name, line, address and room "
-                            + "stay with the user.",
+            new Tool("change_devices", "Change devices",
+                    "Renames devices, assigns them to the room they are installed in and sets their power values, as "
+                            + "the device form in SB-Projekt does: `supply` is the rated current a power supply or choke "
+                            + "feeds into its line (product files usually do not contain it - it depends on the power "
+                            + "supply used), `busCurrent` what a device draws. check_project uses both for the power "
+                            + "budget of each line. Creating devices, line and physical address stay with the user.",
                     withProject(DEVICE_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_links", "Change object links",
