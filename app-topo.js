@@ -1211,6 +1211,8 @@ function actParams(devId) {
       A.warn(res.orphans.length === 1
         ? T18('1 Objekt entfällt durch die neue Einstellung, trägt aber noch Gruppenadressen — es bleibt als überzählig stehen.')
         : T18('{0} Objekte entfallen durch die neue Einstellung, tragen aber noch Gruppenadressen — sie bleiben als überzählig stehen.', res.orphans.length));
+    else if (res && res.carried.length)
+      A.status(T18('{0} Objekte neu abgeleitet — ihre Gruppenadressen sind mitgegangen', res.carried.length));
     else A.status(dev.objs.length
       ? T18('{0} Kommunikationsobjekte', dev.objs.length)
       : T18('Einstellungen übernommen'));

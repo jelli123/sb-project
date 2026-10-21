@@ -1804,36 +1804,59 @@ const KNX = (() => {
   function applyProduct(dev) {
     const item = dev.catalogId && catalogById(dev.catalogId);
     if (!item) return null;
-    const { objs } = resolveProduct(item, dev.params);
-    const byRef = new Map();
-    dev.objs.forEach(o => { if (o.ref) byRef.set(o.ref, o); });
-
-    const next = objs.map(ref => {
-      const src = item.objs[ref];
-      const old = byRef.get(ref);
-      byRef.delete(ref);
+    const m = productObjects(dev, item, dev.params);
+    const next = m.plan.map(x => {
+      const keep = x.old || x.from;
       return {
-        id: old ? old.id : nid('o'),
-        ref,
-        num: src.num,
-        name: src.name || ('Objekt ' + src.num),
+        id: keep ? keep.id : nid('o'),
+        ref: x.ref,
+        num: x.src.num,
+        name: x.src.name || ('Objekt ' + x.src.num),
         // Die Beschreibung ist Sache des Nutzers und überlebt das Neuableiten
-        desc: old ? old.desc || '' : '',
-        dpt: dptById(src.dpt).id,
+        desc: keep ? keep.desc || '' : '',
+        dpt: dptById(x.src.dpt).id,
         // Flags sind wie die Adressen Sache des Projekts: von Hand oder aus der ETS gesetzt
-        flags: old ? old.flags : flagsFrom(src.f, src.ri),
-        gas: old ? old.gas : []
+        flags: keep ? keep.flags : flagsFrom(x.src.f, x.src.ri),
+        gas: keep ? keep.gas : []
       };
     });
 
-    // Nicht mehr sichtbare Objekte: nur die ohne Adressen verschwinden
-    const orphans = [...byRef.values()].filter(o => o.gas.length);
-    orphans.forEach(o => { o.stale = true; next.push(o); });
+    // Nicht mehr sichtbare Objekte: nur die ohne Adressen verschwinden.
+    // Ein wiederbelebtes überzähliges Objekt ist neu gebaut und damit nicht mehr überzählig.
+    m.orphans.forEach(o => { o.stale = true; next.push(o); });
     dev.objs.filter(o => !o.ref).forEach(o => next.push(o));
 
     dev.objs = next;
     invalidate();
-    return { added: objs.length, orphans };
+    return { added: m.plan.length, orphans: m.orphans, carried: m.carried };
+  }
+
+  /* Welche Objekte ein Gerät mit diesen Parametern zeigt — ohne etwas zu ändern.
+     `plan`: je sichtbares Objekt der Produktdatei das bisherige (`old`, gleiche
+     Referenz) oder das, dessen Adressen es übernimmt (`from`). Manche Produkte
+     geben einem Objekt nach einer Umstellung eine neue Referenz, obwohl es
+     dasselbe ist (MDT-Module: „1 fach“ → „4 fach“). Gleiche Nummer, gleicher
+     Name, gleicher DPT: Dann wandern Adressen, Flags und Beschreibung mit.
+     `orphans`: verknüpfte Objekte, die wegfallen; `dropped`: unverknüpfte. */
+  function productObjects(dev, item, values) {
+    const { objs } = resolveProduct(item, values);
+    // Auch überzählige: Wird ihr Objekt wieder sichtbar, leben sie mit ihren Adressen auf
+    const byRef = new Map();
+    dev.objs.forEach(o => { if (o.ref) byRef.set(o.ref, o); });
+    const plan = objs.map(ref => ({ ref, src: item.objs[ref], old: byRef.get(ref) || null, from: null }));
+    plan.forEach(x => byRef.delete(x.ref));
+    const leftover = [...byRef.values()];
+    const carried = [];
+    leftover.filter(o => o.gas.length).forEach(o => {
+      const x = plan.find(y => !y.old && !y.from && y.src.num === o.num
+        && plainName(y.src.name) === plainName(o.name) && dptById(y.src.dpt).id === o.dpt);
+      if (x) { x.from = o; carried.push(o); }
+    });
+    return {
+      plan, carried,
+      orphans: leftover.filter(o => o.gas.length && !carried.includes(o)),
+      dropped: leftover.filter(o => !o.gas.length)
+    };
   }
 
   const flagsFrom = (s, ri) => ({
@@ -2480,7 +2503,7 @@ const KNX = (() => {
     couplerScope, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
     catalogById, addCatalogItems, deleteCatalogItem,
-    resolveProduct, applyProduct, paramValue, testHits,
+    resolveProduct, applyProduct, productObjects, paramValue, testHits,
     gaTree, issues,
     gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,
     deleteNode, isInside, nodeMoveError, moveNode, moveFunction, setDeviceRoom, uid: nid

@@ -755,21 +755,20 @@ const PLANNERS = {
         changed++;
       });
       if (!changed) return;
-      // Welche Objekte die neue Einstellung zeigt — wie applyProduct es gleich tun wird
-      const next = KNX.resolveProduct(item, draft).objs;
-      const keep = new Set(next);
-      const had = new Set(d.objs.filter(o => o.ref && !o.stale).map(o => o.ref));
-      d.objs.filter(o => o.ref && !o.stale && !keep.has(o.ref)).forEach(o => {
-        if (o.gas.length) {
-          removes = true;
-          lines.push({ remove: true, text: T18('{0} entfällt — bleibt mit {1} Adressen als überzählig stehen', objLine(d, o), o.gas.length) });
-        } else lines.push({ text: T18('{0} entfällt', objLine(d, o)) });
+      // Welche Objekte die neue Einstellung zeigt — dieselbe Rechnung, die applyProduct gleich anwendet
+      const m = KNX.productObjects(d, item, draft);
+      m.orphans.filter(o => !o.stale).forEach(o => {
+        removes = true;
+        lines.push({ remove: true, text: T18('{0} entfällt — bleibt mit {1} Adressen als überzählig stehen', objLine(d, o), o.gas.length) });
       });
-      next.filter(ref => !had.has(ref)).forEach(ref => {
-        const src = item.objs[ref];
-        lines.push({ text: T18('Neu: {0} Objekt {1} {2} ({3})', dev, src.num, q(src.name), KNX.dptById(src.dpt).id) });
+      m.dropped.filter(o => !o.stale).forEach(o => lines.push({ text: T18('{0} entfällt', objLine(d, o)) }));
+      m.plan.forEach(x => {
+        if (x.from && !x.from.stale)
+          lines.push({ text: T18('{0} wird neu abgeleitet — die Adressen gehen mit', objLine(d, x.from)) });
+        else if (!x.old && !x.from)
+          lines.push({ text: T18('Neu: {0} Objekt {1} {2} ({3})', dev, x.src.num, q(x.src.name), KNX.dptById(x.src.dpt).id) });
       });
-      ctx.objs.set(d.id, new Map(next.map(ref => [item.objs[ref].num, { ...item.objs[ref], ref }])));
+      ctx.objs.set(d.id, new Map(m.plan.map(x => [x.src.num, { ...x.src, ref: x.ref }])));
       ops.push(() => {
         d.params = draft;
         KNX.applyProduct(d);

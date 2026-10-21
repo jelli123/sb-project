@@ -1599,6 +1599,8 @@ KNXI18n.add('en', {
   'KI-Vorschläge': 'AI proposals',
   '{0} entfällt — bleibt mit {1} Adressen als überzählig stehen': '{0} disappears — stays as a surplus object with {1} addresses',
   '{0} entfällt': '{0} disappears',
+  '{0} wird neu abgeleitet — die Adressen gehen mit': '{0} is derived again — its addresses move along',
+  '{0} Objekte neu abgeleitet — ihre Gruppenadressen sind mitgegangen': '{0} objects derived again — their group addresses moved along',
   'Neu: {0} Objekt {1} {2} ({3})': 'New: {0} object {1} {2} ({3})',
   'KI-Sitzung {0} möchte Parameter ändern': 'AI session {0} wants to change parameters',
   'Rot markierte Objekte mit Adressen entfallen.': 'Objects marked red disappear; they stay with their addresses as surplus objects.',
