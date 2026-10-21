@@ -11,6 +11,7 @@ import static de.sb.knx.mcp.Shape.f;
 import static de.sb.knx.mcp.Shape.id;
 import static de.sb.knx.mcp.Shape.integer;
 import static de.sb.knx.mcp.Shape.list;
+import static de.sb.knx.mcp.Shape.nullable;
 import static de.sb.knx.mcp.Shape.obj;
 import static de.sb.knx.mcp.Shape.opt;
 import static de.sb.knx.mcp.Shape.pa;
@@ -28,6 +29,16 @@ class ShapeTest {
 
     private Shape.Out ctx(String... terms) {
         return new Shape.Out(new Privacy(), Privacy.compileTerms(List.of(terms)));
+    }
+
+    @Test
+    void explicitNullSurvivesOnlyWhereAllowed() {
+        Shape.Obj in = obj(opt("ma", nullable(integer(0, 5000)), null), opt("supply", integer(0, 5000), null));
+        Map<String, Object> out = in.in(Json.parseObject("{\"ma\":null,\"supply\":null}"), new Privacy(), "");
+        assertTrue(out.containsKey("ma"));
+        assertEquals(null, out.get("ma"));
+        assertFalse(out.containsKey("supply"));
+        assertFalse(in.in(Json.parseObject("{}"), new Privacy(), "").containsKey("ma"));
     }
 
     @Test

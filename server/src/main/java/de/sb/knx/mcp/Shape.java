@@ -422,6 +422,8 @@ public abstract class Shape {
                 Object x = m.get(f.name);
                 if (x == null) {
                     if (f.required) throw bad(path + "." + f.name, "fehlt");
+                    // Ausdruecklich null heisst bei solchen Feldern etwas (etwa: zurueck zum Produktwert)
+                    if (f.shape instanceof Nullable && m.containsKey(f.name)) copy.put(f.name, null);
                     continue;
                 }
                 copy.put(f.name, f.shape.in(x, privacy, path + "." + f.name));

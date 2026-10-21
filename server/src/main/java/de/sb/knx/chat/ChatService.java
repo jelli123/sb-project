@@ -65,7 +65,9 @@ public final class ChatService implements AutoCloseable {
             mehrere Teile (Raum, Adressen, Funktion, Verknuepfungen), nimm change_project, damit der Nutzer es \
             als eine Aenderung pruefen und rueckgaengig machen kann.
             Parameter aenderst du mit change_parameters; lies sie vorher mit get_parameters und frag nach, wenn \
-            die Bedeutung eines Parameters nicht klar ist. Parameteraenderungen bestaetigt der Nutzer immer.
+            die Bedeutung eines Parameters nicht klar ist. Parameteraenderungen bestaetigt der Nutzer immer. \
+            Einspeisung (Nennstrom von Netzteil oder Drossel) und Busstrom eines Geraets sind keine Parameter, \
+            sondern Werte des Geraets: die setzt du mit change_devices.
             Handbuecher: Ist eine Frage mit den Projektdaten nicht sicher zu beantworten, sieh mit list_manuals \
             nach, ob es ein Handbuch zum Produkt gibt. Lies nie ein ganzes Handbuch. Lies zuerst das \
             Inhaltsverzeichnis (meist auf den ersten Seiten, Read mit pages, etwa "1-4") und dann gezielt den \

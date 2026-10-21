@@ -154,7 +154,8 @@ function deviceRow(d) {
     id: d.id, name: S(d.name), product: S(d.product), pa: paOf(d), line: d.lineId, room: d.roomId || null,
     catalog: d.catalogId || null, objectCount: d.objs.length,
     linkedObjects: d.objs.filter(o => o.gas.length).length,
-    pending: due(d), secure: !!d.secure, ip: KNX.deviceIsIp(d)
+    pending: due(d), secure: !!d.secure, ip: KNX.deviceIsIp(d),
+    busCurrent: KNX.deviceMa(d), supply: +d.supply || 0
   };
 }
 
@@ -975,11 +976,39 @@ const PLANNERS = {
   /* Mehrere Teile in einem Aufruf: ein Vorschlag, eine Bestätigung, ein
      Rückgängig-Schritt. Die Reihenfolge erlaubt Verweise nach vorn —
      die Funktion in den neuen Raum, die Verknüpfung auf die neue Adresse. */
+  /* Einspeisung und Busstrom — die Werte aus dem Geräteformular, keine Parameter. */
+  change_devices(a) {
+    const lines = [], ops = [], warnings = [], out = newOut(warnings);
+    const mA = v => (v == null ? T18('automatisch') : v + ' mA');
+    (a.set || []).forEach(x => {
+      const d = device(x.device), dev = devLine(d), before = ops.length;
+      if ('supply' in x && x.supply !== (+d.supply || 0)) {
+        lines.push({ text: T18('{0} · Einspeisung: {1} → {2}', dev, (+d.supply || 0) + ' mA', x.supply + ' mA') });
+        ops.push(() => { d.supply = x.supply; });
+      }
+      const ma = Number.isInteger(d.ma) ? d.ma : null;
+      if ('busCurrent' in x && x.busCurrent !== ma) {
+        lines.push({ text: T18('{0} · Busstrom: {1} → {2}', dev, mA(ma), mA(x.busCurrent)) });
+        ops.push(() => { d.ma = x.busCurrent; });
+      }
+      if (ops.length > before) ops.push(() => { if (!out.changed.includes(d.id)) out.changed.push(d.id); });
+    });
+    return {
+      lines, warnings, removes: false,
+      apply: () => {
+        ops.forEach(f => f());
+        if (ops.length) KNX.touch();
+        return out;
+      }
+    };
+  },
+
   change_project(a) {
     const ctx = newCtx(), parts = [];
     if (a.structure) parts.push(PLANNERS.change_structure(a.structure, ctx));
     if (a.groups) parts.push(PLANNERS.change_group_addresses(a.groups, ctx));
     if (a.parameters) parts.push(PLANNERS.change_parameters(a.parameters, ctx));
+    if (a.devices) parts.push(PLANNERS.change_devices(a.devices, ctx));
     if (a.functions) parts.push(PLANNERS.change_functions(a.functions, ctx));
     if (a.links) parts.push(PLANNERS.change_links(a.links, ctx));
     return {

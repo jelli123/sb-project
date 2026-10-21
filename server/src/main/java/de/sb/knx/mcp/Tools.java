@@ -107,7 +107,9 @@ final class Tools {
             f("linkedObjects", count()),
             f("pending", PENDING),
             f("secure", bool()),
-            f("ip", bool())
+            f("ip", bool()),
+            f("busCurrent", count()),
+            f("supply", count())
     };
 
     private static Shape.Field[] concat(Shape.Field[] a, Shape.Field... b) {
@@ -446,6 +448,16 @@ final class Tools {
                     "Parameters to set, applied in order - setting one can make others visible.")
     };
 
+    private static final Shape.Field[] DEVICE_FIELDS = {
+            req("set", list(obj(
+                    req("device", id(), "Device id."),
+                    opt("supply", integer(0, 5000), "Rated current in mA this device feeds into its line "
+                            + "(power supply, or the supply behind a choke); 0 = feeds nothing."),
+                    opt("busCurrent", nullable(integer(0, 5000)), "Current in mA the device draws from the bus; "
+                            + "null = the value from the product file (or the default).")), 500),
+                    "Devices and the values to set.")
+    };
+
     private static Shape.Obj withProject(Shape.Field[] fields) {
         Shape.Field[] all = new Shape.Field[fields.length + 1];
         all[0] = PROJECT;
@@ -460,13 +472,14 @@ final class Tools {
                             + "the single change_* tool of the same name takes. Your own keys (starting with a letter) "
                             + "work across sections: a structure key as a function's node or a later item's parent, a "
                             + "group key wherever a group address is expected. Applied in the order structure, groups, "
-                            + "parameters, functions, links - so links may use objects that a parameter change in the "
+                            + "parameters, devices, functions, links - so links may use objects that a parameter change in the "
                             + "same call creates. The user reviews and undoes it as one change, so prefer this tool "
                             + "whenever a task touches more than one part.",
                     obj(PROJECT,
                             opt("structure", obj(STRUCTURE_FIELDS), "Same as change_structure."),
                             opt("groups", obj(GROUP_FIELDS), "Same as change_group_addresses."),
                             opt("parameters", obj(PARAMETER_FIELDS), "Same as change_parameters."),
+                            opt("devices", obj(DEVICE_FIELDS), "Same as change_devices."),
                             opt("functions", obj(FUNCTION_FIELDS), "Same as change_functions."),
                             opt("links", obj(LINK_FIELDS), "Same as change_links.")),
                     CHANGE, Level.WRITE, 60),
@@ -486,6 +499,14 @@ final class Tools {
                             + "links as surplus objects. Parameter changes always wait for the user's confirmation, "
                             + "whatever the approval mode. IP settings stay with the user.",
                     withProject(PARAMETER_FIELDS), CHANGE, Level.WRITE, 60),
+
+            new Tool("change_devices", "Change device power values",
+                    "Sets the power values of devices, as the device form in SB-Projekt does: `supply` is the rated "
+                            + "current a power supply or choke feeds into its line (product files usually do not "
+                            + "contain it - it depends on the power supply used), `busCurrent` what a device draws. "
+                            + "check_project uses both for the power budget of each line. Name, line, address and room "
+                            + "stay with the user.",
+                    withProject(DEVICE_FIELDS), CHANGE, Level.WRITE, 60),
 
             new Tool("change_links", "Change object links",
                     "Links communication objects to group addresses, unlinks them and sets object flags, as one "

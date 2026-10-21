@@ -21,6 +21,9 @@ KNXI18n.add('en', {
   'Typ des geladenen Projekts': 'Type of the loaded project',
   'Verlauf': 'History',
 
+  'automatisch': 'automatic',
+  '{0} · Einspeisung: {1} → {2}': '{0} · supply: {1} → {2}',
+  '{0} · Busstrom: {1} → {2}': '{0} · bus current: {1} → {2}',
   /* ---------- Handbücher (app-manuals.js) ---------- */
   'Die KI kennt das frühere Gespräch nicht mehr und beginnt neu – was oben steht, siehst nur du.': 'The AI no longer knows the earlier conversation and starts afresh – only you can see what is above.',
   '„{0}“ ist keine PDF-Datei.': '“{0}” is not a PDF file.',
