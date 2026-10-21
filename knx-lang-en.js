@@ -1472,7 +1472,11 @@ KNXI18n.add('en', {
     'Run once in a terminal. The command reads the access key from its file; the key never passes through this interface.',
   'Befehl kopieren': 'Copy command',
   'Schlüssel erneuern': 'Renew key',
-  'Befehl kopiert': 'Command copied',
+  'Kopiert': 'Copied',
+  'Eintrag kopieren': 'Copy entry',
+  'Einrichtung in Claude Desktop': 'Setup in Claude Desktop',
+  'In {0} unter „mcpServers“ eintragen und Claude Desktop neu starten. Der Starter reicht alles an diesen Dienst weiter; läuft er nicht, melden die Werkzeuge das.':
+    'Add this under “mcpServers” in {0} and restart Claude Desktop. The starter passes everything on to this service; while it is not running, the tools say so.',
   'Kopieren nicht möglich: {0}': 'Copy failed: {0}',
   'Wirklich erneuern? Alle KI-Sitzungen werden getrennt': 'Really renew? All AI sessions will be disconnected',
   'Neuer Schlüssel — die Einrichtung in der KI bitte wiederholen': 'New key — please repeat the setup in the AI client',

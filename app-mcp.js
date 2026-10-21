@@ -463,6 +463,24 @@ function setupCommand(tokenFile) {
   return `claude mcp add --transport http --scope user sb-projekt ${url} --header "Authorization: Bearer ${read}"`;
 }
 
+/* Claude Desktop startet MCP-Server als Unterprozess. Der Starter reicht alles an
+   diesen Dienst weiter; Port und Datenverzeichnis bekommt er ausdrücklich mit,
+   damit er auch bei abweichenden Startoptionen den richtigen Dienst findet. */
+function desktopConfig(starter) {
+  const args = ['--port', location.port || '8420', '--data', B.info.dataDir];
+  // Windows startet eine .cmd nur über die Shell
+  const entry = /\.cmd$/i.test(starter)
+    ? { command: 'cmd', args: ['/c', starter, ...args] }
+    : { command: starter, args };
+  return JSON.stringify({ mcpServers: { 'sb-projekt': entry } }, null, 2);
+}
+
+function desktopConfigFile(starter) {
+  if (/\.cmd$/i.test(starter)) return '%APPDATA%\\Claude\\claude_desktop_config.json';
+  if (/Mac/i.test(navigator.platform)) return '~/Library/Application Support/Claude/claude_desktop_config.json';
+  return '~/.config/Claude/claude_desktop_config.json';
+}
+
 const fmtTime = ms => new Date(ms).toLocaleString(T18('de-DE'), { dateStyle: 'short', timeStyle: 'medium' });
 
 function paintDialog() {
@@ -545,10 +563,17 @@ function openDialog() {
         <p class="hint">${T18('Einmal im Terminal ausführen. Der Befehl liest den Zugangsschlüssel aus der Datei; über die Oberfläche geht er nie.')}</p>
         <pre class="mcp-cmd" id="mcp-cmd"></pre>
         <p class="mcp-row">
-          <button class="btn btn-sm" id="mcp-copy">${T18('Befehl kopieren')}</button>
+          <button class="btn btn-sm" data-copy="mcp-cmd">${T18('Befehl kopieren')}</button>
           <button class="btn btn-sm btn-danger" id="mcp-rotate">${T18('Schlüssel erneuern')}</button>
         </p>
       </section>
+      ${B.info.mcpStarter ? `<section>
+        <h4>${T18('Einrichtung in Claude Desktop')}</h4>
+        <p class="hint">${T18('In {0} unter „mcpServers“ eintragen und Claude Desktop neu starten. Der Starter reicht alles an diesen Dienst weiter; läuft er nicht, melden die Werkzeuge das.',
+          `<code>${esc(desktopConfigFile(B.info.mcpStarter))}</code>`)}</p>
+        <pre class="mcp-cmd" id="mcp-desktop">${esc(desktopConfig(B.info.mcpStarter))}</pre>
+        <p class="mcp-row"><button class="btn btn-sm" data-copy="mcp-desktop">${T18('Eintrag kopieren')}</button></p>
+      </section>` : ''}
     </div>
   `, () => {
     const next = KNX.normPrivacy({ terms: readTerms() }).terms;
@@ -564,11 +589,11 @@ function openDialog() {
   $('#mcp-dlg').querySelectorAll('input[name="mcp-mode"]').forEach(r =>
     r.addEventListener('change', () => { if (r.checked) setMode(r.value); }));
   $('#mcp-preview-btn').onclick = preview;
-  $('#mcp-copy').onclick = () => {
-    navigator.clipboard.writeText($('#mcp-cmd').textContent)
-      .then(() => A.toast(T18('Befehl kopiert')))
+  $('#mcp-dlg').querySelectorAll('[data-copy]').forEach(b => {
+    b.onclick = () => navigator.clipboard.writeText($('#' + b.dataset.copy).textContent)
+      .then(() => A.toast(T18('Kopiert')))
       .catch(e => A.warn(T18('Kopieren nicht möglich: {0}', e.message)));
-  };
+  });
   let armed = false;
   $('#mcp-rotate').onclick = async () => {
     if (!armed) {

@@ -15,6 +15,7 @@ import de.sb.knx.http.StaticFiles;
 import de.sb.knx.json.Json;
 import de.sb.knx.mcp.McpApi;
 import de.sb.knx.mcp.McpGate;
+import de.sb.knx.mcp.StdioBridge;
 import de.sb.knx.online.OnlineCatalog;
 import de.sb.knx.store.FileStore;
 import de.sb.knx.secure.KeyVault;
@@ -42,6 +43,7 @@ public final class Main {
         Path web = null;
         boolean openBrowser = true;
         boolean debug = false;
+        boolean mcpStdio = false;
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -50,6 +52,7 @@ public final class Main {
                 case "--web" -> web = Paths.get(args[++i]);
                 case "--no-browser" -> openBrowser = false;
                 case "--debug" -> debug = true;
+                case "--mcp-stdio" -> mcpStdio = true;
                 case "--help", "-h" -> {
                     printUsage();
                     return;
@@ -63,6 +66,11 @@ public final class Main {
         }
 
         Path dataDir = data != null ? data.toAbsolutePath() : defaultDataDir();
+        if (mcpStdio) {
+            // Kein Dienst, kein Browser, keine Ausgabe auf stdout: nur die Bruecke zum laufenden Dienst
+            StdioBridge.run(port, dataDir);
+            return;
+        }
         Path webDir = web != null ? web.toAbsolutePath() : findWebRoot();
         Files.createDirectories(dataDir);
         if (!Files.isRegularFile(webDir.resolve("index.html"))) {
@@ -124,6 +132,8 @@ public final class Main {
             m.put("webDir", webDir.toString());
             // Blendet in der Oberflaeche das Inbetriebnahme-Fenster zum Testen und Debuggen ein
             m.put("debug", debugUi);
+            // Starter fuer KI-Programme, die MCP-Server als Unterprozess starten (Claude Desktop)
+            m.put("mcpStarter", mcpStarter(webDir));
             Http.json(ex, 200, m);
         });
         http.createContext("/", new StaticFiles(webDir, boundPort));
@@ -155,7 +165,19 @@ public final class Main {
                   --web <pfad>    Verzeichnis mit index.html und den JS-Dateien
                   --no-browser    Browser nicht automatisch oeffnen
                   --debug         Inbetriebnahme-Fenster zum Testen und Debuggen einblenden
+                  --mcp-stdio     MCP ueber stdin/stdout fuer KI-Programme wie Claude Desktop;
+                                  reicht alles an den laufenden Dienst weiter (gleiche --port/--data)
                 """);
+    }
+
+    /** sb-projekt-mcp.sh/.cmd liegt im Repo neben der Oberflaeche, im Paket eine Ebene darueber. */
+    private static String mcpStarter(Path webDir) {
+        boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        String name = win ? "sb-projekt-mcp.cmd" : "sb-projekt-mcp.sh";
+        for (Path dir : new Path[] {webDir, webDir.getParent()}) {
+            if (dir != null && Files.isRegularFile(dir.resolve(name))) return dir.resolve(name).toString();
+        }
+        return null;
     }
 
     private static Path defaultDataDir() {

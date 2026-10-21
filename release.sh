@@ -84,6 +84,31 @@ if errorlevel 1 (
 java -jar "%ROOT%server\sb-server.jar" --web "%ROOT%web" %*
 EOF
 
+# MCP-Starter fuer KI-Programme wie Claude Desktop: stdout gehoert dem Protokoll,
+# deshalb gehen Meldungen nach stderr.
+cat > "$STAGE/sb-projekt-mcp.sh" <<'EOF'
+#!/bin/sh
+# MCP-Starter fuer KI-Programme, die einen Server als Unterprozess starten (Claude Desktop).
+# Reicht alles an den laufenden SB-Projekt-Dienst weiter.
+ROOT=$(cd "$(dirname "$0")" && pwd)
+
+if ! command -v java >/dev/null 2>&1; then
+  echo "Java wurde nicht gefunden. Bitte Java 17 oder neuer installieren." >&2
+  exit 1
+fi
+
+exec java -jar "$ROOT/server/sb-server.jar" --mcp-stdio "$@"
+EOF
+chmod +x "$STAGE/sb-projekt-mcp.sh"
+
+cat > "$STAGE/sb-projekt-mcp.cmd" <<'EOF'
+@echo off
+rem MCP-Starter fuer KI-Programme, die einen Server als Unterprozess starten (Claude Desktop).
+setlocal
+set ROOT=%~dp0
+java -jar "%ROOT%server\sb-server.jar" --mcp-stdio %*
+EOF
+
 # ---------- Lizenzhinweise ----------
 unzip -p "$STAGE/server/lib"/calimero-core-*.jar META-INF/LICENSE.txt > "$STAGE/lizenzen/calimero-LICENSE.txt"
 unzip -p "$STAGE/server/lib"/slf4j-api-*.jar META-INF/LICENSE.txt > "$STAGE/lizenzen/slf4j-LICENSE.txt"
@@ -167,6 +192,11 @@ Telefonnummern und E-Mail-Adressen ersetzt der Dienst durch Platzhalter.
 Auf den Bus schreibt eine KI nie. Jeder Aufruf steht in mcp/audit.log
 im Datenverzeichnis.
 
+Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
+bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter
+reicht alles an den laufenden Dienst weiter; laeuft er nicht, melden die
+Werkzeuge das.
+
 Zum Ausprobieren
 ----------------
 beispiel/haus-musterstrasse-12.knx.json laesst sich ueber "Import" laden.
@@ -175,6 +205,7 @@ Ohne Import startet das Programm ohnehin mit einem Musterprojekt.
 Inhalt
 ------
 sb-projekt.sh, sb-projekt.cmd  Startskripte
+sb-projekt-mcp.sh, .cmd        MCP-Starter fuer KI-Programme (Claude Desktop)
 server/                        Dienst (Java) samt Bibliotheken
 web/                           Oberflaeche
 beispiel/                      Musterprojekt zum Importieren

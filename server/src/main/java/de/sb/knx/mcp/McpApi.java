@@ -138,8 +138,7 @@ public final class McpApi implements HttpHandler {
     }
 
     private void initialize(HttpExchange ex, Object id, Map<String, Object> params) throws IOException {
-        String asked = Json.str(params, "protocolVersion", "");
-        String proto = PROTOCOLS.contains(asked) ? asked : PROTOCOLS.get(0);
+        String proto = negotiate(params);
         String client = "unbekannt";
         if (params.get("clientInfo") instanceof Map<?, ?> ci) {
             Map<String, Object> info = cast(ci);
@@ -148,6 +147,18 @@ public final class McpApi implements HttpHandler {
             client = ver.isEmpty() ? name : name + " " + ver;
         }
         McpGate.Session s = gate.openSession(client, proto);
+        ex.getResponseHeaders().set("Mcp-Session-Id", s.id());
+        reply(ex, 200, result(id, initializeResult(proto, version)));
+    }
+
+    /** Die gewuenschte Protokollversion, wenn unterstuetzt - sonst die neueste, die der Dienst kann. */
+    static String negotiate(Map<String, Object> params) {
+        String asked = Json.str(params, "protocolVersion", "");
+        return PROTOCOLS.contains(asked) ? asked : PROTOCOLS.get(0);
+    }
+
+    /** Antwort auf initialize; auch die stdio-Bruecke gibt sie, solange der Dienst nicht laeuft. */
+    static Map<String, Object> initializeResult(String proto, String version) {
         Map<String, Object> r = Json.obj();
         r.put("protocolVersion", proto);
         Map<String, Object> caps = Json.obj();
@@ -158,11 +169,10 @@ public final class McpApi implements HttpHandler {
         Map<String, Object> info = Json.obj();
         info.put("name", "sb-projekt");
         info.put("title", "SB-Projekt (KNX)");
-        info.put("version", version);
+        info.put("version", version == null ? "dev" : version);
         r.put("serverInfo", info);
         r.put("instructions", INSTRUCTIONS);
-        ex.getResponseHeaders().set("Mcp-Session-Id", s.id());
-        reply(ex, 200, result(id, r));
+        return r;
     }
 
     private void call(HttpExchange ex, Object id, McpGate.Session s, Map<String, Object> params) throws IOException {
@@ -186,7 +196,7 @@ public final class McpApi implements HttpHandler {
         }
     }
 
-    private static Map<String, Object> toolResult(Object id, String text, boolean isError) {
+    static Map<String, Object> toolResult(Object id, String text, boolean isError) {
         Map<String, Object> r = Json.obj();
         Map<String, Object> c = Json.obj();
         c.put("type", "text");
@@ -196,7 +206,7 @@ public final class McpApi implements HttpHandler {
         return result(id, r);
     }
 
-    private static Map<String, Object> result(Object id, Object result) {
+    static Map<String, Object> result(Object id, Object result) {
         Map<String, Object> m = Json.obj();
         m.put("jsonrpc", "2.0");
         m.put("id", id);
@@ -204,7 +214,7 @@ public final class McpApi implements HttpHandler {
         return m;
     }
 
-    private static Map<String, Object> error(Object id, int code, String message) {
+    static Map<String, Object> error(Object id, int code, String message) {
         Map<String, Object> m = Json.obj();
         m.put("jsonrpc", "2.0");
         m.put("id", id);
