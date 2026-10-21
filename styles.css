@@ -1592,13 +1592,21 @@ table.ga.pg-table { table-layout: auto; }
 .mcp-preview { max-height: 260px; overflow: auto; }
 .mcp-cmd { user-select: all; }
 
-/* Rückfrage einer KI-Sitzung: über allem, auch über einem offenen Dialog */
-.mcp-ask {
+/* Rückfragen und Bestätigungen einer KI-Sitzung: rechts oben gestapelt, über
+   allem, auch über einem offenen Dialog. */
+.mcp-panels {
   position: fixed;
   top: 60px;
   right: 16px;
   z-index: 70;
-  width: min(400px, calc(100vw - 32px));
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-ask {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1612,6 +1620,16 @@ table.ga.pg-table { table-layout: auto; }
   font-size: 13px;
 }
 .mcp-ask p { margin: 0; }
+.mcp-count { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.mcp-lines { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.mcp-lines li.rm { color: var(--danger); }
+.mcp-lines li.more { list-style: none; color: var(--muted); }
+.mcp-change .mcp-lines { max-height: 300px; overflow: auto; }
+.mcp-props { display: flex; flex-direction: column; gap: 12px; }
+.mcp-prop { border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.mcp-prop-head { font-size: 12.5px; color: var(--muted); }
+.mcp-prop-head b { color: var(--fg); }
+#modal:has(#mcp-props) { max-width: 640px; }
 .mcp-ask-btns { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- Enge Fenster ---------- *

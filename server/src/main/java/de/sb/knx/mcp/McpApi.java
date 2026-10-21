@@ -23,7 +23,10 @@ public final class McpApi implements HttpHandler {
 
     private static final String INSTRUCTIONS = """
             SB-Projekt is a local KNX planning tool (Selfbus). These tools read projects that the user has \
-            released in an SB-Projekt window; start with list_projects. Access is read-only in this version.
+            released in an SB-Projekt window; start with list_projects. Depending on the approval mode the user \
+            set there, the change_* tools edit group addresses, object links, the building structure and room \
+            functions: as proposals, after confirmation, or at once. Removing anything always waits for the \
+            user's confirmation. Devices, parameters and the bus are out of reach.
             Privacy: names may contain placeholders such as «Name1», «Adresse2», «Tel1», «Mail1», «IP1». \
             They hide personal data that must not leave the user's computer. Use them verbatim when you refer \
             to something; never try to guess or reconstruct what they stand for.

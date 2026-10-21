@@ -113,13 +113,14 @@ public final class Privacy {
         List<String> out = new ArrayList<>();
         if (name == null) return out;
         String n = name.strip();
-        if (n.length() >= MIN_TERM) out.add(n);
         for (String w : n.split("[\\s,;:/()|·•_+&\"]+")) {
             String word = w.replaceAll("^[\\p{P}]+|[\\p{P}]+$", "");
             if (word.length() < MIN_TERM || word.chars().allMatch(Character::isDigit)) continue;
             if (GENERIC.contains(word.toLowerCase(Locale.ROOT))) continue;
             out.add(word);
         }
+        // Der ganze Name nur, wenn er etwas verraet - „Projekt“ oder „Haus 12“ allein tun das nicht
+        if (!out.isEmpty() && n.length() >= MIN_TERM) out.add(0, n);
         return out;
     }
 

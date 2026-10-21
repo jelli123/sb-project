@@ -200,9 +200,56 @@ class McpEndToEndTest {
     }
 
     @Test
-    void writeModesAreNotAvailableYet() throws Exception {
-        HttpResponse<String> r = post("/api/mcp/mode", Map.of("project", PROJECT, "mode", "auto"), Map.of("X-SB-Window", WINDOW));
-        assertEquals(400, r.statusCode());
+    void writingNeedsAWritingMode() throws Exception {
+        release("read");
+        initialize();
+        boolean[] reached = {false};
+        window = call -> {
+            reached[0] = true;
+            return Json.parseObject("{\"ok\":false}");
+        };
+        Map<?, ?> res = callTool("change_group_addresses", Map.of("create",
+                List.of(Map.of("name", "Licht", "dpt", "1.001"))));
+        assertEquals(true, res.get("isError"));
+        assertTrue(text(res).contains("Lesen"), text(res));
+        assertFalse(reached[0], "ein Schreibaufruf im Modus Lesen darf das Fenster nicht erreichen");
+    }
+
+    @Test
+    void writeCallsCarryTheModeAndComeBackFiltered() throws Exception {
+        release("auto");
+        initialize();
+        String[] seen = {null, null};
+        window = call -> {
+            seen[0] = String.valueOf(call.get("mode"));
+            seen[1] = Json.write(call.get("args"));
+            return Json.parseObject("""
+                    {"ok":true,"names":["Haus Müller"],"data":{"change":"c1","tool":"change_group_addresses",
+                     "state":"applied","message":"Übernommen: 1 angelegt, 0 geändert, 0 entfernt.",
+                     "lines":["Neu 1/1/1 „Licht Büro Müller“ (1.001)"],
+                     "created":[{"key":"a","type":"group","id":"g9","addr":"1/1/1","name":"Licht Büro Müller",
+                                 "note":"geheim"}],
+                     "changed":[],"removed":[],"warnings":[]}}""");
+        };
+        Map<?, ?> res = callTool("change_group_addresses", Map.of("create",
+                List.of(Map.of("key", "a", "name", "Licht Bad", "dpt", "1.001", "range", "1/1"))));
+        assertEquals(false, res.get("isError"), text(res));
+        assertEquals("auto", seen[0]);
+        String out = text(res);
+        assertFalse(out.contains("Müller"), out);
+        assertFalse(out.contains("geheim"), out);
+        assertTrue(out.contains("\"state\":\"applied\""), out);
+        assertTrue(seen[1].contains("\"range\":\"1/1\""), seen[1]);
+    }
+
+    @Test
+    void unknownPlaceholdersInNamesAreRefused() throws Exception {
+        release("auto");
+        initialize();
+        Map<?, ?> res = callTool("change_group_addresses", Map.of("create",
+                List.of(Map.of("name", "Licht «Name7»", "dpt", "1.001"))));
+        assertEquals(true, res.get("isError"));
+        assertTrue(text(res).contains("Platzhalter"), text(res));
     }
 
     @Test

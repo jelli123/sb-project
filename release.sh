@@ -184,6 +184,11 @@ KI-Zugang (MCP)
 Eine KI wie Claude Code kann Projekte lesen und bei der Planung helfen.
 Der Zugang ist nach jedem Start aus. Er gilt nur fuer Projekte, die in
 einem Fenster offen und dort ueber den Schalter "KI" freigegeben sind.
+Der Modus am Schalter bestimmt, was die KI darf: "Lesen", oder Gruppen-
+adressen, Verknuepfungen, Gebaeudestruktur und Funktionen aendern - als
+"Vorschlag", in "Einzelschritten" mit Bestaetigung oder "Auto". Loeschen
+wartet immer auf eine Bestaetigung, jede KI-Aenderung ist ein Schritt fuer
+"Rueckgaengig". Geraete, Parameter und Programmieren bleiben beim Nutzer.
 Den Befehl zum Einrichten zeigt "KI" > "KI-Zugang einrichten".
 Nie an den KI-Anbieter gehen Notizen, Objektbeschreibungen, Seriennummern,
 KNX-Secure-Daten, Einstellungen und Dateipfade, IP-Adressen nur nach

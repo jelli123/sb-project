@@ -31,6 +31,13 @@ class PrivacyTest {
     }
 
     @Test
+    void genericNamesAloneAreNoTerms() {
+        assertTrue(Privacy.termsOf("Projekt").isEmpty());
+        assertTrue(Privacy.termsOf("Haus 12").isEmpty());
+        assertEquals("Darstellung des Projekts", mask("Darstellung des Projekts", Privacy.termsOf("Projekt").toArray(String[]::new)));
+    }
+
+    @Test
     void termsHideNamesEverywhereCaseInsensitive() {
         List<String> terms = new ArrayList<>(Privacy.termsOf("Familie Müller"));
         Pattern pt = Privacy.compileTerms(terms);

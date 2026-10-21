@@ -12,7 +12,9 @@
    Geliefert wird deshalb nur, was ein Werkzeug braucht. Notizen,
    Seriennummern, Objektbeschreibungen und Secure-Angaben gehören
    nie dazu, IP-Daten nur über get_ip_config und nur nach Rückfrage.
-   Diese Stufe liest nur; am Projekt ändert eine KI-Sitzung nichts.
+   Ändern darf eine KI-Sitzung Gruppenadressen, Verknüpfungen,
+   Gebäudestruktur und Funktionen — wie, entscheidet der Modus
+   (siehe „Planen“ unten). Geräte, Parameter und Bus bleiben tabu.
    ============================================================ */
 'use strict';
 
@@ -42,19 +44,22 @@ const S = v => (typeof v === 'string' ? v
    ============================================================ */
 
 const btn = $('#btn-ai');
-const st = { mode: 'off', handle: null, sessions: 0, busy: 0, available: ['off', 'read'], last: null };
+const st = { mode: 'off', handle: null, sessions: 0, busy: 0, available: MODES.map(m => m.key), last: null };
 
 function paint() {
   const m = modeOf(st.mode);
   btn.hidden = false;
   btn.dataset.mode = st.mode;
-  btn.querySelector('.ai-label').textContent = T18('KI: {0}', T18(m.label));
+  const open = proposals().length;
+  btn.querySelector('.ai-label').textContent = open
+    ? T18('KI: {0} · {1}', T18(m.label), open) : T18('KI: {0}', T18(m.label));
   btn.classList.toggle('busy', st.busy > 0);
   const badge = btn.querySelector('.btn-badge');
   badge.hidden = !st.sessions;
   badge.textContent = st.sessions;
   btn.title = T18('KI-Zugang für dieses Projekt: {0}', T18(m.label)) + ' — '
-    + (st.sessions === 1 ? T18('1 KI-Sitzung verbunden') : T18('{0} KI-Sitzungen verbunden', st.sessions));
+    + (st.sessions === 1 ? T18('1 KI-Sitzung verbunden') : T18('{0} KI-Sitzungen verbunden', st.sessions))
+    + (open ? ' — ' + T18('{0} offene Vorschläge', open) : '');
 }
 
 function apply(s) {
@@ -88,17 +93,15 @@ async function setMode(mode) {
 btn.addEventListener('click', () => {
   const r = btn.getBoundingClientRect();
   A.openMenu(r.left, r.bottom + 4, [
-    ...MODES.map(m => {
-      const can = st.available.includes(m.key);
-      return {
-        label: T18(m.label) + (m.key === st.mode ? '  ✓' : ''),
-        icon: `<span class="ai-dot" data-mode="${m.key}"></span>`,
-        hint: T18(m.desc) + (can ? '' : ' ' + T18('(kommt mit den Planungswerkzeugen)')),
-        disabled: !can,
-        run: () => setMode(m.key)
-      };
-    }),
+    ...MODES.map(m => ({
+      label: T18(m.label) + (m.key === st.mode ? '  ✓' : ''),
+      icon: `<span class="ai-dot" data-mode="${m.key}"></span>`,
+      hint: T18(m.desc),
+      disabled: !st.available.includes(m.key),
+      run: () => setMode(m.key)
+    })),
     '-',
+    proposals().length && { label: T18('Vorschläge ansehen ({0}) …', proposals().length), run: openProposals },
     { label: T18('KI-Zugang einrichten …'), run: openDialog }
   ]);
 });
@@ -333,6 +336,22 @@ const TOOLS = {
     };
   },
 
+  list_function_types() {
+    return {
+      types: KNX.FN_TYPES.map(t => ({
+        type: t.key, name: t.de, category: t.cat,
+        roles: t.roles.map(r => ({ role: r.key, name: r.de, dpt: r.dpt }))
+      }))
+    };
+  },
+
+  get_change_status(a, ev) {
+    const mine = changes.filter(c => c.session === ev.session);
+    if (a.change && !mine.some(c => c.id === a.change))
+      throw new Error('Änderung ' + a.change + ' gibt es in diesem Fenster nicht — vielleicht wurde es neu geladen.');
+    return { changes: mine.filter(c => !a.change || c.id === a.change).slice(-100).map(changeResult) };
+  },
+
   async get_ip_config(a, ev) {
     if (!await ask(ev, 'ip')) throw new Error('Der Nutzer hat das Lesen der IP-Konfiguration abgelehnt.');
     const p = P(), bb = KNX.backbone();
@@ -378,11 +397,13 @@ function terms(tool, list) {
 
 async function run(ev) {
   if (!ev || typeof ev.call !== 'string') return;
-  const fn = Object.prototype.hasOwnProperty.call(TOOLS, ev.tool) ? TOOLS[ev.tool] : null;
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const fn = own(TOOLS, ev.tool) ? TOOLS[ev.tool] : null;
   const body = { call: ev.call, names: names(), terms: terms(ev.tool) };
   try {
-    if (!fn) throw new Error('Dieses Fenster kennt das Werkzeug ' + ev.tool + ' nicht — bitte neu laden.');
-    body.data = await fn(ev.args || {}, ev);
+    if (own(PLANNERS, ev.tool)) body.data = await runChange(ev);
+    else if (fn) body.data = await fn(ev.args || {}, ev);
+    else throw new Error('Dieses Fenster kennt das Werkzeug ' + ev.tool + ' nicht — bitte neu laden.');
     body.ok = true;
   } catch (e) {
     body.ok = false;
@@ -392,6 +413,551 @@ async function run(ev) {
 }
 
 B.events.on('mcp-call', run);
+
+/* ============================================================
+   Planen (Stufe 2): Änderungen der KI
+   ------------------------------------------------------------
+   Jedes schreibende Werkzeug wird zuerst geplant: geprüft und in
+   Zeilen beschrieben, ohne etwas zu ändern. Angewendet wird je
+   nach Modus sofort (Auto), nach einer Bestätigung (Einzelschritte)
+   oder aus der Vorschlagsliste (Vorschlag) — dann mit frischem
+   Plan, denn das Projekt kann sich inzwischen geändert haben.
+   Entfernen wartet immer auf ein Ja. Ein Aufruf ist ein
+   Rückgängig-Schritt. Die Änderungen leben nur in diesem Fenster.
+   ============================================================ */
+
+const DECIDE_MS = 45000;      // so lange wartet ein Aufruf auf die Entscheidung
+const CHANGES_MAX = 200;
+const changes = [];
+let changeSeq = 0;
+
+const q = s => '„' + S(s) + '“';
+const kindName = k => T18(KNX.kindDe(k));
+
+function cleanName(v, what) {
+  const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!t) throw new Error(what + ': Name fehlt.');
+  return t;
+}
+
+const gaParts = text => String(text).split('/').map(x => (/^\d+$/.test(x) ? +x : NaN));
+
+/* Vollständige Adresse in der Darstellung des Projekts → Rohwert. */
+function gaRaw(text) {
+  const style = KNX.gaStyle(), parts = gaParts(text);
+  if (parts.length !== style.parts.length || parts.some((v, i) => !(v >= 0 && v <= style.parts[i].max)))
+    throw new Error('Adresse ' + text + ' passt nicht zur Darstellung des Projekts ('
+      + style.parts.map(p => '0–' + p.max).join('/') + ').');
+  const raw = KNX.gaJoin(parts, style);
+  if (!raw) throw new Error('0/0/0 ist als Broadcast reserviert.');
+  return raw;
+}
+
+/* Haupt- oder Mittelgruppe → ihre Stellen. */
+function rangeOf(text) {
+  const style = KNX.gaStyle(), depth = style.parts.length - 1, parts = gaParts(text);
+  if (depth < 1) throw new Error('Bei freier Adressierung gibt es keine Haupt- und Mittelgruppen.');
+  if (parts.length < 1 || parts.length > depth || parts.some((v, i) => !(v >= 0 && v <= style.parts[i].max)))
+    throw new Error(text + ' ist keine Haupt- oder Mittelgruppe dieses Projekts.');
+  return parts;
+}
+
+/* Nächste freie Adresse unter `prefix` — wie beim Anlegen von Hand ohne Untergruppe 0. */
+function nextFree(prefix, taken) {
+  const style = KNX.gaStyle(), rest = style.parts.slice(prefix.length);
+  const lo = KNX.gaJoin([...prefix, ...rest.map(() => 0)], style);
+  const hi = KNX.gaJoin([...prefix, ...rest.map(p => p.max)], style);
+  const last = style.parts.length - 1;
+  for (let raw = Math.max(lo, 1); raw <= hi; raw++) {
+    if (!taken.has(raw) && KNX.gaSplit(raw, style)[last] !== 0) return raw;
+  }
+  return 0;
+}
+
+function dptOf(x) {
+  const d = KNX.dptById(x);
+  const ok = String(x).includes('.') ? d.id === String(x) : d.id.startsWith(x + '.');
+  if (!ok) throw new Error('Datenpunkttyp ' + x + ' ist unbekannt.');
+  return d.id;
+}
+
+function groupsByRaw() {
+  const map = new Map(P().groups.map(g => [g.raw, g]));
+  return text => {
+    const g = map.get(gaRaw(text));
+    if (!g) throw new Error('Gruppenadresse ' + text + ' gibt es nicht.');
+    return g;
+  };
+}
+
+function objectOf(devId, num) {
+  const d = KNX.deviceById(devId);
+  if (!d) throw new Error('Gerät ' + devId + ' gibt es nicht.');
+  const o = d.objs.find(x => x.num === num);
+  if (!o) throw new Error('Gerät ' + devId + ' hat kein Objekt ' + num + '.');
+  return { d, o };
+}
+
+/* Name des Objekts ohne Beschreibung des Nutzers — die geht nie hinaus. */
+const objLine = (d, o) => `${KNX.paStr(d.addr)} ${q(d.name)} ` + T18('Objekt {0} {1}', o.num, q(o.name));
+
+const newOut = warnings => ({ created: [], changed: [], removed: [], warnings });
+
+const PLANNERS = {
+  change_group_addresses(a) {
+    const p = P(), taken = new Set(p.groups.map(g => g.raw));
+    const lines = [], ops = [], warnings = [], out = newOut(warnings), del = new Set();
+
+    (a.delete || []).forEach(id => {
+      const g = KNX.gaById(id);
+      if (!g) throw new Error('Gruppenadresse ' + id + ' gibt es nicht.');
+      if (del.has(id)) return;
+      del.add(id);
+      taken.delete(g.raw);
+      const links = KNX.gaLinks(id).length, fns = KNX.functionsOfGa(id).length;
+      lines.push({ remove: true, text: T18('Löschen {0} {1}', KNX.addrStr(g), q(g.name))
+        + (links || fns ? ' — ' + T18('{0} Verknüpfungen und {1} Funktionen verlieren sie', links, fns) : '') });
+      ops.push(() => { const addr = KNX.addrStr(g); if (KNX.deleteGa(id)) out.removed.push(addr); });
+    });
+
+    (a.update || []).forEach(u => {
+      const g = KNX.gaById(u.id);
+      if (!g || del.has(u.id)) throw new Error('Gruppenadresse ' + u.id + ' gibt es nicht (mehr).');
+      if (u.addr && u.range) throw new Error(u.id + ': entweder addr oder range, nicht beides.');
+      let raw = g.raw;
+      if (u.addr) {
+        raw = gaRaw(u.addr);
+        if (raw !== g.raw && taken.has(raw)) throw new Error(u.addr + ' ist schon vergeben.');
+      } else if (u.range) {
+        taken.delete(g.raw);
+        raw = nextFree(rangeOf(u.range), taken);
+        if (!raw) throw new Error('In ' + u.range + ' ist keine Adresse mehr frei.');
+      }
+      taken.delete(g.raw);
+      taken.add(raw);
+      const name = u.name != null ? cleanName(u.name, u.id) : g.name;
+      const dpt = u.dpt ? dptOf(u.dpt) : g.dpt;
+      const what = [];
+      if (name !== g.name) what.push(T18('Name {0} → {1}', q(g.name), q(name)));
+      if (dpt !== g.dpt) what.push(T18('DPT {0} → {1}', g.dpt, dpt));
+      if (raw !== g.raw) what.push(T18('Adresse {0} → {1}', KNX.addrStr(g), KNX.gaStr(raw)));
+      if (!what.length) return;
+      if (dpt !== g.dpt && KNX.gaLinks(g.id).some(l => l.obj.dpt !== dpt))
+        warnings.push(T18('{0}: Objekte mit anderem DPT hängen daran.', KNX.gaStr(raw)));
+      lines.push({ text: T18('Ändern {0}: {1}', KNX.addrStr(g), what.join(', ')) });
+      ops.push(() => { Object.assign(g, { name, dpt, raw }); out.changed.push(KNX.gaStr(raw)); });
+    });
+
+    (a.ranges || []).forEach(r => {
+      const key = rangeOf(r.range).join('/'), name = cleanName(r.name, r.range), old = S(p.gaNames[key]);
+      if (old === name) return;
+      lines.push({ text: old ? T18('Gruppe {0}: {1} → {2}', key, q(old), q(name)) : T18('Gruppe {0} heißt {1}', key, q(name)) });
+      ops.push(() => { p.gaNames[key] = name; out.changed.push(key); });
+    });
+
+    (a.create || []).forEach((c, i) => {
+      if (c.addr && c.range) throw new Error('Neue Adresse ' + (i + 1) + ': entweder addr oder range, nicht beides.');
+      const name = cleanName(c.name, 'Neue Adresse ' + (i + 1)), dpt = dptOf(c.dpt);
+      let raw;
+      if (c.addr) {
+        raw = gaRaw(c.addr);
+        if (taken.has(raw)) throw new Error(c.addr + ' ist schon vergeben.');
+      } else {
+        raw = nextFree(c.range ? rangeOf(c.range) : [], taken);
+        if (!raw) throw new Error((c.range ? 'In ' + c.range : 'Im Projekt') + ' ist keine Adresse mehr frei.');
+      }
+      taken.add(raw);
+      lines.push({ text: T18('Neu {0} {1} ({2})', KNX.gaStr(raw), q(name), dpt) });
+      ops.push(() => {
+        const g = KNX.addGa({ id: KNX.uid('g'), raw, name, dpt, note: '' });
+        out.created.push({ key: c.key || null, type: 'group', id: g.id, addr: KNX.addrStr(g), name });
+      });
+    });
+    return { lines, warnings, removes: del.size > 0, apply: () => { ops.forEach(f => f()); return out; } };
+  },
+
+  change_links(a) {
+    const ga = groupsByRaw();
+    const lines = [], ops = [], warnings = [], out = newOut(warnings);
+    let removes = false;
+
+    (a.unlink || []).forEach(x => {
+      const { d, o } = objectOf(x.device, x.object), g = ga(x.ga);
+      if (!o.gas.includes(g.id)) { warnings.push(T18('{0} ist nicht mit {1} verknüpft.', objLine(d, o), KNX.addrStr(g))); return; }
+      removes = true;
+      lines.push({ remove: true, text: T18('Lösen {0} von {1} {2}', objLine(d, o), KNX.addrStr(g), q(g.name)) });
+      ops.push(() => { o.gas = o.gas.filter(id => id !== g.id); out.removed.push(`${d.id}#${o.num}→${KNX.addrStr(g)}`); });
+    });
+
+    (a.link || []).forEach(x => {
+      const { d, o } = objectOf(x.device, x.object), g = ga(x.ga);
+      const has = o.gas.includes(g.id);
+      if (has && (!x.send || o.gas[0] === g.id)) {
+        warnings.push(T18('{0} ist schon mit {1} verknüpft.', objLine(d, o), KNX.addrStr(g)));
+        return;
+      }
+      if (o.dpt !== g.dpt)
+        warnings.push(T18('DPT weicht ab: {0} hat {1}, {2} hat {3}.', objLine(d, o), o.dpt, KNX.addrStr(g), g.dpt));
+      lines.push({ text: T18('Verknüpfen {0} mit {1} {2}', objLine(d, o), KNX.addrStr(g), q(g.name))
+        + (x.send ? ' (' + T18('sendend') + ')' : '') });
+      ops.push(() => {
+        if (x.send) { o.gas = [g.id, ...o.gas.filter(id => id !== g.id)]; o.flags.t = true; }
+        else if (!o.gas.includes(g.id)) o.gas.push(g.id);
+        out.changed.push(`${d.id}#${o.num}→${KNX.addrStr(g)}`);
+      });
+    });
+
+    (a.flags || []).forEach(x => {
+      const { d, o } = objectOf(x.device, x.object), set = {};
+      KNX.KO_FLAGS.forEach(f => { if (typeof x[f.key] === 'boolean' && !!o.flags[f.key] !== x[f.key]) set[f.key] = x[f.key]; });
+      if (!Object.keys(set).length) return;
+      lines.push({ text: T18('Flags {0}: {1} → {2}', objLine(d, o), KNX.flagStr(o.flags), KNX.flagStr({ ...o.flags, ...set })) });
+      ops.push(() => { Object.assign(o.flags, set); out.changed.push(`${d.id}#${o.num}`); });
+    });
+    return { lines, warnings, removes, apply: () => { ops.forEach(f => f()); return out; } };
+  },
+
+  change_structure(a) {
+    const p = P(), planned = new Map(), dels = new Set(a.delete || []);
+    const lines = [], ops = [], warnings = [], out = newOut(warnings);
+    dels.forEach(id => {
+      const n = KNX.findNode(id);
+      if (!n) throw new Error('Knoten ' + id + ' gibt es nicht.');
+      if (n.id === p.tree.id) throw new Error('Die Liegenschaft lässt sich nicht löschen.');
+    });
+    const doomed = id => [...dels].some(x => KNX.isInside(id, x));
+
+    (a.create || []).forEach((c, i) => {
+      const pre = planned.get(c.parent), parent = pre || KNX.findNode(c.parent);
+      if (!parent) throw new Error('Übergeordneter Knoten ' + c.parent + ' gibt es nicht.');
+      if (!pre && doomed(parent.id)) throw new Error(q(parent.name) + ' wird im selben Aufruf gelöscht.');
+      if (!KNX.kindHolds(parent.kind).includes(c.kind))
+        throw new Error(KNX.kindDe(parent.kind) + ' ' + q(parent.name) + ' kann kein ' + KNX.kindDe(c.kind) + ' enthalten.');
+      const name = cleanName(c.name, 'Neuer Knoten ' + (i + 1));
+      const node = { id: '', kind: c.kind, name, note: '', children: [] };
+      if (c.key) {
+        if (planned.has(c.key)) throw new Error('Schlüssel ' + c.key + ' ist doppelt.');
+        planned.set(c.key, node);
+      }
+      lines.push({ text: T18('Neu {0} {1} in {2}', kindName(c.kind), q(name), q(parent.name)) });
+      ops.push(() => {
+        node.id = KNX.uid('n');
+        parent.children.push(node);
+        KNX.touch();
+        out.created.push({ key: c.key || null, type: 'node', id: node.id, addr: null, name });
+      });
+    });
+
+    (a.update || []).forEach(u => {
+      const n = KNX.findNode(u.id);
+      if (!n || doomed(u.id)) throw new Error('Knoten ' + u.id + ' gibt es nicht (mehr).');
+      const root = n.id === p.tree.id, what = [];
+      const name = u.name != null ? cleanName(u.name, u.id) : n.name;
+      let kind = n.kind, to = null;
+      if (u.kind && u.kind !== n.kind) {
+        if (root) throw new Error('Die Liegenschaft bleibt Liegenschaft.');
+        const parent = KNX.parentOf(n.id), holds = KNX.kindHolds(u.kind);
+        if (!KNX.kindHolds(parent.kind).includes(u.kind))
+          throw new Error(KNX.kindDe(parent.kind) + ' ' + q(parent.name) + ' kann kein ' + KNX.kindDe(u.kind) + ' enthalten.');
+        if ((n.children || []).some(c => !holds.includes(c.kind)))
+          throw new Error(q(n.name) + ' enthält Teile, die ein ' + KNX.kindDe(u.kind) + ' nicht enthalten kann.');
+        kind = u.kind;
+      }
+      if (u.parent && (KNX.parentOf(n.id) || {}).id !== u.parent) {
+        to = KNX.findNode(u.parent);
+        if (root || !to) throw new Error('Knoten ' + u.id + ' lässt sich nicht nach ' + u.parent + ' verschieben.');
+        if (KNX.isInside(to.id, n.id)) throw new Error(q(n.name) + ' kann nicht in sich selbst liegen.');
+        if (!KNX.kindHolds(to.kind).includes(kind))
+          throw new Error(KNX.kindDe(to.kind) + ' ' + q(to.name) + ' kann kein ' + KNX.kindDe(kind) + ' enthalten.');
+      }
+      if (name !== n.name) what.push(T18('Name {0} → {1}', q(n.name), q(name)));
+      if (kind !== n.kind) what.push(T18('Typ {0} → {1}', kindName(n.kind), kindName(kind)));
+      if (to) what.push(T18('nach {0}', q(to.name)));
+      if (!what.length) return;
+      lines.push({ text: T18('Ändern {0} {1}: {2}', kindName(n.kind), q(n.name), what.join(', ')) });
+      ops.push(() => {
+        n.name = name;
+        n.kind = kind;
+        KNX.touch();
+        if (to) KNX.moveNode(n.id, to.id);
+        out.changed.push(n.id);
+      });
+    });
+
+    dels.forEach(id => {
+      const n = KNX.findNode(id);
+      const rooms = new Set(KNX.roomIdsUnder(id));
+      const devs = p.devices.filter(d => rooms.has(d.roomId)).length, fns = KNX.functionsUnder(id).length;
+      lines.push({ remove: true, text: T18('Löschen {0} {1} samt Inhalt', kindName(n.kind), q(n.name))
+        + (devs || fns ? ' — ' + T18('{0} Geräte verlieren ihren Raum, {1} Funktionen entfallen', devs, fns) : '') });
+      ops.push(() => { if (KNX.deleteNode(id)) out.removed.push(id); });
+    });
+    return { lines, warnings, removes: dels.size > 0, apply: () => { ops.forEach(f => f()); return out; } };
+  },
+
+  change_functions(a) {
+    const ga = groupsByRaw();
+    const lines = [], ops = [], warnings = [], out = newOut(warnings);
+    let removes = false;
+    const typeOf = k => {
+      const t = KNX.FN_TYPES.find(x => x.key === k);
+      if (!t) throw new Error('Funktionsart ' + k + ' gibt es nicht — siehe list_function_types.');
+      return t;
+    };
+    const roleOf = (t, r) => {
+      if (r && !t.roles.some(x => x.key === r)) throw new Error('Rolle ' + r + ' gibt es bei ' + t.key + ' nicht.');
+      return r || '';
+    };
+    const roleName = (t, r) => T18((t.roles.find(x => x.key === r) || { de: r }).de);
+
+    (a.create || []).forEach((c, i) => {
+      const node = KNX.findNode(c.node);
+      if (!node) throw new Error('Knoten ' + c.node + ' gibt es nicht.');
+      const t = typeOf(c.type), name = cleanName(c.name, 'Neue Funktion ' + (i + 1));
+      const groups = (c.groups || []).map(x => ({ g: ga(x.ga), role: roleOf(t, x.role) }));
+      const held = new Set(groups.map(x => x.role).filter(Boolean));
+      const roles = (c.roles || t.roles.map(r => r.key)).filter(r => { roleOf(t, r); return !held.has(r); });
+      const make = c.createGroups !== false && roles.length > 0;
+      const folder = make ? KNX.functionFolder(node.id, t.key) : null;
+      lines.push({ text: T18('Neue Funktion {0} ({1}) in {2}', q(name), T18(t.de), q(node.name))
+        + (make ? ' — ' + T18('Adressen für {0}', roles.map(r => roleName(t, r)).join(', '))
+          + (folder ? ' ' + T18('in {0}', folder.label) : '') : '') });
+      groups.forEach(x => lines.push({ text: T18('dazu {0} {1}', KNX.addrStr(x.g), q(x.g.name)) }));
+      ops.push(() => {
+        const before = new Set(P().groups.map(g => g.id));
+        const fn = KNX.addFunction({ id: KNX.uid('f'), nodeId: node.id, type: t.key, name, icon: '', note: '',
+                                     gas: groups.map(x => ({ ga: x.g.id, role: x.role })) });
+        const missing = make ? KNX.createRoleGas(fn, roles, KNX.functionFolder(node.id, t.key)) : 0;
+        out.created.push({ key: c.key || null, type: 'function', id: fn.id, addr: null, name });
+        fn.gas.forEach(x => {
+          const g = !before.has(x.ga) && KNX.gaById(x.ga);
+          if (g) out.created.push({ key: null, type: 'group', id: g.id, addr: KNX.addrStr(g), name: g.name });
+        });
+        if (missing) warnings.push(T18('{0}: {1} Adressen fanden keinen Platz.', name, missing));
+      });
+    });
+
+    (a.update || []).forEach(u => {
+      const fn = KNX.functionById(u.id);
+      if (!fn) throw new Error('Funktion ' + u.id + ' gibt es nicht.');
+      const t = KNX.fnType(fn.type);
+      const name = u.name != null ? cleanName(u.name, u.id) : fn.name;
+      const node = u.node && u.node !== fn.nodeId ? KNX.findNode(u.node) : null;
+      if (u.node && u.node !== fn.nodeId && !node) throw new Error('Knoten ' + u.node + ' gibt es nicht.');
+      const attach = (u.attach || []).map(x => ({ g: ga(x.ga), role: roleOf(t, x.role) }))
+        .filter(x => !fn.gas.some(y => y.ga === x.g.id));
+      const detach = (u.detach || []).map(ga).filter(g => fn.gas.some(y => y.ga === g.id));
+      const what = [];
+      if (name !== fn.name) what.push(T18('Name {0} → {1}', q(fn.name), q(name)));
+      if (node) what.push(T18('nach {0}', q(node.name)));
+      attach.forEach(x => what.push(T18('dazu {0} {1}', KNX.addrStr(x.g), q(x.g.name))));
+      if (what.length) lines.push({ text: T18('Ändern Funktion {0}: {1}', q(fn.name), what.join(', ')) });
+      detach.forEach(g => lines.push({ remove: true, text: T18('Lösen Funktion {0} von {1} {2}', q(fn.name), KNX.addrStr(g), q(g.name)) }));
+      if (detach.length) removes = true;
+      if (!what.length && !detach.length) return;
+      ops.push(() => {
+        fn.name = name;
+        if (node) KNX.moveFunction(fn.id, node.id);
+        attach.forEach(x => {
+          if (x.role) fn.gas.push({ ga: x.g.id, role: x.role });
+          else KNX.attachGas(fn.id, [x.g.id]);
+        });
+        detach.forEach(g => KNX.detachGa(fn.id, g.id));
+        KNX.touch();
+        out.changed.push(fn.id);
+      });
+    });
+
+    (a.delete || []).forEach(x => {
+      const fn = KNX.functionById(x.id);
+      if (!fn) throw new Error('Funktion ' + x.id + ' gibt es nicht.');
+      removes = true;
+      lines.push({ remove: true, text: T18('Löschen Funktion {0}', q(fn.name))
+        + (x.withGroups && fn.gas.length ? ' ' + T18('samt ihren Adressen ({0})', fn.gas.length) : '') });
+      ops.push(() => { KNX.deleteFunction(fn.id, !!x.withGroups); out.removed.push(fn.id); });
+    });
+    return { lines, warnings, removes, apply: () => { ops.forEach(f => f()); return out; } };
+  }
+};
+
+/* Wendet eine Änderung an — mit frischem Plan, wenn sie gewartet hat. Scheitert
+   etwas mittendrin, wird der Stand davor wiederhergestellt. */
+function applyChange(ch, plan) {
+  let before = null;
+  try {
+    plan = plan || PLANNERS[ch.tool](ch.args);
+    ch.lines = plan.lines;
+    before = JSON.stringify(KNX.project());
+    const r = plan.apply();
+    A.commit();
+    ch.state = 'applied';
+    ch.result = r;
+    ch.message = `Übernommen: ${r.created.length} angelegt, ${r.changed.length} geändert, ${r.removed.length} entfernt.`;
+    A.toast(T18('KI ({0}): {1} angelegt, {2} geändert, {3} entfernt',
+      ch.session, r.created.length, r.changed.length, r.removed.length), 2500);
+    return true;
+  } catch (e) {
+    if (before) {
+      KNX.setProject(JSON.parse(before));
+      if (window.KNXOnRender) window.KNXOnRender();
+    }
+    ch.state = 'failed';
+    ch.message = 'Nicht übernommen: ' + ((e && e.message) || e);
+    A.warn(T18('KI-Änderung {0} nicht übernommen: {1}', ch.id, (e && e.message) || e));
+    return false;
+  } finally {
+    paint();
+    paintProposals();
+  }
+}
+
+function changeResult(ch) {
+  const r = ch.result || {};
+  return {
+    change: ch.id, tool: ch.tool, state: ch.state, message: ch.message,
+    lines: ch.lines.slice(0, 200).map(l => (l.remove ? '− ' : '') + l.text),
+    created: (r.created || []).slice(0, 500), changed: (r.changed || []).slice(0, 1000),
+    removed: (r.removed || []).slice(0, 1000), warnings: (r.warnings || ch.warnings || []).slice(0, 100)
+  };
+}
+
+async function runChange(ev) {
+  const plan = PLANNERS[ev.tool](ev.args || {});
+  const ch = { id: 'c' + (++changeSeq), tool: ev.tool, args: ev.args || {}, session: ev.session, client: ev.client,
+               at: Date.now(), lines: plan.lines, warnings: plan.warnings, removes: plan.removes,
+               state: 'pending', result: null, message: '' };
+  changes.push(ch);
+  // Alte Einträge fallen weg; offene bleiben
+  while (changes.length > CHANGES_MAX && changes.some(c => c.state !== 'pending' && c.state !== 'proposed')) {
+    changes.splice(changes.findIndex(c => c.state !== 'pending' && c.state !== 'proposed'), 1);
+  }
+  if (!plan.lines.length) {
+    ch.state = 'applied';
+    ch.result = newOut(plan.warnings);
+    ch.message = 'Nichts zu ändern.';
+  } else if (ev.mode === 'auto' && !plan.removes) {
+    applyChange(ch, plan);
+  } else if (ev.mode === 'propose') {
+    ch.state = 'proposed';
+    ch.message = 'Als Vorschlag abgelegt; der Nutzer übernimmt oder verwirft ihn im Fenster.';
+    paint();
+    paintProposals();
+  } else if (ev.mode === 'step' || ev.mode === 'auto') {
+    if (!(await confirmChange(ch)))
+      ch.message = 'Wartet auf die Bestätigung im Fenster — später mit get_change_status nachsehen.';
+  } else {
+    throw new Error('Der KI-Zugang steht nicht auf einem Modus, der Änderungen erlaubt.');
+  }
+  return changeResult(ch);
+}
+
+/* ---------- Bestätigung (Einzelschritte, Entfernen) ---------- */
+
+const confirmQueue = [];
+
+/* true, wenn innerhalb der Wartezeit entschieden wurde. Die Frage bleibt
+   danach stehen — entschieden wird, wann der Nutzer will. */
+function confirmChange(ch) {
+  ch.decision = new Promise(res => { ch.decided = res; });
+  confirmQueue.push(ch);
+  showConfirm();
+  return Promise.race([ch.decision.then(() => true), new Promise(res => setTimeout(() => res(false), DECIDE_MS))]);
+}
+
+function showConfirm() {
+  const open = document.querySelector('.mcp-change');
+  if (open) { open.querySelector('.mcp-count').textContent = confirmQueue.length > 1 ? T18('1 von {0}', confirmQueue.length) : ''; return; }
+  const ch = confirmQueue[0];
+  if (!ch) return;
+  const shown = ch.lines.slice(0, 30);
+  const box = panel('mcp-ask mcp-change');
+  box.innerHTML = `
+    <b>${ch.removes ? T18('KI-Sitzung {0} möchte etwas entfernen', esc(ch.session)) : T18('KI-Sitzung {0} möchte ändern', esc(ch.session))}
+      <span class="mcp-count"></span></b>
+    <ul class="mcp-lines">${shown.map(l => `<li${l.remove ? ' class="rm"' : ''}>${esc(l.text)}</li>`).join('')}
+      ${ch.lines.length > shown.length ? `<li class="more">${T18('… und {0} weitere', ch.lines.length - shown.length)}</li>` : ''}</ul>
+    ${(ch.warnings || []).length ? `<p class="hint warn">${ch.warnings.slice(0, 5).map(esc).join('<br>')}</p>` : ''}
+    ${ch.removes ? `<p class="hint">${T18('Entfernen braucht immer eine Bestätigung.')}</p>` : ''}
+    <div class="mcp-ask-btns">
+      <button class="btn btn-sm" data-a="no">${T18('Ablehnen')}</button>
+      <button class="btn btn-sm btn-primary" data-a="yes">${T18('Übernehmen')}</button>
+    </div>`;
+  box.querySelector('.mcp-count').textContent = confirmQueue.length > 1 ? T18('1 von {0}', confirmQueue.length) : '';
+  const title = document.title;
+  document.title = '⚠ ' + T18('KI-Rückfrage') + ' — ' + title;
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-a]');
+    if (!b) return;
+    confirmQueue.shift();
+    box.remove();
+    document.title = title;
+    if (b.dataset.a === 'yes') applyChange(ch);
+    else { ch.state = 'rejected'; ch.message = 'Vom Nutzer abgelehnt.'; }
+    ch.decided();
+    showConfirm();
+  });
+  box.querySelector('[data-a="no"]').focus();
+}
+
+/* ---------- Vorschläge ---------- */
+
+const proposals = () => changes.filter(c => c.state === 'proposed');
+
+function openProposals() {
+  A.openModal(T18('KI-Vorschläge'), '<div id="mcp-props" class="mcp-props"></div>', () => {});
+  $('#modal-ok').textContent = T18('Schließen');
+  $('#modal-cancel').hidden = true;
+  paintProposals();
+}
+
+function paintProposals() {
+  const box = $('#mcp-props');
+  if (!box) return;
+  const list = proposals();
+  box.innerHTML = list.length ? `
+    <p class="mcp-row">
+      <button class="btn btn-sm btn-primary" data-all="yes">${T18('Alle übernehmen')}</button>
+      <button class="btn btn-sm" data-all="no">${T18('Alle verwerfen')}</button>
+    </p>
+    ${list.map(ch => `
+      <section class="mcp-prop">
+        <div class="mcp-prop-head"><b>${esc(ch.id)}</b> · ${T18('Sitzung {0}', esc(ch.session))} · ${esc(fmtTime(ch.at))}</div>
+        <ul class="mcp-lines">${ch.lines.slice(0, 50).map(l => `<li${l.remove ? ' class="rm"' : ''}>${esc(l.text)}</li>`).join('')}
+          ${ch.lines.length > 50 ? `<li class="more">${T18('… und {0} weitere', ch.lines.length - 50)}</li>` : ''}</ul>
+        ${(ch.warnings || []).length ? `<p class="hint warn">${ch.warnings.slice(0, 5).map(esc).join('<br>')}</p>` : ''}
+        <p class="mcp-row">
+          <button class="btn btn-sm btn-primary" data-yes="${esc(ch.id)}">${T18('Übernehmen')}</button>
+          <button class="btn btn-sm" data-no="${esc(ch.id)}">${T18('Verwerfen')}</button>
+        </p>
+      </section>`).join('')}`
+    : `<p class="hint">${T18('Keine offenen Vorschläge.')}</p>`;
+  const byId = id => changes.find(c => c.id === id);
+  const reject = ch => { ch.state = 'rejected'; ch.message = 'Vom Nutzer verworfen.'; };
+  box.querySelectorAll('[data-yes]').forEach(b => { b.onclick = () => applyChange(byId(b.dataset.yes)); });
+  box.querySelectorAll('[data-no]').forEach(b => { b.onclick = () => { reject(byId(b.dataset.no)); paint(); paintProposals(); }; });
+  box.querySelectorAll('[data-all]').forEach(b => {
+    b.onclick = () => {
+      proposals().forEach(ch => (b.dataset.all === 'yes' ? applyChange(ch) : reject(ch)));
+      paint();
+      paintProposals();
+    };
+  });
+}
+
+/* Rückfragen und Bestätigungen stapeln sich rechts oben, über allem. */
+function panel(cls) {
+  let host = document.querySelector('.mcp-panels');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'mcp-panels';
+    document.body.appendChild(host);
+  }
+  const box = document.createElement('div');
+  box.className = cls;
+  box.setAttribute('role', 'alertdialog');
+  host.appendChild(box);
+  return box;
+}
 
 /* ============================================================
    Rückfrage: IP-Konfiguration
@@ -411,9 +977,7 @@ function ask(ev, what) {
 
 function showAsk(ev, key) {
   return new Promise(resolve => {
-    const box = document.createElement('div');
-    box.className = 'mcp-ask';
-    box.setAttribute('role', 'alertdialog');
+    const box = panel('mcp-ask');
     box.setAttribute('aria-labelledby', 'mcp-ask-t');
     box.innerHTML = `
       <b id="mcp-ask-t">${T18('KI möchte die IP-Konfiguration lesen')}</b>
@@ -424,7 +988,6 @@ function showAsk(ev, key) {
         <button class="btn btn-sm" data-a="session">${T18('Für diese Sitzung erlauben')}</button>
         <button class="btn btn-sm btn-primary" data-a="once">${T18('Einmal erlauben')}</button>
       </div>`;
-    document.body.appendChild(box);
     const title = document.title;
     document.title = '⚠ ' + T18('KI-Rückfrage') + ' — ' + title;
     const done = ok => {
@@ -539,7 +1102,7 @@ function openDialog() {
             <label class="mcp-mode">
               <input type="radio" name="mcp-mode" value="${m.key}">
               <span class="ai-dot" data-mode="${m.key}"></span>
-              <span><b>${T18(m.label)}</b> — ${T18(m.desc)}${st.available.includes(m.key) ? '' : ` <em>${T18('(kommt mit den Planungswerkzeugen)')}</em>`}</span>
+              <span><b>${T18(m.label)}</b> — ${T18(m.desc)}</span>
             </label>`).join('')}
         </div>
       </section>
@@ -617,6 +1180,7 @@ function openDialog() {
 
 refresh();
 
-window.KNXMcp = { available: true, open: openDialog, refresh, state: () => ({ ...st }), tools: TOOLS };
+window.KNXMcp = { available: true, open: openDialog, openProposals, refresh, state: () => ({ ...st }),
+                  tools: TOOLS, planners: PLANNERS, changes: () => changes.slice() };
 
 })();

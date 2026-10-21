@@ -53,8 +53,11 @@ public final class McpGate implements AutoCloseable {
         }
     }
 
-    /** Waehlbar in dieser Ausbaustufe; die schreibenden Modi kommen mit den Planungswerkzeugen. */
-    static final Set<Mode> AVAILABLE = EnumSet.of(Mode.OFF, Mode.READ);
+    /** Waehlbare Modi. */
+    static final Set<Mode> AVAILABLE = EnumSet.allOf(Mode.class);
+
+    /** Modi, in denen schreibende Werkzeuge wirken. */
+    static final Set<Mode> WRITING = EnumSet.of(Mode.PROPOSE, Mode.STEP, Mode.AUTO);
 
     static final int MAX_SESSIONS = 8;
     static final long SESSION_IDLE_MS = TimeUnit.HOURS.toMillis(12);
@@ -201,7 +204,7 @@ public final class McpGate implements AutoCloseable {
     public void setMode(String project, String window, String modeKey) {
         Mode mode = Mode.of(modeKey);
         if (!AVAILABLE.contains(mode)) {
-            throw new IllegalArgumentException("Dieser Modus kommt erst mit den Planungswerkzeugen");
+            throw new IllegalArgumentException("Dieser Modus ist nicht verfuegbar");
         }
         if (window == null || !events.windowsOf(project).contains(window)) {
             throw new IllegalStateException("Das Fenster ist nicht an der Ereignisleitung angemeldet");
@@ -326,6 +329,10 @@ public final class McpGate implements AutoCloseable {
                 throw new ToolError(e.getMessage());
             }
             args.remove("project");
+            if (tool.level() == Tools.Level.WRITE && !WRITING.contains(modeOf(project))) {
+                throw new ToolError("Der KI-Zugang dieses Projekts steht auf 'Lesen'. Aendern geht erst, wenn der "
+                        + "Nutzer im Fenster Vorschlag, Einzelschritte oder Auto waehlt.");
+            }
             Map<String, Object> body = dispatch(s, project, tool, args);
             ctx = outContext(project, body);
             Object clean = tool.output().out(body.get("data"), ctx, "");
@@ -344,6 +351,11 @@ public final class McpGate implements AutoCloseable {
         } finally {
             record(s, tool.name(), project, rawArgs, t0, error, ctx);
         }
+    }
+
+    private synchronized Mode modeOf(String project) {
+        Release r = releases.get(project);
+        return r == null ? Mode.OFF : r.mode;
     }
 
     private Map<String, Object> listProjects(Session s) {
@@ -423,6 +435,8 @@ public final class McpGate implements AutoCloseable {
             ev.put("args", args);
             ev.put("session", s.label);
             ev.put("client", s.client);
+            // Der Modus zum Zeitpunkt des Aufrufs - das Fenster richtet sich danach, nicht nach seinem Stand
+            ev.put("mode", modeOf(project).key);
             if (!events.send(window, "mcp-call", ev)) throw new ToolError("Das Fenster ist nicht erreichbar.");
             publish(project);
             Map<String, Object> body;

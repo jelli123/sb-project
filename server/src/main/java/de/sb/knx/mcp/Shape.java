@@ -93,6 +93,11 @@ public abstract class Shape {
         return new Token("(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)", "IPv4-Adresse");
     }
 
+    /** Eigene Bezeichnung der KI fuer etwas, das sie im selben Aufruf anlegt (oder eine Kennung). */
+    static Shape key() {
+        return new Token("[A-Za-z0-9_-]{1,40}", "Kennung oder eigener Schluessel");
+    }
+
     /** Kurzes Schluesselwort (Knotentyp, Funktionsart, Medium). */
     static Shape word() {
         return new Token("[a-zA-Z][a-zA-Z0-9-]{0,31}", "Schluesselwort");
