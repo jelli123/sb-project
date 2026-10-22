@@ -70,24 +70,29 @@ const readFlags = () => {
 /* ---------- Geräte ---------- */
 const objCount = c => Object.keys(c.objs || {}).length;
 
+/* Die Applikationsversion gehört zum Produkt: Fassungen mit derselben
+   Bestellnummer stehen nebeneinander im Katalog. */
+const appVersionOf = c => c && c.prog && c.prog.appNumber ? T18('Version {0}', c.prog.appVersion) : '';
+
 function catalogOptions(sel) {
   const items = KNX.project().catalog;
   return `<option value="">${T18('— frei definiert —')}</option>` + items.map(c =>
     `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>` +
-    `${esc(A.L(c.name))}${c.order ? ' · ' + esc(c.order) : ''}</option>`).join('');
+    esc([A.L(c.name), c.order, appVersionOf(c)].filter(Boolean).join(' · ')) + '</option>').join('');
 }
 
 function deviceForm(d, opt) {
   const noAddr = d.addr === null;
   const [, , dev] = noAddr ? [0, 0, KNX.paSplit(KNX.freePa(d.lineId, opt && opt.exceptId))[2]] : KNX.paSplit(d.addr);
-  const cat = opt && opt.catalog;
+  // Beim Anlegen mit Katalogdialog, beim Bearbeiten als Produktwechsel
+  const cat = opt && (opt.catalog || opt.change);
   const except = opt && opt.exceptId;
   return `
     ${cat ? `
     <div class="field"><span>${T18('Produkt')}</span>
       <div class="pick-row">
         <select class="select" id="m-cat">${catalogOptions(d.catalogId)}</select>
-        <button type="button" class="btn btn-sm" id="m-cat-open">${T18('Katalog …')}</button>
+        ${opt.catalog ? `<button type="button" class="btn btn-sm" id="m-cat-open">${T18('Katalog …')}</button>` : ''}
       </div>
       <p class="hint" id="m-cat-hint"></p>
     </div>` : ''}
@@ -275,16 +280,48 @@ function wireNoAddr() {
 function actEditDevice(id) {
   const d = KNX.deviceById(id);
   if (!d) return;
-  A.openModal(T18('Gerät bearbeiten — {0}', KNX.paStr(d.addr)), deviceForm(d, { exceptId: id }), () => {
+  A.openModal(T18('Gerät bearbeiten — {0}', KNX.paStr(d.addr)), deviceForm(d, { exceptId: id, change: true }), () => {
     const r = readDevice(id);
     if (r.err) { showErr(r.err); return false; }
+    const before = d.catalogId || '', next = $('#m-cat').value || '';
     Object.assign(d, r);
+    let msg = '';
+    if (next !== before) {
+      const c = next && KNX.catalogById(next);
+      if (c) {
+        const res = KNX.changeProduct(d, next);
+        msg = res && res.orphans.length
+          ? A.t('Produkt gewechselt auf „{0}“ — {1} verknüpfte Objekte gibt es dort nicht mehr; sie bleiben als überzählig stehen.',
+                A.L(c.name), res.orphans.length)
+          : A.t('Produkt gewechselt auf „{0}“', A.L(c.name));
+      } else {
+        // Ohne Produkt bleiben die Objekte und lassen sich frei bearbeiten
+        d.catalogId = null;
+        d.params = {};
+        delete d.proxy;
+        msg = A.t('Produkt entfernt — die Objekte bleiben und lassen sich frei bearbeiten.');
+      }
+    }
     KNX.touch();
     A.commit();
+    if (msg) A.status(msg);
   });
   wireNoAddr();
   const item = d.catalogId && KNX.catalogById(d.catalogId);
   if (item && item.noAddress) $('#m-noaddr').disabled = true;
+  // Was ein Produktwechsel mit sich bringt
+  const changeHint = () => {
+    const c = KNX.catalogById($('#m-cat').value);
+    const hint = $('#m-cat-hint');
+    if (($('#m-cat').value || '') === (d.catalogId || '')) { hint.textContent = ''; return; }
+    if (!c) {
+      hint.textContent = T18('Ohne Produkt bleiben die Objekte stehen, Parameter und Programmierdaten entfallen.');
+      return;
+    }
+    const was = item ? [A.L(item.name), appVersionOf(item)].filter(Boolean).join(' · ') : T18('frei definiert');
+    hint.textContent = T18('Wechsel von {0}. Parameter und Verknüpfungen gehen mit, soweit das neue Produkt sie kennt; danach ist ein vollständiger Download fällig.', was);
+  };
+  $('#m-cat').addEventListener('change', changeHint);
   $('#m-line').addEventListener('change', e => {
     syncSegments(e.target.value, e.target.value === d.lineId ? d.segmentId : null);
     const keep = d.addr === null ? 1 : KNX.paSplit(d.addr)[2];
@@ -522,7 +559,7 @@ function actCatalog(onPick, target) {
             ${bulk ? `<input type="checkbox" class="chk cat-chk" aria-label="${T18('Auswählen')}"${picks.has(c.id) ? ' checked' : ''}>` : ''}
             <div class="cat-main">
               <b>${esc(A.L(c.name))}</b>
-              <span>${esc([c.manufacturer, c.order, A.L(c.appName)].filter(Boolean).join(' · '))}</span>
+              <span>${esc([c.manufacturer, c.order, A.L(c.appName), appVersionOf(c)].filter(Boolean).join(' · '))}</span>
             </div>
             <span class="dpt-tag">${c.hwOnly ? T18('ohne Applikation') : objCount(c)
               ? objCount(c) + ' KO'
@@ -627,6 +664,14 @@ function actCatalog(onPick, target) {
     list.querySelectorAll('.cat-del').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       const c = KNX.catalogById(b.dataset.id);
+      // Wer es noch benutzt, wechselt erst im Gerät das Produkt — dann ist nichts aufzuräumen
+      const users = KNX.catalogUsers(b.dataset.id);
+      if (users.length) {
+        A.warn(users.length === 1
+          ? A.t('„{0}“ wird von „{1}“ verwendet — dort erst unter „Bearbeiten“ ein anderes Produkt wählen, dann entfernen.', A.L(c.name), users[0].name)
+          : A.t('„{0}“ wird von {1} Geräten verwendet — dort erst unter „Bearbeiten“ ein anderes Produkt wählen, dann entfernen.', A.L(c.name), users.length));
+        return;
+      }
       KNX.deleteCatalogItem(b.dataset.id);
       if (picked === b.dataset.id) picked = '';
       picks.delete(b.dataset.id);

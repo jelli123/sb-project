@@ -21,9 +21,13 @@ import java.util.Map;
  */
 final class SimulatedSecureDevice extends SimulatedDevice {
 
-    /** Objektliste: Index 5 ist das Security-Objekt (Typ 17). */
-    static final int[] TYPES = {0, 1, 2, 9, 3, 17};
+    /**
+     * Objektliste: Index 5 ist das Security-Objekt (Typ 17), 6 und 7 die beiden Router-Objekte
+     * eines Kopplers mit Security Proxy (AN192 2.3.1: Primaer- und Sekundaerseite).
+     */
+    static final int[] TYPES = {0, 1, 2, 9, 3, 17, 6, 6};
     static final int SECURITY = 5;
+    static final int ROUTER = 6;
 
     /** Die TPCI gehoert in den MAC; fuer verbindungsorientierte Antworten setzt sie das Geraet selbst. */
     private static final class DeviceSal extends SecureApplicationLayer {
@@ -55,6 +59,8 @@ final class SimulatedSecureDevice extends SimulatedDevice {
     /** So viele Sync-Antworten kommen mit verfaelschtem MAC an - wie bei Calimero, wenn die Zufallszahl auf 00h endet. */
     volatile int garbleSyncAnswers;
     private boolean requestSecured;
+    /** Aufrufe der Function Properties 83/84 der Router-Objekte: Objekt, PID, ServiceID, Daten. */
+    final List<String> gateCalls = new ArrayList<>();
 
     SimulatedSecureDevice(IndividualAddress address, IndividualAddress tool, FakeLink link, FakeLink toTool, byte[] fdsk) {
         super(address, tool, link);
@@ -138,6 +144,15 @@ final class SimulatedSecureDevice extends SimulatedDevice {
             int n = (a[4] & 0xFF) >> 4, start = ((a[4] & 0x0F) << 8) | (a[5] & 0xFF);
             return property(apci == 0x3D7, obj, pid, n, start, Arrays.copyOfRange(a, 6, a.length));
         }
+        if (apci == 0x2C7 && ((a[2] & 0xFF) == ROUTER || (a[2] & 0xFF) == ROUTER + 1)
+                && ((a[3] & 0xFF) == 83 || (a[3] & 0xFF) == 84) && a.length >= 6) {
+            // PID_PTP_ROUTING_TEMP / PID_BC_ROUTING_TEMP (AN192 2.3.1.3, 2.3.1.4): [reserviert, ServiceID, Info]
+            gateCalls.add((a[2] & 0xFF) + "/" + (a[3] & 0xFF) + "/" + (a[5] & 0xFF) + "/"
+                    + Steps.hex(Arrays.copyOfRange(a, 6, a.length)));
+            // Die Sekundaerseite (TP1) kennt keinen System-Broadcast-Modus
+            int rc = (a[2] & 0xFF) == ROUTER + 1 && (a[3] & 0xFF) == 84 && a[5] == 1 ? 0xF2 : 0;
+            return apdu(0x2C9, a[2], a[3], (byte) rc, a[5]);
+        }
         if (apci == 0x2C7 && (a[2] & 0xFF) == SECURITY && (a[3] & 0xFF) == 51 && a.length >= 7) {
             // PID_SECURITY_MODE, WriteServiceID 00h (03/05/01 6.3.5.1)
             securityMode = a[6] == 1;
@@ -156,7 +171,7 @@ final class SimulatedSecureDevice extends SimulatedDevice {
             return propertyResponse(obj, pid, n, start, r);
         }
         if (pid == 1 && !write && obj < TYPES.length) return propertyResponse(obj, pid, n, start, new byte[] {0, (byte) TYPES[obj]});
-        if (obj != SECURITY) return propertyResponse(obj, pid, n, start, null);
+        if (obj != SECURITY && !(obj == ROUTER && pid == 81)) return propertyResponse(obj, pid, n, start, null);
         switch (pid) {
             case 5 -> {
                 if (write) {
@@ -174,7 +189,7 @@ final class SimulatedSecureDevice extends SimulatedDevice {
                 security.deviceToolKeys().put(tool, toolKey);
                 return propertyResponse(obj, pid, n, start, toolKeyAnswerEmpty ? null : toolKey.clone());
             }
-            case 53, 54, 61 -> {
+            case 53, 54, 61, 81 -> {
                 if (!write) return propertyResponse(obj, pid, n, start, null);
                 List<byte[]> el = tables.computeIfAbsent(pid, k -> new ArrayList<>());
                 if (start == 0) {

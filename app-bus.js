@@ -1204,7 +1204,9 @@ function assign(bySerial) {
 function doAssign(address, serial) {
   const btn = q(serial ? '#bus-assign-serial' : '#bus-assign');
   runTask({ btn, label: T18('Adresse {0} vergeben', address), busyText: T18('Vergibt …') }, async () => {
-    const r = await B.bus.assign(serial ? { address, serial } : { address });
+    // Die Vergabe arbeitet mit Broadcasts — Security Proxys auf dem Weg müssen sie durchlassen
+    const gates = KNXDownload.gates(KNX.project(), bus.linkAddress, address, true);
+    const r = await B.bus.assign(serial ? { address, serial, gates } : { address, gates });
     if (r.linkLost) {
       bus.connected = false;
       q('#bus-reconnect').hidden = false;
@@ -1349,7 +1351,9 @@ function doProgram(dev, plan, what) {
       state.textContent = `${d.step}/${d.total} ${d.label}`;
       t.progress(`— ${d.step}/${d.total} ${d.label}`);
     };
-    const r = await B.bus.download({ address: pa, label: `${what} ${pa}`, steps: plan.steps });
+    // Security Proxys auf dem Weg öffnen sich für die Dauer des Downloads
+    const gates = KNXDownload.gates(KNX.project(), bus.linkAddress, pa);
+    const r = await B.bus.download({ address: pa, label: `${what} ${pa}`, steps: plan.steps, gates });
     bus.progJob = r.job;
     syncControls();
     let s;

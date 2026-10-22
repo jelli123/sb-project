@@ -330,10 +330,11 @@ const TOOLS = {
       total: list.length,
       products: list.slice(0, a.limit || 50).map(c => ({
         id: c.id, name: S(c.name), manufacturer: S(c.manufacturer), order: S(c.order), application: S(c.appName),
+        ...(c.prog && c.prog.appNumber ? { applicationVersion: c.prog.appVersion } : {}),
         ...(c.medium ? { medium: c.medium } : {}),
         objects: Object.keys(c.objs || {}).length, parameters: Object.keys(c.params || {}).length,
         secure: !!c.secure, ip: !!c.ip, coupler: !!c.coupler, powerSupply: !!c.powerSupply,
-        usedBy: used.get(c.id) || 0
+        securityProxy: !!c.proxy, usedBy: used.get(c.id) || 0
       }))
     };
   },

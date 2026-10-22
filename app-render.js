@@ -1451,6 +1451,51 @@ function filterSection(d) {
         : `<p class="hint">${A.t('Keine Adresse überschreitet diese Grenze — es gibt nichts weiterzuleiten.')}</p>`}`;
 }
 
+/* Security Proxy (AN192, knx-proxy.js): was der Koppler übersetzt und ob er
+   Punkt-zu-Punkt und Broadcast je Seite durchlässt. Welche Seite gesichert
+   ist, folgt aus den Geräten — hier wird nur angezeigt. */
+function proxySection(d) {
+  const item = d.catalogId ? KNX.catalogById(d.catalogId) : null;
+  if (typeof KNXProxy === 'undefined' || !KNXProxy.capable(item) || !KNXProxy.isCoupler(KNX.project(), d)) return '';
+  const area = (KNX.couplerScope(d) || {}).kind === 'area';
+  const side = area ? [A.t('Backbone'), A.t('Bereich')] : [A.t('Hauptlinie'), A.t('Linie')];
+  const cfg = KNXProxy.config(KNX.project(), d, item);
+  if (!cfg.active) return `
+    <h3 class="detail-h">${A.t('Security Proxy')}</h3>
+    <p class="hint">${A.t('Die Produktdatei nennt den Security Proxy. Übersetzen kann der Koppler erst mit der Secure-Inbetriebnahme.')}</p>`;
+
+  const an = KNX.proxyAnalysis();
+  const entries = ((an && an.proxies.get(d.id)) || { entries: [] }).entries;
+  const max = 40;
+  const rows = entries.slice(0, max).map(e => {
+    const g = KNX.gaById(e.ga);
+    const secureAt = e.settings & KNXProxy.SEC_PRIM ? side[0] : side[1];
+    return `<li class="jump" data-kind="ga" data-id="${e.ga}">
+      <span class="addr">${g ? KNX.addrStr(g) : ''}</span>
+      <span class="grow">${esc(g ? g.name : '')}</span>
+      <span class="dpt-tag">${esc(A.t('gesichert: {0}', secureAt))}</span></li>`;
+  }).join('');
+  const pick = (kind, i) => `
+    <label class="field"><span>${esc(kind === 'ptp' ? A.t('Punkt-zu-Punkt zur {0}', side[i]) : A.t('Broadcast zur {0}', side[i]))}</span>
+      <select class="select" data-px="${kind}:${i}">
+        <option value="block"${cfg[kind][i] === 'block' ? ' selected' : ''}>${A.t('gesperrt')}</option>
+        <option value="rule"${cfg[kind][i] === 'rule' ? ' selected' : ''}>${A.t('nach Regel des Kopplers')}</option>
+      </select></label>`;
+  return `
+    <h3 class="detail-h">${A.t('Security Proxy')}</h3>
+    <div class="detail-meta">
+      <div class="meta-item"><span class="meta-num">${entries.length}</span><span class="meta-lbl">${A.t('übersetzt')}</span></div>
+    </div>
+    ${entries.length
+      ? `<ul class="detail-list">${rows}</ul>` +
+        (entries.length > max ? `<p class="hint">${A.t('… und {0} weitere.', entries.length - max)}</p>` : '')
+      : `<p class="hint">${A.t('Keine Gruppenadresse ist auf einer Seite gesichert und auf der anderen nicht.')}</p>`}
+    <div class="addr-grid" style="grid-template-columns:1fr 1fr">
+      ${pick('ptp', 1)}${pick('ptp', 0)}${pick('bc', 1)}${pick('bc', 0)}
+    </div>
+    <p class="hint">${A.t('Gesperrtes öffnet SB-Projekt beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.')}</p>`;
+}
+
 /* Busstrom einer Linie, sobald Verbraucher darauf sitzen. */
 function powerSection(lineId) {
   const p = KNX.powerBudget(lineId);
@@ -1529,6 +1574,7 @@ function detailDev(d) {
     ${noteSection(d.note)}
     ${progSection(item)}
     ${filterSection(d)}
+    ${proxySection(d)}
     <h3 class="detail-h">${A.t('Kommunikationsobjekte')}</h3>
     ${d.objs.length
       ? '<ul class="detail-list">' + d.objs.map(o => {
@@ -1840,6 +1886,16 @@ function renderDetail() {
     if (window.KNXSecure) KNXSecure.wireDevice(panel, target);
     panel.querySelectorAll('[data-fv]').forEach(b =>
       b.addEventListener('click', () => { state.filterView = b.dataset.fv; renderDetail(); }));
+    // Weiterleitung des Security Proxys: das Projekt hält nur, was gewählt ist
+    panel.querySelectorAll('[data-px]').forEach(sel => sel.addEventListener('change', () => {
+      const cfg = KNXProxy.config(KNX.project(), target);
+      const [kind, i] = sel.dataset.px.split(':');
+      const next = { ptp: cfg.ptp.slice(), bc: cfg.bc.slice() };
+      next[kind][+i] = sel.value;
+      target.proxy = next;
+      KNX.touch();
+      A.commit();
+    }));
   } else if (sel.kind === 'obj') {
     panel.innerHTML = detailObj(target.dev, target.obj);
     on('#d-assign', () => T.actAssignObj(target.obj.id));

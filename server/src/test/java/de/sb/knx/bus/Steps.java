@@ -26,6 +26,12 @@ final class Steps {
      */
     static Map<String, Object> run(BusService bus, IndividualAddress device, List<Map<String, Object>> steps, FakeLink link)
             throws Exception {
+        return run(bus, device, steps, null, link);
+    }
+
+    /** Wie oben, mit Freigaben an Security Proxys (ProxyGates). */
+    static Map<String, Object> run(BusService bus, IndividualAddress device, List<Map<String, Object>> steps, Object gates,
+                                   FakeLink link) throws Exception {
         AtomicReference<String> stacks = new AtomicReference<>("");
         Thread watchdog = new Thread(() -> {
             try {
@@ -43,7 +49,7 @@ final class Steps {
         watchdog.setDaemon(true);
         watchdog.start();
         try {
-            return bus.call(() -> new Download(bus).run(device, steps, (i, n, label) -> {}), 30);
+            return bus.call(() -> new Download(bus).run(device, steps, gates, (i, n, label) -> {}), 30);
         } catch (TimeoutException e) {
             watchdog.join();
             throw new AssertionError("Download haengt\nBus:\n" + String.join("\n", link.trace) + stacks.get(), e);

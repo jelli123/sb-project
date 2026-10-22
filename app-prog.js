@@ -986,12 +986,16 @@ function linkCheck(r, j) {
   refreshStatus();
 }
 
+/* Security Proxys zwischen Schnittstelle und Gerät öffnen sich für den Zugriff —
+   bei der Adressvergabe (`bc`) auch für Broadcasts. Siehe knx-proxy.js. */
+const proxyGates = (pa, bc = false) => KNXDownload.gates(KNX.project(), conn.linkAddress, pa, bc);
+
 async function opAssign(j, o) {
   let r;
   if (o.serial) {
     run.step = T18('Adresse per Seriennummer');
     setRow(j, 'run', T18('Adresse {0} per Seriennummer …', j.pa));
-    r = await B.bus.assign({ address: j.pa, serial: j.dev.serial });
+    r = await B.bus.assign({ address: j.pa, serial: j.dev.serial, gates: proxyGates(j.pa, true) });
   } else {
     setRow(j, 'run', T18('wartet auf die Programmiertaste'));
     run.step = T18('wartet auf die Programmiertaste');
@@ -1003,7 +1007,7 @@ async function opAssign(j, o) {
     }
     run.step = T18('Adresse wird vergeben');
     setRow(j, 'run', T18('Adresse {0} wird vergeben …', j.pa));
-    r = await B.bus.assign({ address: j.pa });
+    r = await B.bus.assign({ address: j.pa, gates: proxyGates(j.pa, true) });
   }
   linkCheck(r, j);
   // Bricht die Verbindung ab, hat sich meist die Schnittstelle selbst umadressiert — die Vergabe gilt
@@ -1042,7 +1046,7 @@ async function opDownload(j, o) {
     run.step = `${what} ${d.step}/${d.total}`;
     setRow(j, 'run', `${d.step}/${d.total} ${d.label}`, Math.round(d.step / d.total * 100));
   };
-  const r = await B.bus.download({ address: j.pa, label: `${what} ${j.pa}`, steps: plan.steps });
+  const r = await B.bus.download({ address: j.pa, label: `${what} ${j.pa}`, steps: plan.steps, gates: proxyGates(j.pa) });
   run.job = r.job;
   let s;
   try {

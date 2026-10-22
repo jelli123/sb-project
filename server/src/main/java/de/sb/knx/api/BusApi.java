@@ -281,11 +281,13 @@ public final class BusApi implements HttpHandler {
         SerialNumber ifaceSerial = bus.interfaceSerial();
         boolean wasConnected = bus.connected();
 
+        // Security Proxys auf dem Weg lassen die Broadcasts der Vergabe erst nach einer Freigabe durch
+        Object gates = body.get("gates");
         Map<String, Object> result;
         try {
             result = serial == null
-                    ? run(() -> commissioning.assignAddressViaProgrammingMode(addr), 120)
-                    : run(() -> commissioning.assignAddressViaSerial(Knx.serialNumber(serial), addr), 120);
+                    ? run(() -> withGates(gates, () -> commissioning.assignAddressViaProgrammingMode(addr)), 120)
+                    : run(() -> withGates(gates, () -> commissioning.assignAddressViaSerial(Knx.serialNumber(serial), addr)), 120);
         } catch (IllegalStateException e) {
             // Reisst die Verbindung waehrend der Vergabe ab, war meist die Schnittstelle selbst
             // das programmierte Geraet: sie startet mit neuer Adresse neu, der Tunnel ist tot.
@@ -355,7 +357,7 @@ public final class BusApi implements HttpHandler {
             events.log("info", label + ": " + steps.size() + " Schritte");
             Download dl = new Download(bus);
             try {
-                Map<String, Object> result = dl.run(addr, steps, (i, total, text) -> {
+                Map<String, Object> result = dl.run(addr, steps, body.get("gates"), (i, total, text) -> {
                     Map<String, Object> progress = Json.obj();
                     progress.put("step", i);
                     progress.put("total", total);
@@ -478,6 +480,18 @@ public final class BusApi implements HttpHandler {
     }
 
     /* ---------------- Hilfen ---------------- */
+
+    /** Fuehrt eine Aufgabe auf dem Bus aus, solange die genannten Security Proxys offen sind. */
+    private <T> T withGates(Object raw, java.util.concurrent.Callable<T> task) throws Exception {
+        de.sb.knx.bus.ProxyGates gates = new de.sb.knx.bus.ProxyGates(bus, de.sb.knx.bus.ProxyGates.parse(raw),
+                new ArrayList<>());
+        try {
+            gates.open();
+            return task.call();
+        } finally {
+            gates.close();
+        }
+    }
 
     private <T> T run(java.util.concurrent.Callable<T> task, long timeoutSeconds) throws Exception {
         try {

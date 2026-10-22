@@ -1676,6 +1676,40 @@ KNXI18n.add('en', {
   'Die Busverbindung bleibt beim anderen Fenster.': 'The bus connection stays with the other window.',
   'Belegt vom Fenster mit Projekt „{0}“': 'In use by the window with project “{0}”',
 
+  /* ---------- Security Proxy und Produktwechsel ---------- */
+  'Bereich': 'Area',
+  'Hauptlinie': 'Main line',
+  'Security Proxy': 'Security Proxy',
+  'übersetzt': 'translated',
+  '… und {0} weitere.': '… and {0} more.',
+  'Version {0}': 'version {0}',
+  'gesichert: {0}': 'secured: {0}',
+  'Punkt-zu-Punkt zur {0}': 'Point-to-point towards {0}',
+  'Broadcast zur {0}': 'Broadcast towards {0}',
+  'nach Regel des Kopplers': 'by the coupler\'s rule',
+  'Die Produktdatei nennt den Security Proxy. Übersetzen kann der Koppler erst mit der Secure-Inbetriebnahme.':
+    'The product file declares the Security Proxy. The coupler translates only once it is commissioned securely.',
+  'Keine Gruppenadresse ist auf einer Seite gesichert und auf der anderen nicht.':
+    'No group address is secured on one side and plain on the other.',
+  'Gesperrtes öffnet SB-Projekt beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.':
+    'While programming, SB-Projekt opens what is blocked for itself, 60 s at a time (AN192). The settings are downloaded with the group addresses.',
+  'An {0} trifft die Adresse auf unverschlüsselte Teilnehmer, ohne dass ein Security Proxy übersetzt.':
+    'At {0} the address meets plain devices without a Security Proxy translating.',
+  'Security Proxy übersetzt für die unverschlüsselte Seite: {0}': 'Security Proxy translating for the plain side: {0}',
+  'Produkt gewechselt auf „{0}“': 'Product changed to “{0}”',
+  'Produkt gewechselt auf „{0}“ — {1} verknüpfte Objekte gibt es dort nicht mehr; sie bleiben als überzählig stehen.':
+    'Product changed to “{0}” — {1} linked objects no longer exist there; they stay as surplus.',
+  'Produkt entfernt — die Objekte bleiben und lassen sich frei bearbeiten.':
+    'Product removed — the objects stay and can be edited freely.',
+  'Ohne Produkt bleiben die Objekte stehen, Parameter und Programmierdaten entfallen.':
+    'Without a product the objects stay; parameters and programming data are dropped.',
+  'Wechsel von {0}. Parameter und Verknüpfungen gehen mit, soweit das neue Produkt sie kennt; danach ist ein vollständiger Download fällig.':
+    'Change from {0}. Parameters and links are kept where the new product knows them; a full download is due afterwards.',
+  '„{0}“ wird von „{1}“ verwendet — dort erst unter „Bearbeiten“ ein anderes Produkt wählen, dann entfernen.':
+    '“{0}” is used by “{1}” — choose another product there under “Edit” first, then remove it.',
+  '„{0}“ wird von {1} Geräten verwendet — dort erst unter „Bearbeiten“ ein anderes Produkt wählen, dann entfernen.':
+    '“{0}” is used by {1} devices — choose another product there under “Edit” first, then remove it.',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'

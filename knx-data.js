@@ -727,6 +727,7 @@ const KNX = (() => {
         serial: normSerial(d.serial),
         // Secure-Inbetriebnahme gewählt; Schlüssel liegen in der Ablage des Dienstes, nie hier
         ...(d.secure === true ? { secure: true } : {}),
+        ...(normProxyCfg(d.proxy) ? { proxy: normProxyCfg(d.proxy) } : {}),
         // Was zuletzt ins Gerät geladen wurde (Prüfsummen, siehe KNXDownload.fingerprint)
         ...withLoaded(d.loaded),
         params: normParams(d.params),
@@ -780,6 +781,7 @@ const KNX = (() => {
         mask: normName(c.mask, ''),
         ip: !!c.ip,
         secure: normSecure(c.secure),
+        proxy: normProxy(c.proxy),
         medium: normName(c.medium, ''),
         ma: clamp(c.ma, 0, 5000, 0),
         coupler: !!c.coupler,
@@ -856,6 +858,22 @@ const KNX = (() => {
      und der Gruppenschlüsseltabelle; 0 heißt, die Datei nennt keine Grenze. */
   function normSecure(v) {
     return isMap(v) ? { ia: clamp(v.ia, 0, 65535, 0), gk: clamp(v.gk, 0, 65535, 0) } : null;
+  }
+  /* Security Proxy (AN192): die Produktdatei nennt die Fähigkeit und die Größe
+     der Proxy-Gruppenschlüsseltabelle. */
+  function normProxy(v) {
+    return isMap(v) ? { gk: clamp(v.gk, 0, 65535, 0) } : null;
+  }
+  /* Weiterleitung eines Proxys je Seite [primär, sekundär] — nur was vom
+     Vorgabewert abweicht, steht im Projekt (KNXProxy.config). */
+  function normProxyCfg(v) {
+    if (!isMap(v)) return null;
+    const side = list => Array.isArray(list) && list.length === 2 && list.every(x => x === 'rule' || x === 'block')
+      ? list.slice() : null;
+    const out = {};
+    if (side(v.ptp)) out.ptp = side(v.ptp);
+    if (side(v.bc)) out.bc = side(v.bc);
+    return Object.keys(out).length ? out : null;
   }
   /* Notizen sind frei, aber begrenzt — sie wandern in jede Projektdatei mit. */
   const NOTE_MAX = 2000;
@@ -1865,10 +1883,13 @@ const KNX = (() => {
     u: String(s || '').includes('u'), i: !!ri
   });
 
-  /* Produkte aus einer Produktdatei aufnehmen; gleiche Bestellnummer und
-     gleicher Name gelten als dasselbe Produkt und werden aufgefrischt.     */
+  /* Produkte aus einer Produktdatei aufnehmen. Gleiche Bestellnummer, gleicher
+     Name und gleiche Applikation gelten als dasselbe Produkt und werden
+     aufgefrischt; eine andere Applikationsversion kommt als eigener Eintrag
+     dazu — welches Gerät sie bekommt, entscheidet der Produktwechsel.      */
+  const appKey = c => c && c.prog ? (c.prog.appNumber || 0) + '.' + (c.prog.appVersion || 0) : '';
   function addCatalogItems(items) {
-    const key = c => (c.order || '') + '\u0000' + plainName(c.name);
+    const key = c => (c.order || '') + '\u0000' + plainName(c.name) + '\u0000' + appKey(c);
     const known = new Map(project.catalog.map(c => [key(c), c]));
     const added = [];
     items.forEach(item => {
@@ -1889,6 +1910,7 @@ const KNX = (() => {
         mask: normName(it.mask, ''),
         ip: !!it.ip,
         secure: normSecure(it.secure),
+        proxy: normProxy(it.proxy),
         medium: normName(it.medium, ''),
         ma: +it.ma || 0,
         coupler: !!it.coupler,
@@ -1913,13 +1935,39 @@ const KNX = (() => {
     return added;
   }
 
+  /* Geräte, die ein Produkt benutzen. Solange es welche gibt, bleibt es im
+     Katalog: erst per Produktwechsel umstellen, dann entfernen. */
+  const catalogUsers = id => project.devices.filter(d => d.catalogId === id);
+
   function deleteCatalogItem(id) {
     const i = project.catalog.findIndex(c => c.id === id);
-    if (i < 0) return false;
+    if (i < 0 || catalogUsers(id).length) return false;
     project.catalog.splice(i, 1);
-    project.devices.forEach(d => { if (d.catalogId === id) d.catalogId = null; });
     invalidate();
     return true;
+  }
+
+  /* Produktwechsel, etwa auf eine andere Applikationsversion. Parameter und
+     Verknüpfungen gehen mit, soweit das neue Produkt sie kennt — die Ids sind
+     ohne das Programmpräfix gespeichert und über Versionen hinweg dieselben.
+     Liefert das Ergebnis von applyProduct oder null. */
+  function changeProduct(dev, catalogId) {
+    const item = catalogById(catalogId);
+    if (!dev || !item || dev.catalogId === catalogId) return null;
+    dev.catalogId = catalogId;
+    const known = new Set(Object.keys(item.params || {}));
+    Object.keys(dev.params || {}).forEach(ref => { if (!known.has(ref)) delete dev.params[ref]; });
+    if (!item.proxy) delete dev.proxy;
+    return applyProduct(dev);
+  }
+
+  /* Was die Proxys des Projekts übersetzen (knx-proxy.js), je Stand einmal. */
+  let proxyCache = { rev: -1, project: null, value: null };
+  function proxyAnalysis() {
+    if (typeof KNXProxy === 'undefined') return null;
+    if (proxyCache.rev !== rev || proxyCache.project !== project)
+      proxyCache = { rev, project, value: KNXProxy.analyse(project) };
+    return proxyCache.value;
   }
 
   /* ---------- Gruppenadress-Baum ---------- *
@@ -1968,6 +2016,7 @@ const KNX = (() => {
    * Das, was ein Planungswerkzeug von einer Adressliste unterscheidet.     */
   function issues() {
     const ix = index();
+    const proxies = proxyAnalysis();
     const out = [];
     const add = (level, kind, id, msg) => out.push({ level, kind, id, msg });
 
@@ -1994,8 +2043,19 @@ const KNX = (() => {
           [...new Set(wrong.map(l => l.obj.dpt))].join(', '));
       if (links.some(l => !l.obj.flags.c))
         add('warn', 'ga', g.id, 'Ein zugeordnetes Objekt hat kein Kommunikations-Flag (K).');
-      // Eine sichere Adresse verstehen nur Geräte mit ihrem Gruppenschlüssel
-      if (g.secure) {
+      // Eine sichere Adresse verstehen nur Geräte mit ihrem Gruppenschlüssel —
+      // oder ein Security Proxy übersetzt für sie (knx-proxy.js)
+      if (g.secure && proxies) {
+        const mixed = proxies.mixed.filter(m => m.ga.id === g.id).map(m => m.dev);
+        if (mixed.length)
+          add('error', 'ga', g.id, 'KNX Secure: ' + mixed.map(d => paStr(d.addr) + ' ' + plainName(d.name)).join(', ') +
+            ' wird ohne Secure geladen und versteht diese Adresse nicht — auf derselben Linie läuft sie gesichert, dazwischen kann kein Security Proxy übersetzen.');
+        proxies.blocked.filter(b => b.ga.id === g.id).forEach(b => add('error', 'ga', g.id,
+          `KNX Secure: An ${paStr(b.pa)} trifft die gesicherte Adresse auf unverschlüsselte Teilnehmer ` +
+          `${b.side === 'sec' ? 'hinter' : 'vor'} dem Koppler. ` +
+          (b.dev ? `„${plainName(b.dev.name)}“ müsste als Security Proxy übersetzen — dafür braucht er eine Produktdatei mit Security Proxy und Secure-Inbetriebnahme.`
+                 : 'Dort steht kein Koppler im Projekt, der als Security Proxy übersetzen könnte.')));
+      } else if (g.secure) {
         const plain = [...new Set(links.filter(l => !l.dev.secure).map(l => l.dev))];
         if (plain.length)
           add('error', 'ga', g.id, 'KNX Secure: ' + plain.map(d => paStr(d.addr) + ' ' + plainName(d.name)).join(', ') +
@@ -2047,6 +2107,18 @@ const KNX = (() => {
         add('warn', 'device', d.id, 'KNX Secure: Seriennummer fehlt — sie kommt mit dem Gerätezertifikat (FDSK).');
       if (d.secure && cat && !cat.secure)
         add('warn', 'device', d.id, 'KNX Secure ist gewählt, die Produktdatei nennt aber keine Secure-Unterstützung — gegebenenfalls die .knxprod neu laden.');
+
+      // Security Proxy: Tabellengrößen aus der Produktdatei
+      const px = proxies && proxies.proxies.get(d.id);
+      if (px && cat && cat.proxy && cat.proxy.gk && px.entries.length > cat.proxy.gk)
+        add('error', 'device', d.id, `Security Proxy: ${px.entries.length} Gruppenadressen zu übersetzen, das Gerät fasst ${cat.proxy.gk}.`);
+      if (px && cat && cat.secure && cat.secure.ia) {
+        const n = KNXProxy.senders(project, d, proxies).length;
+        if (n > cat.secure.ia)
+          add('error', 'device', d.id, `Security Proxy: ${n} gesicherte Absender, die Security-IA-Tabelle des Geräts fasst ${cat.secure.ia}.`);
+      }
+      if (cat && cat.proxy && !d.secure && typeof KNXProxy !== 'undefined' && KNXProxy.isCoupler(project, d))
+        add('info', 'device', d.id, 'Kann als Security Proxy übersetzen — dafür braucht es die Secure-Inbetriebnahme.');
 
       if (cat && (cat.choke || cat.powerSupply) && !(+d.supply > 0))
         add('warn', 'device', d.id, (cat.choke ? 'Drossel' : 'Netzteil') +
@@ -2502,7 +2574,7 @@ const KNX = (() => {
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
     couplerScope, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
-    catalogById, addCatalogItems, deleteCatalogItem,
+    catalogById, addCatalogItems, deleteCatalogItem, catalogUsers, changeProduct, proxyAnalysis,
     resolveProduct, applyProduct, productObjects, paramValue, testHits,
     gaTree, issues,
     gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,

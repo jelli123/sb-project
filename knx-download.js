@@ -761,6 +761,8 @@ function translateOne(ctx, s, a, out) {
       case 'LdCtrlUnload': case 'LdCtrlLoad': case 'LdCtrlLoadCompleted': {
         const t = lsmTarget(a, propertyMapped, dl.mk);
         const ev = { LdCtrlUnload: 4, LdCtrlLoad: 1, LdCtrlLoadCompleted: 2 }[s.n];
+        // Die Proxy-Daten gehören zum Router-Objekt und kommen vor seinen Abschluss
+        if (ev === 2 && t.ot === ROUTER.ot && !t.occ && ctx.proxy && ctx.proxy.length) out.push(...ctx.proxy.splice(0));
         const verb = { 4: 'entladen', 1: 'Laden beginnen', 2: 'Laden abschließen' }[ev];
         out.push(lsmStep(t, ev, null, `${targetName(t)}: ${verb}`, { 4: [0], 1: [2], 2: [1] }[ev]));
         return;
@@ -886,6 +888,7 @@ const validPa = a => Number.isInteger(a) && a > 0 && (a & 0xFF) !== 0xFF;
  */
 function secureSteps(project, dev, item, kind, model, status, errors, warn) {
   const groups = new Map(project.groups.map(g => [g.id, g]));
+  const proxies = proxyAnalysis(project);
   const gaText = id => {
     const g = groups.get(id);
     return g ? (typeof KNX !== 'undefined' ? KNX.gaStr(g.raw) : String(g.raw)) : id;
@@ -991,13 +994,22 @@ function secureSteps(project, dev, item, kind, model, status, errors, warn) {
     if (!d.objs.some(o => !o.stale && o.gas.some(id => secureGas.has(id)))) return;
     if (d.secure) senders.add(d.addr);
   });
+  // Ein Security Proxy sendet übersetzte Adressen gesichert unter seiner eigenen Adresse
+  if (proxies) secureGas.forEach(id => KNXProxy.translators(project, id, proxies)
+    .forEach(a => { if (a !== dev.addr) senders.add(a); }));
+  // Der Proxy selbst nimmt gesicherte Telegramme der übersetzten Adressen an (AN192 2.3.3.1)
+  if (proxies && proxies.proxies.has(dev.id)) KNXProxy.senders(project, dev, proxies).forEach(a => senders.add(a));
   const ia = [...senders].sort((a, b) => a - b);
 
   secureGas.forEach(id => {
-    const plainPeers = project.devices.filter(d => d.id !== dev.id && !d.secure
-      && d.objs.some(o => !o.stale && o.gas.includes(id)));
-    if (plainPeers.length)
-      warn(`${gaText(id)} ist sicher, ${plainPeers.map(d => `„${d.name}“`).join(', ')} wird aber ohne Secure geladen — dort kommt nichts an.`);
+    // Wen ein Security Proxy bedient, der versteht die Adresse trotzdem
+    const unserved = proxies
+      ? proxies.mixed.filter(m => m.ga.id === id).map(m => m.dev)
+      : project.devices.filter(d => d.id !== dev.id && !d.secure && d.objs.some(o => !o.stale && o.gas.includes(id)));
+    if (unserved.length)
+      warn(`${gaText(id)} ist sicher, ${unserved.map(d => `„${d.name}“`).join(', ')} wird aber ohne Secure geladen — dort kommt nichts an.`);
+    if (proxies && proxies.blocked.some(b => b.ga.id === id))
+      warn(`${gaText(id)} ist sicher, trifft aber an einem Koppler ohne Security Proxy auf unverschlüsselte Teilnehmer — dort kommt nichts an.`);
   });
   const lim = item.secure || {};
   if (lim.gk && entries.length > lim.gk) errors.push(`${entries.length} sichere Gruppenadressen, das Gerät fasst ${lim.gk} Gruppenschlüssel.`);
@@ -1018,6 +1030,64 @@ function secureSteps(project, dev, item, kind, model, status, errors, warn) {
   if (maxNum) tables.push(prop(SEC.goFlags, 1, maxNum, flagBytes, `GO-Security-Flags: ${flags.size} Objekte gesichert`));
   tables.push(lsmStep(t, 2, null, 'Security-Objekt: Laden abschließen', [1]));
   return { head, tables, summary };
+}
+
+/* ---------- Security Proxy ---------- *
+ * AN192 2.3.1: Weiterleitung je Seite (PID 80 Punkt-zu-Punkt, 82 Broadcast;
+ * Primärseite im ersten Router-Objekt, Sekundärseite im zweiten) und die
+ * Proxy-Gruppenschlüsseltabelle (PID 81, nur im ersten). AN192 2.5.2 legt
+ * sie in den Download des Kopplers, solange die Load State Machines nicht
+ * „geladen“ melden — hier also mit der Filtertabelle, vor „Laden
+ * abschließen“ des Router-Objekts. Die Schlüssel holt der Dienst aus der
+ * Ablage; hier stehen nur die Gruppen.                                    */
+
+const ROUTER = { ot: 6, ptp: 80, keys: 81, bc: 82 };
+
+/* Die Analyse aus knx-proxy.js — im Browser je Projektstand nur einmal. */
+function proxyAnalysis(project) {
+  if (typeof KNX !== 'undefined' && KNX.proxyAnalysis && KNX.project && KNX.project() === project)
+    return KNX.proxyAnalysis();
+  return typeof KNXProxy !== 'undefined' ? KNXProxy.analyse(project) : null;
+}
+
+function proxySteps(project, dev, item, errors) {
+  if (!item || !item.proxy || typeof KNXProxy === 'undefined') return null;
+  const cfg = KNXProxy.config(project, dev, item);
+  const bit = v => v === KNXProxy.RULE ? 1 : 0;
+  const side = ['Primärseite', 'Sekundärseite'];
+  const prop = (occ, pid, value, label) => ({ op: 'writeProp', ot: ROUTER.ot, occ, pid, start: 1, count: 1,
+    data: hex([value]), verify: false, label });
+  const steps = [];
+  [0, 1].forEach(i => {
+    steps.push(prop(i, ROUTER.ptp, bit(cfg.ptp[i]), `Punkt-zu-Punkt ${side[i]}: ${cfg.ptp[i] === KNXProxy.RULE ? 'nach Regel' : 'gesperrt'}`));
+    steps.push(prop(i, ROUTER.bc, bit(cfg.bc[i]), `Broadcast ${side[i]}: ${cfg.bc[i] === KNXProxy.RULE ? 'nach Regel' : 'gesperrt'}`));
+  });
+  // Die Schlüsseltabelle verlangt den Tool Key (Zugriff 00C/00C) — ohne Secure bleibt sie, wie sie ist
+  if (cfg.active) {
+    const an = proxyAnalysis(project);
+    const entries = ((an && an.proxies.get(dev.id)) || { entries: [] }).entries
+      .map(e => ({ ga: e.ga, raw: e.raw, settings: e.settings }));
+    if (item.proxy.gk && entries.length > item.proxy.gk)
+      errors.push(`Security Proxy: ${entries.length} Gruppenadressen zu übersetzen, das Gerät fasst ${item.proxy.gk}.`);
+    steps.push({ op: 'proxyGroupKeys', ot: ROUTER.ot, occ: 0, entries,
+                 label: `Security Proxy: ${entries.length} Gruppenschlüssel` });
+  }
+  return steps;
+}
+
+/**
+ * Freigaben, die ein Zugriff von der Schnittstelle (`link`, ihre Tunneladresse
+ * als Text) auf `target` an Security Proxys unterwegs braucht. `bc` für die
+ * Adressvergabe, die mit Broadcasts arbeitet. Siehe KNXProxy.gates.
+ */
+function gates(project, link, target, bc = false) {
+  if (typeof KNXProxy === 'undefined') return [];
+  const pa = v => {
+    if (Number.isInteger(v)) return v;
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v || ''));
+    return m ? (+m[1] << 12) | (+m[2] << 8) | +m[3] : -1;
+  };
+  return KNXProxy.gates(project, pa(link), pa(target), bc);
 }
 
 /* ---------- Plan ---------- */
@@ -1103,6 +1173,9 @@ function plan(project, dev, item, opts = {}) {
 
   // KNX Secure: Zugang, Tool Key und Security Mode vorweg, das Security-Objekt vor dem Neustart
   const sec = secureSteps(project, dev, item, kind, model, opts.secure || null, errors, warn);
+  // Security Proxy: mit der Filtertabelle, vor dem Abschluss des Router-Objekts
+  ctx.proxy = kind === 'unload' ? null : proxySteps(project, dev, item, errors);
+  if (ctx.proxy) summary.proxy = ctx.proxy.filter(s => s.op === 'proxyGroupKeys').reduce((n, s) => n + s.entries.length, 0);
   if (sec) {
     summary.secure = sec.summary;
     ctx.sec = sec.tables;
@@ -1142,6 +1215,7 @@ function plan(project, dev, item, opts = {}) {
       steps.push({ op: 'authorize', key: 'FFFFFFFF', label: 'Zugriff anmelden' });
   }
   translate(ctx, proc.steps, steps);
+  if (ctx.proxy && ctx.proxy.length) steps.push(...ctx.proxy.splice(0));
   if (ctx.ip && ctx.ip.length) steps.push(...ctx.ip.splice(0));
   if (ctx.sec && ctx.sec.length) steps.push(...ctx.sec.splice(0));
 
@@ -1201,7 +1275,13 @@ function fingerprint(project, dev, item, groups) {
     o.gas.map(id => { const g = groups.get(id); return g ? [g.raw, !!g.secure] : null; })
   ]);
   const filter = usesFilterTable(item) ? digest(hex(filterTable(project, dev, 8192).table)) : '';
-  const grp = digest(JSON.stringify([app, dev.addr, !!dev.secure, objs, filter]));
+  let proxy = '';
+  if (item.proxy && typeof KNXProxy !== 'undefined') {
+    const an = proxyAnalysis(project), p = an && an.proxies.get(dev.id);
+    const cfg = KNXProxy.config(project, dev, item);
+    proxy = digest(JSON.stringify([cfg.ptp, cfg.bc, p ? p.entries.map(e => [e.raw, e.settings]) : []]));
+  }
+  const grp = digest(JSON.stringify([app, dev.addr, !!dev.secure, objs, filter, proxy]));
   return { app, par, grp };
 }
 
@@ -1212,5 +1292,5 @@ function kindParts(kind) {
 }
 
 return { plan, kinds, usesFilterTable, encode, dpt9, associations, filterTable, hex, fromHex,
-         fingerprint, kindParts };
+         fingerprint, kindParts, gates };
 })();

@@ -300,15 +300,29 @@ function wireDevice(panel, dev) {
 
 function gaSection(ga) {
   const links = KNX.gaLinks(ga.id);
-  const plain = [...new Set(links.filter(l => !l.dev.secure).map(l => l.dev))];
+  const an = KNX.proxyAnalysis ? KNX.proxyAnalysis() : null;
+  // Wen ein Security Proxy bedient, der versteht die Adresse auch ohne Secure (knx-proxy.js)
+  const plain = an
+    ? [...new Set(an.mixed.filter(m => m.ga.id === ga.id).map(m => m.dev))]
+    : [...new Set(links.filter(l => !l.dev.secure).map(l => l.dev))];
+  const unbridged = an ? an.blocked.filter(b => b.ga.id === ga.id) : [];
+  const proxies = [];
+  if (an) an.proxies.forEach(p => { if (p.entries.some(e => e.ga === ga.id)) proxies.push(p.dev); });
   return `<h3 class="detail-h">${A.IC_LOCK} KNX Secure</h3>
     <label class="chk detail-field" title="${T18('Telegramme auf dieser Adresse werden authentifiziert und verschlüsselt')}">
       <input type="checkbox" id="d-ga-secure"${ga.secure ? ' checked' : ''}> ${T18('Sicher (Gruppenschlüssel)')}</label>
     ${ga.secure && plain.length
       ? `<p class="hint warn">${T18('Ohne Secure geladen, verstehen diese Geräte die Adresse nicht: {0}', plain.map(d => esc(KNX.paStr(d.addr) + ' ' + d.name)).join(', '))}</p>`
-      : ga.secure
-        ? `<p class="hint">${T18('Wirksam, sobald alle zugeordneten Geräte neu programmiert sind. Den Schlüssel erzeugt der Dienst beim ersten Laden.')}</p>`
-        : ''}`;
+      : ''}
+    ${ga.secure && unbridged.length
+      ? `<p class="hint warn">${T18('An {0} trifft die Adresse auf unverschlüsselte Teilnehmer, ohne dass ein Security Proxy übersetzt.', unbridged.map(b => esc(KNX.paStr(b.pa))).join(', '))}</p>`
+      : ''}
+    ${ga.secure && proxies.length
+      ? `<p class="hint">${T18('Security Proxy übersetzt für die unverschlüsselte Seite: {0}', proxies.map(d => esc(KNX.paStr(d.addr) + ' ' + d.name)).join(', '))}</p>`
+      : ''}
+    ${ga.secure && !plain.length && !unbridged.length
+      ? `<p class="hint">${T18('Wirksam, sobald alle zugeordneten Geräte neu programmiert sind. Den Schlüssel erzeugt der Dienst beim ersten Laden.')}</p>`
+      : ''}`;
 }
 
 function wireGa(panel, ga) {

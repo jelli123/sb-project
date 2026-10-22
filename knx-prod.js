@@ -810,10 +810,13 @@ function readApp(ap, lang, langs) {
   const secure = attr(ap, 'IsSecureEnabled') === 'true'
     ? { ia: num(ap, 'MaxSecurityIndividualAddressEntries'), gk: num(ap, 'MaxSecurityGroupKeyTableEntries') }
     : null;
+  /* Security Proxy (AN192 3.5.1): die Fähigkeit nennt das Hardware2Program,
+     die Größe der Proxy-Gruppenschlüsseltabelle die Applikation. */
+  const proxyKeys = num(ap, 'MaxSecurityProxyGroupKeyTableEntries');
   const out = { name: pair(langs.de.get(appId + '|Name'),
                            langs.en.get(appId + '|Name') || attr(ap, 'Name')),
                 mask: attr(ap, 'MaskVersion'),
-                types, params: main.params, objs: main.objs, dyn, ip, secure, prog };
+                types, params: main.params, objs: main.objs, dyn, ip, secure, proxyKeys, prog };
   if (Object.keys(inst).length) { out.mods = mods; out.inst = inst; }
   return out;
 }
@@ -937,6 +940,7 @@ function collect(docs, prefer) {
   const apps = new Map();          // AppProgram-Id → Modell
   const h2p = new Map();           // Hardware2Program-Id → AppProgram-Id
   const hwOf = new Map();          // Hardware2Program-Id → Hardware-Daten
+  const caps = new Map();          // Hardware2Program-Id → CouplerCapabilities
   const products = new Map();      // Product-Id → { text, order, hw }
   const manufacturers = new Map(); // M-xxxx → Name
   const media = new Map();         // MaskVersion-Id → 'tp' | 'ip' | 'rf' | 'pl'
@@ -998,6 +1002,8 @@ function collect(docs, prefer) {
     });
 
     tags(doc, 'Hardware2Program').forEach(h => {
+      if (attr(h, 'Id') && attr(h, 'CouplerCapabilities'))
+        caps.set(attr(h, 'Id'), attr(h, 'CouplerCapabilities').split(/\s+/));
       const ref = tags(h, 'ApplicationProgramRef')[0];
       const appId = attr(ref, 'RefId');
       if (attr(h, 'Id') && appId) h2p.set(attr(h, 'Id'), appId);
@@ -1051,6 +1057,7 @@ function collect(docs, prefer) {
       coupler: !!(hw && hw.coupler),
       ip: app.ip || !!(hw && hw.ipEnabled),
       secure: app.secure || null,
+      proxy: (caps.get(refs.h2p) || []).includes('SecurityProxy') ? { gk: app.proxyKeys || 0 } : null,
       powerSupply: !!(hw && hw.powerSupply),
       choke: !!(hw && hw.choke),
       noAddress: !!(hw && hw.noAddress),

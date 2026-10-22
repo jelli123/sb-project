@@ -54,6 +54,8 @@ public final class Download {
     static final int PID_SECURITY_MODE = 51;
     static final int PID_GRP_KEY_TABLE = 53;
     static final int PID_TOOL_KEY = 56;
+    /** Security Proxy Group Key Table im ersten Router-Objekt (AN192 2.3.1.5). */
+    static final int PID_SECURITY_PROXY_GRP_KEY_TABLE = 81;
     private static final Map<String, Object> SECURITY_OBJECT = Map.<String, Object>of("ot", OT_SECURITY, "occ", 0);
 
     public interface Progress {
@@ -80,14 +82,25 @@ public final class Download {
 
     public Map<String, Object> run(IndividualAddress target, List<Map<String, Object>> steps, Progress progress)
             throws KNXException, InterruptedException {
+        return run(target, steps, null, progress);
+    }
+
+    /**
+     * @param gates Freigaben an Security Proxys auf dem Weg zum Geraet (siehe ProxyGates) oder null
+     */
+    public Map<String, Object> run(IndividualAddress target, List<Map<String, Object>> steps, Object gates,
+                                   Progress progress) throws KNXException, InterruptedException {
         address = target;
         long started = System.currentTimeMillis();
         int i = 0;
+        ProxyGates proxies = new ProxyGates(bus, ProxyGates.parse(gates), notes);
         try {
+            proxies.open();
             for (Map<String, Object> step : steps) {
                 i++;
                 String label = Json.str(step, "label", Json.str(step, "op", "?"));
                 progress.step(i, steps.size(), label);
+                proxies.keepAlive();
                 try {
                     execute(step);
                 } catch (KNXException | IllegalStateException | KnxSecureException e) {
@@ -106,6 +119,7 @@ public final class Download {
             }
         } finally {
             release();
+            proxies.close();
         }
         Map<String, Object> m = Json.obj();
         m.put("ok", true);
@@ -141,6 +155,7 @@ public final class Download {
             case "secureToolKey" -> secureToolKey(s);
             case "secureMode" -> secureMode(s);
             case "secureGroupKeys" -> secureGroupKeys(s);
+            case "proxyGroupKeys" -> proxyGroupKeys(s);
             case "writeRelMem" -> writeRelMem(s);
             case "loadImageProp" -> loadImageProp(s);
             default -> throw new IllegalStateException("Unbekannter Schritt: " + op);
@@ -573,6 +588,52 @@ public final class Download {
             Arrays.fill(key, (byte) 0);
             try {
                 bus.client().writePropertyUnchecked(dst(), index, PID_GRP_KEY_TABLE, i + 1, 1, entry);
+            } finally {
+                Arrays.fill(entry, (byte) 0);
+            }
+            if (Thread.interrupted()) throw new InterruptedException();
+        }
+    }
+
+    /**
+     * Security Proxy Group Key Table (AN192 2.3.1.5): je Eintrag 2 Oktette Gruppenadresse,
+     * 16 Oktette ihr Gruppenschluessel und 1 Oktett Security Settings (Sec@Prim, Sec@Sec, conf,
+     * auth), aufsteigend nach Gruppenadresse. Wie bei der Gruppenschluesseltabelle erst die Laenge 0,
+     * dann ein Eintrag je Telegramm; die Schluessel kommen aus der Ablage.
+     */
+    private void proxyGroupKeys(Map<String, Object> s) throws KNXException, InterruptedException {
+        int index = objectIndex(s);
+        String project = bus.keyProject();
+        List<Integer> raws = new ArrayList<>();
+        List<Integer> settings = new ArrayList<>();
+        List<String> groups = new ArrayList<>();
+        for (Object o : list(s, "entries")) {
+            if (!(o instanceof Map<?, ?> m) || !(m.get("raw") instanceof Number r) || !(m.get("ga") instanceof String ga)
+                    || !(m.get("settings") instanceof Number st))
+                throw new IllegalStateException("Eintrag der Proxy-Gruppenschluesseltabelle unbrauchbar");
+            int raw = r.intValue();
+            int last = raws.isEmpty() ? 0 : raws.get(raws.size() - 1);
+            if (raw <= last || raw > 0xFFFF) throw new IllegalStateException("Gruppenadressen muessen aufsteigen: " + raw);
+            raws.add(raw);
+            settings.add(st.intValue() & 0xFF);
+            groups.add(ga);
+        }
+        bus.client().writePropertyUnchecked(dst(), index, PID_SECURITY_PROXY_GRP_KEY_TABLE, 0, 1, new byte[] {0, 0});
+        for (int i = 0; i < raws.size(); i++) {
+            byte[] key;
+            try {
+                key = bus.keyVault().groupKey(project, groups.get(i));
+            } catch (java.io.IOException | java.security.GeneralSecurityException x) {
+                throw new IllegalStateException("Gruppenschluessel nicht in der Ablage gesichert: " + x.getMessage(), x);
+            }
+            byte[] entry = new byte[19];
+            entry[0] = (byte) (raws.get(i) >> 8);
+            entry[1] = (byte) (int) raws.get(i);
+            System.arraycopy(key, 0, entry, 2, 16);
+            entry[18] = (byte) (int) settings.get(i);
+            Arrays.fill(key, (byte) 0);
+            try {
+                bus.client().writePropertyUnchecked(dst(), index, PID_SECURITY_PROXY_GRP_KEY_TABLE, i + 1, 1, entry);
             } finally {
                 Arrays.fill(entry, (byte) 0);
             }

@@ -268,7 +268,8 @@ final class Tools {
 
             new Tool("list_catalog", "List product catalogue",
                     "Lists the products loaded into this project's catalogue (from manufacturer .knxprod files), "
-                            + "with manufacturer, order number, application and how many devices use each.",
+                            + "with manufacturer, order number, application and its version, and how many devices use each. "
+                            + "Several versions of one product can be loaded side by side.",
                     obj(PROJECT, opt("query", text(100), "Case-insensitive text filter."), limit(100, 50)),
                     obj(f("total", count()),
                             f("products", list(obj(
@@ -277,6 +278,7 @@ final class Tools {
                                     f("manufacturer", catalogText(120)),
                                     f("order", catalogText(120)),
                                     f("application", catalogText(200)),
+                                    f("applicationVersion", count()),
                                     f("medium", word()),
                                     f("objects", count()),
                                     f("parameters", count()),
@@ -284,6 +286,7 @@ final class Tools {
                                     f("ip", bool()),
                                     f("coupler", bool()),
                                     f("powerSupply", bool()),
+                                    f("securityProxy", bool()),
                                     f("usedBy", count())), 100))),
                     Level.READ, 30),
 

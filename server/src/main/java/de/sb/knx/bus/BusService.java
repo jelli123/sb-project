@@ -208,6 +208,12 @@ public final class BusService implements AutoCloseable {
         return l != null && l.isOpen();
     }
 
+    /** Die eigene Adresse auf dem Bus - beim Tunnel die zugeteilte Tunneladresse - oder null. */
+    public IndividualAddress linkAddress() {
+        KNXNetworkLink l = link;
+        return l != null && l.isOpen() ? l.getKNXMedium().getDeviceAddress() : null;
+    }
+
     public String interfaceAddress() {
         return interfaceAddress;
     }
