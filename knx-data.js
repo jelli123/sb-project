@@ -416,6 +416,7 @@ const KNX = (() => {
       gaNames: {},       // '1' / '1/2' → Name der Haupt- bzw. Mittelgruppe
       functions: [],     // { id, nodeId, type, name, icon, note, gas[{ ga, role }] }
       catalog: [],       // aus .knxprod übernommene Produkte
+      info: {},          // Projektnummer, Auftrag, Zeitraum, Status … (normInfo)
       privacy: { terms: [] }  // Begriffe, die nie an einen KI-Anbieter gehen (app-mcp.js)
     };
   }
@@ -449,6 +450,7 @@ const KNX = (() => {
     p.isSample = !!p.isSample;
     p.gaNames  = (p.gaNames && typeof p.gaNames === 'object') ? p.gaNames : {};
     p.privacy  = normPrivacy(p.privacy);
+    p.info     = normInfo(p.info);
 
     let seq = Math.max(+p.seq || 0, +p.nextNodeId || 0, +p.nextGaId || 0, 1);
     const takeId = (cur, pfx, seen) => {
@@ -895,6 +897,31 @@ const KNX = (() => {
     const t = String(v == null ? '' : v).trim().slice(0, NAME_MAX);
     return t || dflt;
   };
+  /* Projektangaben wie in der ETS (ProjectInformation). Der Status trägt die
+     Werte der ETS (CompletionStatus), Daten stehen als JJJJ-MM-TT; was nicht
+     passt, fällt weg. `source` und `modified` sagen, woher ein Import kam. */
+  const INFO_STATUS = ['Editing', 'FinishedDesign', 'FinishedCommissioning', 'Tested', 'Accepted', 'Locked'];
+  const INFO_TEXT = { number: 50, contract: 50, type: 60, source: 60 };
+  const isoDate = v => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v == null ? '' : v));
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3] ? m[0] : '';
+  };
+  const normInfo = v => {
+    const src = isMap(v) ? v : {}, out = {};
+    Object.entries(INFO_TEXT).forEach(([k, max]) => {
+      const t = typeof src[k] === 'string' ? src[k].trim().replace(/\s+/g, ' ').slice(0, max) : '';
+      if (t) out[k] = t;
+    });
+    ['start', 'end', 'modified'].forEach(k => { const d = isoDate(src[k]); if (d) out[k] = d; });
+    if (INFO_STATUS.includes(src.status)) out.status = src.status;
+    const c = typeof src.comment === 'string' ? normNote(src.comment).trim() : '';
+    if (c) out.comment = c;
+    return out;
+  };
+  const setProjectInfo = v => { project.info = normInfo(v); invalidate(); };
+
   /* Sperrliste für den KI-Zugang: einzelne Begriffe (Namen, Straße), je höchstens
      100 Zeichen, höchstens 200. Kürzere als 3 Zeichen nimmt der Dienst nicht an —
      sie träfen halbe Wörter; hier werden sie gar nicht erst gespeichert. */
@@ -2578,6 +2605,7 @@ const KNX = (() => {
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
     couplerScope, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
+    INFO_STATUS, normInfo, setProjectInfo,
     catalogById, addCatalogItems, deleteCatalogItem, catalogUsers, changeProduct, proxyAnalysis,
     resolveProduct, applyProduct, productObjects, paramValue, testHits,
     gaTree, issues,

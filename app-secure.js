@@ -156,6 +156,57 @@ async function lock() {
   changed();
 }
 
+/**
+ * Neues Projektpasswort für die Schlüsselablage. Der Dienst prüft das alte und
+ * verschlüsselt den Inhalt neu; danach ist die Ablage entsperrt. Liefert true,
+ * wenn geändert wurde — false, wenn abgebrochen.
+ */
+function changePassword() {
+  if (!available()) { A.warn(T18('KNX Secure braucht den lokalen Dienst.')); return Promise.resolve(false); }
+  return new Promise(resolve => {
+    let done = false;
+    const finish = ok => { if (done) return; done = true; stop(); resolve(ok); };
+    A.openModal(T18('Projektpasswort ändern'), `
+      <p>${T18('Das Projektpasswort schützt die Schlüsselablage mit Gerätezertifikaten, Tool Keys und Gruppenschlüsseln. Die Schlüssel bleiben erhalten; sie werden mit dem neuen Passwort neu verschlüsselt.')}</p>
+      <label class="field"><span>${T18('Bisheriges Passwort')}</span>
+        <input class="input" id="m-pw-old" type="password" maxlength="200" autocomplete="off"></label>
+      <label class="field"><span>${T18('Neues Passwort')}</span>
+        <input class="input" id="m-pw" type="password" maxlength="200" autocomplete="off"></label>
+      <label class="field"><span>${T18('Passwort wiederholen')}</span>
+        <input class="input" id="m-pw2" type="password" maxlength="200" autocomplete="off"></label>
+      <p class="hint warn">${T18('Ohne dieses Passwort sind die Schlüssel verloren. Geräte mit Tool Key lassen sich dann nur noch über den Werkszustand am Gerät und das Gerätezertifikat (FDSK) wieder in Betrieb nehmen.')}</p>
+      <p class="hint warn" id="m-err" hidden></p>
+    `, () => {
+      const old = $('#m-pw-old').value, pw = $('#m-pw').value;
+      if (!old) { $('#m-pw-old').focus(); return false; }
+      if (pw.length < 8) { modalError(T18('Das Projektpasswort braucht mindestens 8 Zeichen.')); $('#m-pw').focus(); return false; }
+      if (pw !== $('#m-pw2').value) { modalError(T18('Die Passwörter stimmen nicht überein.')); $('#m-pw2').focus(); return false; }
+      if (pw === old) { modalError(T18('Das neue Passwort ist dasselbe wie das bisherige.')); $('#m-pw').focus(); return false; }
+      const ok = $('#modal-ok');
+      if (ok) ok.disabled = true;
+      modalError('');
+      A.status(T18('Schlüsselablage wird neu verschlüsselt …'));
+      B().secure.password({ project: projectId(), password: old, newPassword: pw }).then(st => {
+        cache.project = projectId();
+        cache.status = st;
+        A.status('');
+        if (ok) ok.disabled = false;
+        if (!done) { finish(true); A.closeModal(); }
+        A.toast(T18('Projektpasswort geändert'));
+        changed();
+      }).catch(e => {
+        A.status('');
+        if (ok) ok.disabled = false;
+        if (done) { A.warn(e.message); return; }
+        modalError(e.message);
+        $('#m-pw-old').select();
+      });
+      return false;
+    });
+    const stop = onModalClose(() => finish(false));
+  });
+}
+
 /* ---------- Gerätezertifikat ---------- */
 
 /** Zertifikat (Seriennummer + FDSK) eines Geräts eintragen. Geprüft wird im Dienst. */
@@ -277,6 +328,7 @@ function deviceSection(dev) {
       ${unlocked
         ? `<button class="btn btn-sm" id="d-cert">${k && k.fdsk ? T18('Zertifikat ersetzen …') : T18('Zertifikat eintragen …')}</button>
            ${k && k.fdsk ? `<button class="btn btn-sm" id="d-cert-del">${T18('Zertifikat entfernen …')}</button>` : ''}
+           <button class="btn btn-sm" id="d-sec-pw">${T18('Passwort ändern …')}</button>
            <button class="btn btn-sm" id="d-sec-lock" title="${T18('Schlüssel bis zum nächsten Entsperren aus dem Speicher des Dienstes nehmen')}">${T18('Sperren')}</button>`
         : `<button class="btn btn-sm" id="d-sec-unlock">${st && !st.exists ? T18('Schlüsselablage anlegen …') : T18('Entsperren …')}</button>`}
     </div>
@@ -296,6 +348,52 @@ function wireDevice(panel, dev) {
   on('#d-cert-del', () => removeCertificate(dev.id));
   on('#d-sec-unlock', () => ensureUnlocked());
   on('#d-sec-lock', () => lock());
+  on('#d-sec-pw', () => changePassword());
+}
+
+/* ---------- Projekteinstellungen ---------- *
+ * Die Ablage gehört zum ganzen Projekt; hier steht sie unabhängig davon, ob
+ * schon ein Gerät Secure nutzt. Wer einen der Dialoge öffnet, kommt danach
+ * über `back` in die Projekteinstellungen zurück.                         */
+
+function projectSection() {
+  if (!available())
+    return `<p class="hint">${T18('KNX Secure braucht den lokalen Dienst mit seiner Schlüsselablage.')}</p>`;
+  const st = known();
+  let state, actions = '', counts = '';
+  if (!st) state = T18('wird gelesen …');
+  else if (st.error) state = T18('nicht erreichbar');
+  else if (!st.exists) {
+    state = T18('noch nicht angelegt');
+    actions = `<button type="button" class="btn btn-sm" id="m-sec-unlock">${T18('Schlüsselablage anlegen …')}</button>`;
+  } else if (!st.unlocked) {
+    state = T18('gesperrt — Passwort nötig');
+    actions = `<button type="button" class="btn btn-sm" id="m-sec-unlock">${T18('Entsperren …')}</button>
+      <button type="button" class="btn btn-sm" id="m-sec-pw">${T18('Passwort ändern …')}</button>`;
+  } else {
+    const n = Object.values(st.devices || {}).filter(k => k.fdsk || k.toolKey).length;
+    state = T18('entsperrt');
+    counts = `<li><span class="grow">${T18('Geräte mit Schlüsseln')}</span><span class="addr">${n}</span></li>
+      <li><span class="grow">${T18('Gruppenschlüssel')}</span><span class="addr">${(st.groups || []).length}</span></li>`;
+    actions = `<button type="button" class="btn btn-sm" id="m-sec-pw">${T18('Passwort ändern …')}</button>
+      <button type="button" class="btn btn-sm" id="m-sec-lock" title="${T18('Schlüssel bis zum nächsten Entsperren aus dem Speicher des Dienstes nehmen')}">${T18('Sperren')}</button>`;
+  }
+  return `<ul class="detail-list">
+      <li><span class="grow">${T18('Schlüsselablage')}</span><span class="addr${st && st.error ? ' warn' : ''}">${esc(state)}</span></li>
+      ${counts}
+    </ul>
+    ${actions ? `<div class="detail-actions" style="margin-top:10px">${actions}</div>` : ''}
+    ${st && st.exists && st.file ? `<p class="hint">${T18('Schlüsseldatei: {0} — bitte mit dem Projekt sichern; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.', `<code>${esc(st.file)}</code>`)}</p>` : ''}
+    <p class="hint">${T18('Ein Entfernen des Passworts ist nicht vorgesehen: Ohne es lägen die Schlüssel unverschlüsselt auf der Platte.')}</p>`;
+}
+
+/* `leave` hält den Formularstand fest und schließt den Dialog, `back` öffnet ihn wieder. */
+function wireProject(root, leave, back) {
+  const on = (sel, fn) => { const el = root.querySelector(sel); if (el) el.addEventListener('click', fn); };
+  const via = run => () => { leave(); A.nextModal(() => run().then(back)); };
+  on('#m-sec-unlock', via(ensureUnlocked));
+  on('#m-sec-pw', via(changePassword));
+  on('#m-sec-lock', () => lock());
 }
 
 function gaSection(ga) {
@@ -337,7 +435,8 @@ function wireGa(panel, ga) {
 
 window.KNXSecure = {
   available, known, refresh, relevant, keysOf,
-  ensureUnlocked, lock, enterCertificate, removeCertificate, bindForBus,
+  ensureUnlocked, lock, changePassword, enterCertificate,
+  projectSection, wireProject, removeCertificate, bindForBus,
   deviceSection, wireDevice, gaSection, wireGa,
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); }
 };

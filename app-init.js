@@ -55,6 +55,79 @@ $('#project-name').addEventListener('change', e => {
   syncProjectMeta();
 });
 
+/* ---------- Projekteinstellungen ---------- *
+ * Angaben wie in der ETS (beim Import übernommen) und die Schlüsselablage
+ * für KNX Secure, deren Passwort für das ganze Projekt gilt.              */
+const INFO_STATUS_LABEL = {
+  Editing: 'In Bearbeitung', FinishedDesign: 'Planung abgeschlossen',
+  FinishedCommissioning: 'Inbetriebnahme abgeschlossen', Tested: 'Geprüft',
+  Accepted: 'Abgenommen', Locked: 'Gesperrt'
+};
+const fmtDate = iso => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(KNXI18n.lang()) : '';
+};
+
+function actProjectSettings(draft) {
+  const p = KNX.project();
+  const f = draft || { name: p.name, ...p.info };
+  const S = window.KNXSecure;
+  const input = (id, label, val, max, type = 'text') =>
+    `<label class="field"><span>${T18(label)}</span>
+      <input class="input" id="${id}" type="${type}" maxlength="${max}" value="${esc(val || '')}"></label>`;
+  A.openModal(T18('Projekteinstellungen'), `
+    ${input('m-name', 'Name', f.name, 200)}
+    <div class="addr-grid" style="grid-template-columns:1fr 1fr">
+      ${input('m-number', 'Projektnummer', f.number, 50)}
+      ${input('m-contract', 'Auftragsnummer', f.contract, 50)}
+      ${input('m-start', 'Projektbeginn', f.start, 10, 'date')}
+      ${input('m-end', 'Projektende', f.end, 10, 'date')}
+      <label class="field"><span>${T18('Status')}</span>
+        <select class="select" id="m-status"><option value="">—</option>${KNX.INFO_STATUS.map(k =>
+          `<option value="${k}"${k === f.status ? ' selected' : ''}>${esc(T18(INFO_STATUS_LABEL[k]))}</option>`).join('')}</select></label>
+      ${input('m-type', 'Projektart', f.type, 60)}
+    </div>
+    <label class="field"><span>${T18('Kommentar')}</span>
+      <textarea class="input note" id="m-comment" rows="4" maxlength="${KNX.NOTE_MAX}">${esc(f.comment || '')}</textarea></label>
+    ${p.info.source ? `<p class="hint">${T18('Übernommen aus {0}, dort zuletzt geändert am {1}.', esc(p.info.source), fmtDate(p.info.modified) || '—')}</p>` : ''}
+    <h3 class="detail-h">${A.IC_LOCK} ${T18('KNX Secure — Projektpasswort')}</h3>
+    <div id="m-secure">${S ? S.projectSection() : `<p class="hint">${T18('KNX Secure braucht den lokalen Dienst mit seiner Schlüsselablage.')}</p>`}</div>
+    <div id="m-err"></div>
+  `, () => {
+    const r = read();
+    if (!r.name.trim()) { $('#m-name').focus(); return false; }
+    if (r.start && r.end && r.end < r.start) {
+      $('#m-err').innerHTML = `<p class="hint warn">${T18('Das Projektende liegt vor dem Beginn.')}</p>`;
+      return false;
+    }
+    const { name, ...info } = r;
+    p.name = name.trim().slice(0, 200);
+    KNX.findNode(p.tree.id).name = p.name;
+    p.isSample = false;
+    KNX.setProjectInfo({ ...p.info, ...info });
+    A.commit();
+    syncProjectMeta();
+  });
+  const read = () => ({
+    name: $('#m-name').value, number: $('#m-number').value, contract: $('#m-contract').value,
+    start: $('#m-start').value, end: $('#m-end').value, status: $('#m-status').value,
+    type: $('#m-type').value, comment: $('#m-comment').value
+  });
+  if (!S) return;
+  const box = $('#m-secure');
+  const leave = () => { const d = read(); A.closeModal(); draft = d; };
+  const back = () => A.nextModal(() => actProjectSettings(draft));
+  const wire = () => S.wireProject(box, leave, back);
+  wire();
+  // Die Ablage meldet sich asynchron (Status gelesen, gesperrt) — solange der Dialog offen ist, nachziehen
+  const off = S.onChange(() => {
+    if (!document.body.contains(box)) { off(); return; }
+    box.innerHTML = S.projectSection();
+    wire();
+  });
+}
+$('#btn-project').addEventListener('click', () => actProjectSettings());
+
 /* ---------- Adressstil (projektweit, wie in der ETS) ---------- */
 $('#ga-style').addEventListener('change', e => {
   KNX.project().gaStyle = e.target.value;

@@ -46,6 +46,53 @@ function int(v, lo, hi) {
 const VALUE_MAX = 2000;
 const text = (v, max = 200) => String(v == null ? '' : v).trim().slice(0, max);
 
+/* Kommentare speichert die ETS als RTF. Übernommen wird nur der Text:
+   Absätze als Zeilen, Sonderzeichen über \'xx (Windows-1252) und \uN,
+   Kopfgruppen wie Schrift- und Farbtabelle fallen weg. */
+const RTF_SKIP = new Set(['*', 'fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'header', 'footer', 'generator']);
+const CP1252 = new TextDecoder('windows-1252');
+function rtfText(s) {
+  s = String(s == null ? '' : s);
+  if (!/^\s*\{\\rtf/.test(s)) return s;
+  let out = '', skip = false, i = 0;
+  const stack = [];
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '{') {
+      stack.push(skip);
+      i++;
+      const m = /^\\(\*|[a-z]+)/.exec(s.slice(i, i + 20));
+      if (m && RTF_SKIP.has(m[1])) skip = true;
+    } else if (ch === '}') {
+      skip = stack.length ? stack.pop() : false;
+      i++;
+    } else if (ch === '\\') {
+      const m = /^\\([a-z]+)(-?\d+)? ?/.exec(s.slice(i, i + 40));
+      if (m) {
+        i += m[0].length;
+        if (skip) continue;
+        if (m[1] === 'par' || m[1] === 'line') out += '\n';
+        else if (m[1] === 'tab') out += '\t';
+        else if (m[1] === 'u' && m[2]) {
+          out += String.fromCharCode((+m[2] + 0x10000) % 0x10000);
+          if (s[i] === '?') i++;
+        }
+      } else if (s[i + 1] === "'" && /^[0-9a-f]{2}$/i.test(s.slice(i + 2, i + 4))) {
+        if (!skip) out += CP1252.decode(new Uint8Array([parseInt(s.slice(i + 2, i + 4), 16)]));
+        i += 4;
+      } else {
+        if (!skip && '\\{}'.includes(s[i + 1])) out += s[i + 1];
+        else if (!skip && s[i + 1] === '~') out += '\u00a0';
+        i += 2;
+      }
+    } else {
+      if (!skip && ch !== '\r' && ch !== '\n') out += ch;
+      i++;
+    }
+  }
+  return out.replace(/[ \t]+\n/g, '\n').trim();
+}
+
 /* Die Seriennummer steht base64-kodiert im Projekt (6 Byte). */
 function serialHex(b64) {
   try {
@@ -160,6 +207,16 @@ function build(doc, infoDoc, products, say) {
   const info = (infoDoc && tags(infoDoc, 'ProjectInformation')[0]) || tags(doc, 'ProjectInformation')[0];
   const name = text(attr(info, 'Name')) || text(attr(tags(doc, 'Project')[0], 'Name')) || 'ETS-Projekt';
   const gaStyle = GA_STYLE[attr(info, 'GroupAddressStyle')] || 'three';
+  // Geprüft wird in KNX.normInfo; hier nur die Namen der ETS übersetzt
+  const root = (infoDoc || doc).documentElement;
+  const projectInfo = {
+    number: attr(info, 'ProjectNumber'), contract: attr(info, 'ContractNumber'),
+    start: attr(info, 'ProjectStart'), end: attr(info, 'ProjectEnd'),
+    status: attr(info, 'CompletionStatus'), type: attr(info, 'ProjectType'),
+    comment: rtfText(attr(info, 'Comment')),
+    source: [attr(root, 'CreatedBy'), attr(root, 'ToolVersion')].filter(Boolean).join(' '),
+    modified: attr(info, 'LastModified')
+  };
 
   /* ---- Gruppenadressen ---- *
    * Die Verweise der Objekte (Links) nennen nur den hinteren Teil der Id
@@ -302,7 +359,7 @@ function build(doc, infoDoc, products, say) {
     }
     const name = text(attr(dEl, 'Name')) || (prod ? text(plain(prod.name)) : '') || 'Gerät';
     const comment = attr(dEl, 'Comment');
-    const note = [attr(dEl, 'Description'), /^\s*\{\\rtf/.test(comment) ? '' : comment]
+    const note = [attr(dEl, 'Description'), rtfText(comment)]
       .map(s => text(s, 2000)).filter(s => s && s !== name).join('\n');
     const d = {
       id: nid('d'), name,
@@ -486,7 +543,7 @@ function build(doc, infoDoc, products, say) {
 
   return {
     schema: 3, name, isSample: false, gaStyle, seq: seq + 1,
-    tree, areas, devices, groups, gaNames, functions, catalog
+    tree, areas, devices, groups, gaNames, functions, catalog, info: projectInfo
   };
 }
 

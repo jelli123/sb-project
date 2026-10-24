@@ -1710,6 +1710,38 @@ KNXI18n.add('en', {
   '„{0}“ wird von {1} Geräten verwendet — dort erst unter „Bearbeiten“ ein anderes Produkt wählen, dann entfernen.':
     '“{0}” is used by {1} devices — choose another product there under “Edit” first, then remove it.',
 
+  /* ---------- Projekteinstellungen ---------- */
+  'Projekteinstellungen': 'Project settings',
+  'Projektnummer': 'Project number',
+  'Auftragsnummer': 'Contract number',
+  'Projektbeginn': 'Project start',
+  'Projektende': 'Project end',
+  'Projektart': 'Project type',
+  'Kommentar': 'Comment',
+  'In Bearbeitung': 'Editing',
+  'Planung abgeschlossen': 'Design finished',
+  'Inbetriebnahme abgeschlossen': 'Commissioning finished',
+  'Geprüft': 'Tested',
+  'Abgenommen': 'Accepted',
+  'Gesperrt': 'Locked',
+  'Übernommen aus {0}, dort zuletzt geändert am {1}.': 'Imported from {0}, last modified there on {1}.',
+  'Das Projektende liegt vor dem Beginn.': 'The project end is before its start.',
+  'KNX Secure — Projektpasswort': 'KNX Secure — project password',
+  'entsperrt': 'unlocked',
+  'Geräte mit Schlüsseln': 'Devices with keys',
+  'Gruppenschlüssel': 'Group keys',
+  'Ein Entfernen des Passworts ist nicht vorgesehen: Ohne es lägen die Schlüssel unverschlüsselt auf der Platte.':
+    'Removing the password is not supported: without it the keys would lie unencrypted on disk.',
+  'Projektpasswort ändern': 'Change project password',
+  'Passwort ändern …': 'Change password …',
+  'Bisheriges Passwort': 'Current password',
+  'Neues Passwort': 'New password',
+  'Das neue Passwort ist dasselbe wie das bisherige.': 'The new password is the same as the current one.',
+  'Schlüsselablage wird neu verschlüsselt …': 'Re-encrypting the key store …',
+  'Projektpasswort geändert': 'Project password changed',
+  'Das Projektpasswort schützt die Schlüsselablage mit Gerätezertifikaten, Tool Keys und Gruppenschlüsseln. Die Schlüssel bleiben erhalten; sie werden mit dem neuen Passwort neu verschlüsselt.':
+    'The project password protects the key store with device certificates, tool keys and group keys. The keys are kept and re-encrypted with the new password.',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'
