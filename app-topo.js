@@ -263,7 +263,15 @@ function actNewDevice(ctx) {
   $('#m-cat-open').addEventListener('click', () => {
     const draftNow = readDraft();
     A.closeModal();
-    actCatalog(id => actNewDevice({ ...ctx, draft: draftNow, catalogId: id || draftNow.catalogId }),
+    actCatalog((id, t) => {
+      const draft = { ...draftNow };
+      if (t) {
+        // Auf einer anderen Linie gilt die alte Adresse nicht mehr
+        if (t.lineId && t.lineId !== draft.lineId && draft.addr !== null) draft.addr = KNX.freePa(t.lineId);
+        Object.assign(draft, { lineId: t.lineId || draft.lineId, segmentId: t.segmentId, roomId: t.roomId });
+      }
+      actNewDevice({ ...ctx, draft, catalogId: id || draftNow.catalogId });
+    },
                { lineId: draftNow.lineId, segmentId: draftNow.segmentId, roomId: draftNow.roomId });
   });
   applyCat();
@@ -598,7 +606,8 @@ function actCatalog(onPick, target) {
       return;
     }
     const id = bulk && single() ? [...picks.keys()][0] : picked;
-    if (onPick) A.nextModal(() => onPick(id));
+    // Ziellinie, Segment und Raum gehen mit zurück ins Formular
+    if (onPick) A.nextModal(() => onPick(id, bulk ? { ...tgt } : null));
   });
 
   const sync = () => {
