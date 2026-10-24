@@ -1,11 +1,13 @@
 package de.sb.knx.bus;
 
 import de.sb.knx.json.Json;
+import de.sb.knx.secure.KeyVault;
 import tuwien.auto.calimero.DeviceDescriptor;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.KNXException;
 import tuwien.auto.calimero.KNXRemoteException;
 import tuwien.auto.calimero.ReturnCode;
+import tuwien.auto.calimero.knxnetip.SecureConnection;
 import tuwien.auto.calimero.mgmt.Destination;
 import tuwien.auto.calimero.mgmt.FuncPropResponse;
 import tuwien.auto.calimero.mgmt.KNXDisconnectException;
@@ -57,6 +59,13 @@ public final class Download {
     /** Security Proxy Group Key Table im ersten Router-Objekt (AN192 2.3.1.5). */
     static final int PID_SECURITY_PROXY_GRP_KEY_TABLE = 81;
     private static final Map<String, Object> SECURITY_OBJECT = Map.<String, Object>of("ot", OT_SECURITY, "occ", 0);
+
+    /** KNXnet/IP-Parameterobjekt (Objekttyp 11) und seine Secure-Properties (03/08/09 2.3.1). */
+    static final int OT_KNXNETIP = 11;
+    static final int PID_BACKBONE_KEY = 91, PID_DEVICE_AUTHENTICATION_CODE = 92, PID_PASSWORD_HASHES = 93,
+            PID_SECURED_SERVICE_FAMILIES = 94, PID_MULTICAST_LATENCY_TOLERANCE = 95, PID_TUNNELLING_USERS = 97;
+    private static final int FAMILY_DEVICE_MANAGEMENT = 0x03, FAMILY_TUNNELLING = 0x04, FAMILY_ROUTING = 0x05;
+    private static final Map<String, Object> IP_OBJECT = Map.<String, Object>of("ot", OT_KNXNETIP, "occ", 0);
 
     public interface Progress {
         void step(int index, int total, String label);
@@ -156,6 +165,7 @@ public final class Download {
             case "secureMode" -> secureMode(s);
             case "secureGroupKeys" -> secureGroupKeys(s);
             case "proxyGroupKeys" -> proxyGroupKeys(s);
+            case "ipSecure" -> ipSecure(s);
             case "writeRelMem" -> writeRelMem(s);
             case "loadImageProp" -> loadImageProp(s);
             default -> throw new IllegalStateException("Unbekannter Schritt: " + op);
@@ -593,6 +603,94 @@ public final class Download {
             }
             if (Thread.interrupted()) throw new InterruptedException();
         }
+    }
+
+    /**
+     * KNXnet/IP Secure einrichten (03/08/09 2.3.1), wie die ETS: Device Authentication Code, die
+     * Passwort-Hashes (User 1 = Verwaltung, danach je Tunneladresse ein Benutzer), die Zuordnung
+     * Benutzer - Tunnel, fuer gesichertes Routing Backbone Key und Latenz, zuletzt die gesicherten
+     * Dienstfamilien. Alles geht ueber Data Secure mit dem Tool Key; die Passwoerter stehen vorher
+     * in der Ablage. Bestehende Verbindungen bleiben bestehen (2.3.1.5.4.1) - erst nach dem Neustart
+     * verlangt die Schnittstelle den gesicherten Tunnel.
+     */
+    private void ipSecure(Map<String, Object> s) throws KNXException, InterruptedException {
+        if (secureKind == null)
+            throw new IllegalStateException("KNX IP Secure braucht den Secure-Zugang zum Geraet (Tool Key).");
+        int index = objectIndex(IP_OBJECT);
+        boolean on = Json.bool(s, "on", true);
+        boolean routing = on && Json.bool(s, "routing", false);
+        if (on) {
+            String project = bus.keyProject();
+            String serial = Json.str(s, "serial", null);
+            List<Integer> tunnels = new ArrayList<>();
+            for (Object o : list(s, "tunnels")) {
+                if (!(o instanceof Number n) || n.intValue() <= 0 || n.intValue() > 0xFFFF)
+                    throw new IllegalStateException("Tunneladresse unbrauchbar: " + o);
+                tunnels.add(n.intValue());
+            }
+            if (tunnels.size() > 126) throw new IllegalStateException("Hoechstens 126 Tunnel");
+            KeyVault.IpCreds c;
+            byte[] backbone = null;
+            try {
+                c = bus.keyVault().ensureIpCreds(project, serial, tunnels);
+                if (routing) backbone = bus.keyVault().backboneKey(project, Json.str(s, "mcast", "224.0.23.12"), true);
+            } catch (java.io.IOException | java.security.GeneralSecurityException x) {
+                throw new IllegalStateException("Zugang fuer KNX IP Secure nicht in der Ablage gesichert - es wird nichts geschrieben: "
+                        + x.getMessage(), x);
+            }
+            byte[] auth = SecureConnection.hashDeviceAuthenticationPassword(c.auth().toCharArray());
+            try {
+                bus.client().writeSecret(dst(), index, PID_DEVICE_AUTHENTICATION_CODE, 1, auth);
+            } finally {
+                Arrays.fill(auth, (byte) 0);
+            }
+            List<String> passwords = new ArrayList<>();
+            passwords.add(c.mgmt());
+            tunnels.forEach(pa -> passwords.add(c.tunnels().get(pa)));
+            bus.client().writePropertyUnchecked(dst(), index, PID_PASSWORD_HASHES, 0, 1, u16(passwords.size()));
+            for (int i = 0; i < passwords.size(); i++) {
+                byte[] hash = SecureConnection.hashUserPassword(passwords.get(i).toCharArray());
+                try {
+                    bus.client().writeSecret(dst(), index, PID_PASSWORD_HASHES, i + 1, hash);
+                } finally {
+                    Arrays.fill(hash, (byte) 0);
+                }
+                if (Thread.interrupted()) throw new InterruptedException();
+            }
+            // Benutzer 2.. je ein Tunnel, nach Benutzer sortiert; Index in PID_TUNNELLING_ADDRESSES ab 1 (2.3.1.8.3)
+            bus.client().writePropertyUnchecked(dst(), index, PID_TUNNELLING_USERS, 0, 1, u16(0));
+            for (int i = 0; i < tunnels.size(); i++)
+                bus.client().writePropertyUnchecked(dst(), index, PID_TUNNELLING_USERS, i + 1, 1,
+                        new byte[] {(byte) (i + 2), (byte) (i + 1)});
+            if (routing) {
+                try {
+                    bus.client().writePropertyUnchecked(dst(), index, PID_MULTICAST_LATENCY_TOLERANCE, 1, 1,
+                            u16(Json.integer(s, "latency", 2000)));
+                    bus.client().writeSecret(dst(), index, PID_BACKBONE_KEY, 1, backbone);
+                } finally {
+                    Arrays.fill(backbone, (byte) 0);
+                }
+            }
+        }
+        family(index, FAMILY_DEVICE_MANAGEMENT, on);
+        family(index, FAMILY_TUNNELLING, on);
+        family(index, FAMILY_ROUTING, routing);
+        notes.add(on ? "KNX IP Secure fuer " + address + " eingerichtet: Verwaltung und Tunnel gesichert"
+                + (routing ? ", Routing gesichert" : "") + ". Nach dem Neustart nur noch gesicherte Verbindungen."
+                : "KNX IP Secure fuer " + address + " ausgeschaltet: Verbindungen wieder ungesichert.");
+    }
+
+    /** PID_SECURED_SERVICE_FAMILIES: [00 reserviert][00 Write][Familie][Version] (03/08/09 2.3.1.5.4.1). */
+    private void family(int index, int family, boolean on) throws KNXException, InterruptedException {
+        FuncPropResponse r = bus.client().callFunctionProperty(dst(), index, PID_SECURED_SERVICE_FAMILIES,
+                (byte) 0x00, (byte) 0x00, (byte) family, (byte) (on ? 1 : 0));
+        if (r.returnCode() != ReturnCode.Success)
+            throw new IllegalStateException("Dienstfamilie " + family + " " + (on ? "sichern" : "freigeben")
+                    + ": das Geraet meldet " + r.returnCode() + ".");
+    }
+
+    private static byte[] u16(int v) {
+        return new byte[] {(byte) (v >> 8), (byte) v};
     }
 
     /**

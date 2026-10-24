@@ -207,6 +207,111 @@ function changePassword() {
   });
 }
 
+/* ---------- Keyring (.knxkeys) ---------- *
+ * Austausch mit anderen Werkzeugen im Format der ETS: hinaus gehen die
+ * Schlüssel, die in Geräten stecken (Tool Keys, Zugänge für KNX IP Secure,
+ * Gruppen- und Backbone Key), herein kommen die eines ETS-Projekts. Die
+ * Zuordnung macht die Oberfläche über Adressen; die Schlüssel sieht sie nie. */
+
+function keyringScope() {
+  const p = KNX.project();
+  const bb = p.areas.find(a => a.backbone);
+  const bbLine = bb && bb.lines[0];
+  return {
+    project: projectId(),
+    name: p.name,
+    multicast: bbLine && bbLine.medium === 'ip' ? bbLine.mcast : null,
+    latency: 2000,
+    devices: p.devices.filter(d => d.serial && KNX.hasPa(d))
+      .map(d => ({ serial: d.serial, address: d.addr, tunnels: KNX.tunnelAddrs(d) })),
+    groups: p.groups.filter(g => g.raw > 0).map(g => ({ id: g.id, raw: g.raw }))
+  };
+}
+
+function keyringPasswordDialog(title, intro, confirm, run) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = ok => { if (done) return; done = true; stop(); resolve(ok); };
+    A.openModal(title, `
+      <p>${intro}</p>
+      <label class="field"><span>${T18('Keyring-Passwort')}</span>
+        <input class="input" id="m-pw" type="password" maxlength="200" autocomplete="off"></label>
+      ${confirm ? `<label class="field"><span>${T18('Passwort wiederholen')}</span>
+        <input class="input" id="m-pw2" type="password" maxlength="200" autocomplete="off"></label>` : ''}
+      <p class="hint warn" id="m-err" hidden></p>
+    `, () => {
+      const pw = $('#m-pw').value;
+      if (confirm && pw.length < 8) { modalError(T18('Das Keyring-Passwort braucht mindestens 8 Zeichen.')); $('#m-pw').focus(); return false; }
+      if (!pw) { $('#m-pw').focus(); return false; }
+      if (confirm && pw !== $('#m-pw2').value) { modalError(T18('Die Passwörter stimmen nicht überein.')); $('#m-pw2').focus(); return false; }
+      const ok = $('#modal-ok');
+      if (ok) ok.disabled = true;
+      modalError('');
+      run(pw).then(() => {
+        if (ok) ok.disabled = false;
+        if (!done) { finish(true); A.closeModal(); }
+      }).catch(e => {
+        if (ok) ok.disabled = false;
+        if (done) { A.warn(e.message); return; }
+        modalError(e.message);
+        $('#m-pw').select();
+      });
+      return false;
+    });
+    const stop = onModalClose(() => finish(false));
+  });
+}
+
+async function exportKeyring() {
+  if (!(await ensureUnlocked())) return false;
+  return new Promise(resolve => A.nextModal(() => resolve(keyringPasswordDialog(T18('Keyring exportieren'),
+    T18('Der Keyring (.knxkeys, Format der ETS) enthält die Schlüssel, die in Geräten stecken: Tool Keys, Zugänge für KNX IP Secure, Gruppenschlüssel und den Backbone Key. Andere Programme — etwa eine Visualisierung — brauchen ihn für gesicherte Tunnel. Er wird mit einem eigenen Passwort verschlüsselt.'),
+    true, async pw => {
+      const r = await B().secure.keyringExport({ ...keyringScope(), password: pw });
+      const blob = new Blob([r.file], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (KNX.project().name.toLowerCase().replace(/[^\wäöüß]+/gi, '-').replace(/^-|-$/g, '') || 'projekt') + '.knxkeys';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      A.toast(T18('Keyring exportiert: {0} Geräte, {1} mit KNX IP Secure, {2} Gruppenschlüssel', r.devices, r.ip, r.groups));
+    }))));
+}
+
+function pickKeyringFile() {
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.knxkeys,application/xml,text/xml';
+    input.addEventListener('change', () => resolve(input.files[0] || null));
+    input.click();
+  });
+}
+
+async function importKeyring() {
+  const file = await pickKeyringFile();
+  if (!file) return false;
+  if (file.size > 8 * 1024 * 1024) { A.warn(T18('Der Keyring ist unplausibel groß.')); return false; }
+  const text = await file.text();
+  if (!(await ensureUnlocked())) return false;
+  return new Promise(resolve => A.nextModal(() => resolve(keyringPasswordDialog(T18('Keyring importieren'),
+    T18('Übernimmt aus „{0}“ die Schlüssel der Geräte und Gruppenadressen dieses Projekts — zugeordnet über ihre Adressen — in die Schlüsselablage.', esc(file.name)),
+    false, async pw => {
+      const scope = keyringScope();
+      const r = await B().secure.keyringImport({ project: scope.project, password: pw, file: text,
+                                                  devices: scope.devices, groups: scope.groups });
+      cache.project = projectId();
+      cache.status = r.status;
+      changed();
+      A.toast(T18('Keyring übernommen: {0} Tool Keys, {1} Zugänge für KNX IP Secure, {2} Gruppenschlüssel', r.toolKeys, r.ip, r.groups));
+      if (r.unknownDevices && r.unknownDevices.length)
+        A.warn(T18('Ohne passendes Gerät im Projekt (Adresse mit Seriennummer): {0}', r.unknownDevices.join(', ')));
+    }))));
+}
+
 /* ---------- Gerätezertifikat ---------- */
 
 /** Zertifikat (Seriennummer + FDSK) eines Geräts eintragen. Geprüft wird im Dienst. */
@@ -320,9 +425,17 @@ function deviceSection(dev) {
   if (!dev.secure && k && (k.toolKey || k.pending))
     hints.push(`<p class="hint">${T18('Das Gerät hat einen Tool Key. Beim nächsten Programmieren werden Security Mode und Schlüsseltabellen zurückgenommen; der Tool Key bleibt bis zum Werkszustand.')}</p>`);
   const unlocked = st && st.unlocked;
+  // KNXnet/IP Secure: nur für IP-Geräte mit Secure, eingerichtet über Data Secure
+  const ipCapable = KNX.deviceCanIp(dev) && item && item.secure;
+  if (ipCapable && dev.ipSecure && st && st.unlocked && dev.serial && (st.ip || {})[dev.serial])
+    rows.push(`<li><span class="grow">${T18('Zugang KNX IP Secure')}</span><span class="addr">${T18('hinterlegt')}</span></li>`);
+  if (ipCapable && dev.ipSecure && !(dev.loaded && dev.loaded.ipSecure))
+    hints.push(`<p class="hint">${T18('KNX IP Secure wird beim nächsten Programmieren eingerichtet. Danach nimmt die Schnittstelle nur noch gesicherte Verbindungen an; Passwörter für andere Programme stehen im Keyring (Projekteinstellungen).')}</p>`);
   return `<h3 class="detail-h">${A.IC_LOCK} KNX Secure</h3>
     <label class="chk detail-field" title="${T18('Tool Key setzen, Security Mode einschalten und gesicherte Gruppenadressen laden')}">
       <input type="checkbox" id="d-secure"${dev.secure ? ' checked' : ''}> ${T18('Secure-Inbetriebnahme')}</label>
+    ${ipCapable ? `<label class="chk detail-field" title="${T18('Verwaltung und Tunnel nur noch verschlüsselt und mit Passwort (KNXnet/IP Secure)')}">
+      <input type="checkbox" id="d-ipsecure"${dev.ipSecure ? ' checked' : ''}${dev.secure ? '' : ' disabled'}> ${T18('KNX IP Secure')}</label>` : ''}
     <ul class="detail-list">${rows.join('')}</ul>
     <div class="detail-actions">
       ${unlocked
@@ -341,6 +454,13 @@ function wireDevice(panel, dev) {
   if (box) box.addEventListener('change', () => {
     if (box.checked) dev.secure = true;
     else delete dev.secure;
+    KNX.touch();
+    A.commit();
+  });
+  const ipBox = panel.querySelector('#d-ipsecure');
+  if (ipBox) ipBox.addEventListener('change', () => {
+    if (ipBox.checked) dev.ipSecure = true;
+    else delete dev.ipSecure;
     KNX.touch();
     A.commit();
   });
@@ -376,6 +496,8 @@ function projectSection() {
     counts = `<li><span class="grow">${T18('Geräte mit Schlüsseln')}</span><span class="addr">${n}</span></li>
       <li><span class="grow">${T18('Gruppenschlüssel')}</span><span class="addr">${(st.groups || []).length}</span></li>`;
     actions = `<button type="button" class="btn btn-sm" id="m-sec-pw">${T18('Passwort ändern …')}</button>
+      <button type="button" class="btn btn-sm" id="m-sec-kx">${T18('Keyring exportieren …')}</button>
+      <button type="button" class="btn btn-sm" id="m-sec-ki">${T18('Keyring importieren …')}</button>
       <button type="button" class="btn btn-sm" id="m-sec-lock" title="${T18('Schlüssel bis zum nächsten Entsperren aus dem Speicher des Dienstes nehmen')}">${T18('Sperren')}</button>`;
   }
   return `<ul class="detail-list">
@@ -393,6 +515,8 @@ function wireProject(root, leave, back) {
   const via = run => () => { leave(); A.nextModal(() => run().then(back)); };
   on('#m-sec-unlock', via(ensureUnlocked));
   on('#m-sec-pw', via(changePassword));
+  on('#m-sec-kx', via(exportKeyring));
+  on('#m-sec-ki', via(importKeyring));
   on('#m-sec-lock', () => lock());
 }
 
@@ -435,7 +559,7 @@ function wireGa(panel, ga) {
 
 window.KNXSecure = {
   available, known, refresh, relevant, keysOf,
-  ensureUnlocked, lock, changePassword, enterCertificate,
+  ensureUnlocked, lock, changePassword, exportKeyring, importKeyring, enterCertificate,
   projectSection, wireProject, removeCertificate, bindForBus,
   deviceSection, wireDevice, gaSection, wireGa,
   onChange: fn => { listeners.add(fn); return () => listeners.delete(fn); }

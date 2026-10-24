@@ -92,6 +92,22 @@ function record(dev, { pa, fp, parts = [] }) {
   A.saveQuiet();
 }
 
+function markIpSecure(dev, on) {
+  if (!dev || !!(dev.loaded && dev.loaded.ipSecure) === !!on) return;
+  const l = { ...(dev.loaded || {}) };
+  if (on) l.ipSecure = true; else delete l.ipSecure;
+  dev.loaded = l;
+  A.saveQuiet();
+}
+
+/* Ist die Schnittstelle laut Projekt mit KNX IP Secure geladen, wird nur gesichert verbunden;
+   sonst erst ungesichert und, lehnt sie ab, mit dem Zugang aus der Ablage. */
+function secureModeFor(s) {
+  const serial = KNX.normSerial(s && s.serial);
+  const d = serial && KNX.project().devices.find(x => x.serial === serial);
+  return d && d.ipSecure && d.loaded && d.loaded.ipSecure ? 'on' : 'auto';
+}
+
 function forget(dev, parts) {
   if (!dev || !dev.loaded || !parts.length) return;
   const l = { ...dev.loaded };
@@ -619,6 +635,7 @@ function applyStatus(st) {
   q('#pg-conn-info').textContent = conn.connected
     ? (c.mode === 'routing' ? T18('Routing über {0}', c.multicast || '224.0.23.12')
       : c.host ? T18('Tunneling zu {0}', `${c.host}:${c.port}${c.nat ? ' (NAT)' : ''}`)
+        + (c.secure ? ' · ' + T18('KNX IP Secure') : '')
         + (conn.interfaceAddress ? ' — ' + T18('Schnittstelle {0}', conn.interfaceAddress) : '') : '')
     : st.busyProject ? T18('Belegt vom Fenster mit Projekt „{0}“', st.busyProject)
     : (st.reason ? T18('Zuletzt getrennt: {0}', st.reason) : '');
@@ -691,7 +708,7 @@ function connect(quiet = false) {
   if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return Promise.resolve(); }
   // Adresse und Seriennummer der Schnittstelle braucht der Dienst, um sie selbst als Ziel zu erkennen
   const opts = { mode: 'tunneling', host: s.host, port: s.port, nat: q('#pg-nat').checked,
-                 deviceAddress: s.address, deviceSerial: s.serial };
+                 deviceAddress: s.address, deviceSerial: s.serial, secure: secureModeFor(s) };
   return connOp(q('#pg-connect'), T18('Verbindet …'), T18('Verbinden mit {0}', s.host), quiet, async () => {
     applyStatus(await BUS.connect(opts));
     if (!conn.connected) return { level: 'warn', message: T18('Verbindung kam nicht zustande') };
@@ -717,6 +734,9 @@ async function ensureConnected() {
     A.warn(T18('Keine Schnittstelle gefunden — bitte suchen und auswählen.'));
     return false;
   }
+  // Gesichert verbinden braucht den Zugang aus der Ablage
+  const S = window.KNXSecure;
+  if (S && secureModeFor(conn.servers[+q('#pg-server').value]) === 'on' && !(await S.ensureUnlocked())) return false;
   await connect(true);
   if (!conn.connected) { A.warn(T18('Verbindung zur Schnittstelle kam nicht zustande.')); return false; }
   autoConn = true;
@@ -1133,6 +1153,8 @@ async function opDownload(j, o) {
   (res.notes || []).forEach(n => { appendLog('warn', `${j.pa}: ${n}`); j.warned = true; });
   if (o.kind === 'unload') forget(dev, ['app', 'par', 'grp']);
   else record(dev, { pa: j.addr, fp, parts: KNXDownload.kindParts(o.kind) });
+  // Mit KNX IP Secure geladen: ab jetzt verlangt die Schnittstelle gesicherte Verbindungen
+  if ('ipSecure' in plan.summary) markIpSecure(dev, plan.summary.ipSecure);
   j.doneText = o.kind === 'unload' ? T18('entladen')
     : T18('programmiert') + (res.seconds ? ` · ${res.seconds} s` : '');
   if (res.linkLost) linkCheck({ linkLost: true, message: res.message }, j);
@@ -1144,6 +1166,8 @@ async function opReset(j, o) {
   const r = await B.bus.restart({ address: j.pa, eraseCode: o.code });
   // Unbestätigt kann er trotzdem ausgeführt sein — dann lieber neu laden als falsch vermerken
   forget(j.dev, ERASES[o.code]);
+  // Der Werkszustand nimmt auch KNX IP Secure zurück (03/08/09 2.3.1.5.3)
+  markIpSecure(j.dev, false);
   linkCheck(r, j);
   if (r.ok === false) { j.warned = true; appendLog('warn', r.message); }
   j.doneText = T18('zurückgesetzt');

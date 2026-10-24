@@ -1769,6 +1769,32 @@ KNXI18n.add('en', {
   'Das Projektpasswort schützt die Schlüsselablage mit Gerätezertifikaten, Tool Keys und Gruppenschlüsseln. Die Schlüssel bleiben erhalten; sie werden mit dem neuen Passwort neu verschlüsselt.':
     'The project password protects the key store with device certificates, tool keys and group keys. The keys are kept and re-encrypted with the new password.',
 
+  /* ---------- KNX IP Secure und Keyring ---------- */
+  'KNX IP Secure': 'KNX IP Secure',
+  'Zugang KNX IP Secure': 'KNX IP Secure access',
+  'Verwaltung und Tunnel nur noch verschlüsselt und mit Passwort (KNXnet/IP Secure)':
+    'Management and tunnels only encrypted and with a password (KNXnet/IP Secure)',
+  'KNX IP Secure wird beim nächsten Programmieren eingerichtet. Danach nimmt die Schnittstelle nur noch gesicherte Verbindungen an; Passwörter für andere Programme stehen im Keyring (Projekteinstellungen).':
+    'KNX IP Secure is set up with the next download. After that the interface only accepts secure connections; passwords for other programs are in the keyring (project settings).',
+  'Gesichertes Routing (KNX IP Secure)': 'Secure routing (KNX IP Secure)',
+  'Routing-Telegramme mit dem Backbone Key verschlüsseln (KNXnet/IP Secure)': 'Encrypt routing telegrams with the backbone key (KNXnet/IP Secure)',
+  'Gilt für alle Router mit KNX IP Secure. Router ohne Backbone Key — auch fremde am selben Multicast — verstehen sie danach nicht mehr.':
+    'Applies to all routers with KNX IP Secure. Routers without the backbone key — including others on the same multicast — no longer understand them.',
+  'Keyring exportieren': 'Export keyring',
+  'Keyring exportieren …': 'Export keyring …',
+  'Keyring importieren': 'Import keyring',
+  'Keyring importieren …': 'Import keyring …',
+  'Keyring-Passwort': 'Keyring password',
+  'Das Keyring-Passwort braucht mindestens 8 Zeichen.': 'The keyring password needs at least 8 characters.',
+  'Der Keyring ist unplausibel groß.': 'The keyring is implausibly large.',
+  'Der Keyring (.knxkeys, Format der ETS) enthält die Schlüssel, die in Geräten stecken: Tool Keys, Zugänge für KNX IP Secure, Gruppenschlüssel und den Backbone Key. Andere Programme — etwa eine Visualisierung — brauchen ihn für gesicherte Tunnel. Er wird mit einem eigenen Passwort verschlüsselt.':
+    'The keyring (.knxkeys, ETS format) holds the keys that are in devices: tool keys, KNX IP Secure access, group keys and the backbone key. Other programs — a visualisation, for example — need it for secure tunnels. It is encrypted with its own password.',
+  'Keyring exportiert: {0} Geräte, {1} mit KNX IP Secure, {2} Gruppenschlüssel': 'Keyring exported: {0} devices, {1} with KNX IP Secure, {2} group keys',
+  'Übernimmt aus „{0}“ die Schlüssel der Geräte und Gruppenadressen dieses Projekts — zugeordnet über ihre Adressen — in die Schlüsselablage.':
+    'Takes the keys of this project’s devices and group addresses — matched by their addresses — from “{0}” into the key store.',
+  'Keyring übernommen: {0} Tool Keys, {1} Zugänge für KNX IP Secure, {2} Gruppenschlüssel': 'Keyring imported: {0} tool keys, {1} KNX IP Secure accesses, {2} group keys',
+  'Ohne passendes Gerät im Projekt (Adresse mit Seriennummer): {0}': 'No matching device in the project (address with serial number): {0}',
+
   /* ---------- Dialoge ---------- */
   'Abbrechen': 'Cancel',
   'OK': 'OK'

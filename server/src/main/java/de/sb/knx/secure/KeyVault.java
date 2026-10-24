@@ -54,6 +54,11 @@ public final class KeyVault {
     private static final byte[] AAD = "sb-projekt-keys/1".getBytes(StandardCharsets.US_ASCII);
     private static final int MAX_FILE = 4 << 20;
     private static final int MAX_DEVICES = 10_000, MAX_GROUPS = 65_536;
+    /** KNXnet/IP Secure: Passwoerter als Text (fuer Keyrings), hoechstens 126 Tunnelbenutzer je Geraet (03/08/09 2.3.1.4). */
+    private static final int MAX_IP_PASSWORD = 64, MAX_TUNNELS = 126, MAX_BACKBONES = 16;
+    private static final Pattern IP_PASSWORD = Pattern.compile("[\\x20-\\x7E\\u00A0-\\uFFFF]{0,64}");
+    private static final Pattern MULTICAST = Pattern.compile("2(2[4-9]|3\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}");
+    private static final String PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
     private static final Pattern SERIAL = Pattern.compile("[0-9A-F]{12}");
     private static final Pattern GROUP_ID = Pattern.compile("[A-Za-z0-9_-]{1,40}");
@@ -68,12 +73,26 @@ public final class KeyVault {
         }
     }
 
+    /**
+     * Zugang zu einem KNXnet/IP-Secure-Geraet: Device Authentication Password, Passwort der Verwaltung
+     * (User 1) und je Tunneladresse das Passwort ihres Benutzers. Gespeichert wird der Text, nicht der
+     * Hash - ein Keyring fuer andere Werkzeuge braucht ihn (03/08/09 2.3.1.3, 2.3.1.4).
+     */
+    public record IpCreds(String auth, String mgmt, Map<Integer, String> tunnels) {
+        public IpCreds {
+            tunnels = java.util.Collections.unmodifiableMap(new TreeMap<>(tunnels));
+        }
+    }
+
     private static final class Open {
         final SecretKey key;
         final byte[] salt;
         final int iterations;
         final Map<String, DeviceKeys> devices = new TreeMap<>();
         final Map<String, byte[]> groups = new TreeMap<>();
+        final Map<String, IpCreds> ip = new TreeMap<>();
+        /** Backbone Key je Routing-Multicast-Adresse (03/08/09 2.3.1.2.4). */
+        final Map<String, byte[]> backbones = new TreeMap<>();
 
         Open(SecretKey key, byte[] salt, int iterations) {
             this.key = key;
@@ -114,6 +133,16 @@ public final class KeyVault {
             java.util.List<Object> groups = Json.arr();
             groups.addAll(o.groups.keySet());
             m.put("groups", groups);
+            Map<String, Object> ip = Json.obj();
+            o.ip.forEach((serial, c) -> {
+                Map<String, Object> d = Json.obj();
+                d.put("tunnels", c.tunnels().size());
+                ip.put(serial, d);
+            });
+            m.put("ip", ip);
+            java.util.List<Object> backbones = Json.arr();
+            backbones.addAll(o.backbones.keySet());
+            m.put("backbones", backbones);
         }
         return m;
     }
@@ -159,6 +188,8 @@ public final class KeyVault {
         Open next = new Open(derive(newPassword, salt, ITERATIONS), salt, ITERATIONS);
         next.devices.putAll(current.devices);
         next.groups.putAll(current.groups);
+        next.ip.putAll(current.ip);
+        next.backbones.putAll(current.backbones);
         persist(id, next);
         Open was = open.put(id, next);
         if (was != null && was != current) wipe(was);
@@ -257,6 +288,129 @@ public final class KeyVault {
             persist(id, o);
         }
         return key.clone();
+    }
+
+    /* ---------------- KNXnet/IP Secure ---------------- */
+
+    /** Zugang eines IP-Secure-Geraets oder null, wenn die Ablage keinen kennt. */
+    public synchronized IpCreds ipCreds(String project, String serial) {
+        return require(FileStore.safeId(project)).ip.get(serial(serial));
+    }
+
+    /**
+     * Zugang fuer ein Geraet, das gleich mit diesen Tunneladressen gesichert wird. Was fehlt, wird
+     * zufaellig erzeugt und gespeichert, bevor es das Geraet erreicht - wie beim Tool Key. Vorhandene
+     * Passwoerter bleiben, damit andere Werkzeuge nach einem erneuten Download weiter verbinden.
+     */
+    public synchronized IpCreds ensureIpCreds(String project, String serial, java.util.List<Integer> tunnels)
+            throws IOException, GeneralSecurityException {
+        String id = FileStore.safeId(project);
+        Open o = require(id);
+        String s = serial(serial);
+        if (tunnels.size() > MAX_TUNNELS) throw new IllegalArgumentException("Zu viele Tunneladressen: " + tunnels.size());
+        IpCreds c = o.ip.get(s);
+        if (c == null && o.ip.size() >= MAX_DEVICES) throw new IllegalStateException("Zu viele Geraete in der Ablage.");
+        Map<Integer, String> t = new TreeMap<>(c == null ? Map.of() : c.tunnels());
+        boolean changed = c == null;
+        for (int pa : tunnels) {
+            if (pa <= 0 || pa > 0xFFFF) throw new IllegalArgumentException("Unbrauchbare Tunneladresse: " + pa);
+            if (!t.containsKey(pa)) {
+                t.put(pa, newPassword());
+                changed = true;
+            }
+        }
+        IpCreds next = new IpCreds(c == null ? newPassword() : c.auth(), c == null ? newPassword() : c.mgmt(), t);
+        if (changed) {
+            o.ip.put(s, next);
+            persist(id, o);
+        }
+        return next;
+    }
+
+    /** Uebernimmt einen Zugang, etwa aus einem Keyring der ETS; Tunnelpasswoerter werden ergaenzt. */
+    public synchronized void putIpCreds(String project, String serial, IpCreds creds) throws IOException, GeneralSecurityException {
+        String id = FileStore.safeId(project);
+        Open o = require(id);
+        String s = serial(serial);
+        checkIp(creds);
+        IpCreds c = o.ip.get(s);
+        Map<Integer, String> t = new TreeMap<>(c == null ? Map.of() : c.tunnels());
+        t.putAll(creds.tunnels());
+        if (t.size() > MAX_TUNNELS) throw new IllegalArgumentException("Zu viele Tunneladressen");
+        o.ip.put(s, new IpCreds(creds.auth(), creds.mgmt(), t));
+        persist(id, o);
+    }
+
+    /** Backbone Key einer Routing-Multicast-Adresse; fehlt er, wird er erzeugt und gespeichert. */
+    public synchronized byte[] backboneKey(String project, String multicast, boolean create)
+            throws IOException, GeneralSecurityException {
+        String id = FileStore.safeId(project);
+        Open o = require(id);
+        if (multicast == null || !MULTICAST.matcher(multicast).matches())
+            throw new IllegalArgumentException("Unbrauchbare Multicast-Adresse: " + multicast);
+        byte[] key = o.backbones.get(multicast);
+        if (key == null && create) {
+            if (o.backbones.size() >= MAX_BACKBONES) throw new IllegalStateException("Zu viele Backbone Keys in der Ablage.");
+            key = random(16);
+            o.backbones.put(multicast, key);
+            persist(id, o);
+        }
+        return key == null ? null : key.clone();
+    }
+
+    /** Uebernimmt Schluessel aus einem Keyring: Backbone, Tool Keys, Gruppenschluessel. */
+    public synchronized void putImported(String project, String multicast, byte[] backbone, Map<String, byte[]> toolKeys,
+                                         Map<String, byte[]> groupKeys) throws IOException, GeneralSecurityException {
+        String id = FileStore.safeId(project);
+        Open o = require(id);
+        if (backbone != null) {
+            if (multicast == null || !MULTICAST.matcher(multicast).matches() || backbone.length != 16)
+                throw new IllegalArgumentException("Backbone Key unbrauchbar");
+            o.backbones.put(multicast, backbone.clone());
+        }
+        for (Map.Entry<String, byte[]> e : toolKeys.entrySet()) {
+            String s = serial(e.getKey());
+            if (e.getValue() == null || e.getValue().length != 16) throw new IllegalArgumentException("Tool Key unbrauchbar");
+            DeviceKeys k = o.devices.get(s);
+            if (k == null && o.devices.size() >= MAX_DEVICES) throw new IllegalStateException("Zu viele Geraete in der Ablage.");
+            // Der importierte Schluessel gilt im Geraet; ein eigener bleibt vorgemerkt, falls er es doch ist
+            byte[] own = k == null ? null : k.toolKey();
+            byte[] pending = own != null && !Arrays.equals(own, e.getValue()) ? own : (k == null ? null : k.pending());
+            o.devices.put(s, new DeviceKeys(k == null ? null : k.fdsk(), e.getValue().clone(), pending));
+        }
+        for (Map.Entry<String, byte[]> e : groupKeys.entrySet()) {
+            if (!GROUP_ID.matcher(e.getKey()).matches() || e.getValue() == null || e.getValue().length != 16)
+                throw new IllegalArgumentException("Gruppenschluessel unbrauchbar");
+            if (!o.groups.containsKey(e.getKey()) && o.groups.size() >= MAX_GROUPS)
+                throw new IllegalStateException("Zu viele Gruppenschluessel in der Ablage.");
+            o.groups.put(e.getKey(), e.getValue().clone());
+        }
+        persist(id, o);
+    }
+
+    /** Vorhandener Gruppenschluessel ohne Erzeugen - fuer den Keyring-Export. */
+    public synchronized byte[] groupKeyIfKnown(String project, String groupId) {
+        byte[] key = require(FileStore.safeId(project)).groups.get(groupId);
+        return key == null ? null : key.clone();
+    }
+
+    private static String newPassword() {
+        StringBuilder b = new StringBuilder(20);
+        for (int i = 0; i < 20; i++) b.append(PASSWORD_ALPHABET.charAt(RNG.nextInt(PASSWORD_ALPHABET.length())));
+        return b.toString();
+    }
+
+    private static void checkIp(IpCreds c) {
+        if (c == null || !validIpPassword(c.auth()) || !validIpPassword(c.mgmt()))
+            throw new IllegalArgumentException("Passwort fuer KNX IP Secure unbrauchbar");
+        c.tunnels().forEach((pa, pw) -> {
+            if (pa == null || pa <= 0 || pa > 0xFFFF || !validIpPassword(pw))
+                throw new IllegalArgumentException("Tunnelzugang unbrauchbar");
+        });
+    }
+
+    private static boolean validIpPassword(String s) {
+        return s != null && s.length() <= MAX_IP_PASSWORD && IP_PASSWORD.matcher(s).matches();
     }
 
     /* ---------------- Projektverwaltung ---------------- */
@@ -394,6 +548,30 @@ public final class KeyVault {
                 if (keys.any()) o.devices.put(serial, keys);
             });
         }
+        if (doc.get("ip") instanceof Map<?, ?> ip) {
+            ip.forEach((k, v) -> {
+                if (!(k instanceof String serial) || !SERIAL.matcher(serial).matches() || !(v instanceof Map<?, ?> d)) return;
+                if (o.ip.size() >= MAX_DEVICES) return;
+                if (!(d.get("auth") instanceof String auth) || !(d.get("mgmt") instanceof String mgmt)) return;
+                Map<Integer, String> tunnels = new TreeMap<>();
+                if (d.get("tunnels") instanceof Map<?, ?> t) {
+                    t.forEach((pa, pw) -> {
+                        if (tunnels.size() >= MAX_TUNNELS || !(pa instanceof String p) || !p.matches("\\d{1,5}")
+                                || !(pw instanceof String w) || !validIpPassword(w)) return;
+                        int n = Integer.parseInt(p);
+                        if (n > 0 && n <= 0xFFFF) tunnels.put(n, w);
+                    });
+                }
+                if (validIpPassword(auth) && validIpPassword(mgmt)) o.ip.put(serial, new IpCreds(auth, mgmt, tunnels));
+            });
+        }
+        if (doc.get("backbones") instanceof Map<?, ?> bb) {
+            bb.forEach((k, v) -> {
+                if (!(k instanceof String mc) || !MULTICAST.matcher(mc).matches() || o.backbones.size() >= MAX_BACKBONES) return;
+                byte[] key = key(v);
+                if (key != null) o.backbones.put(mc, key);
+            });
+        }
         if (doc.get("groups") instanceof Map<?, ?> groups) {
             groups.forEach((k, v) -> {
                 if (!(k instanceof String gid) || !GROUP_ID.matcher(gid).matches()) return;
@@ -418,6 +596,20 @@ public final class KeyVault {
         o.groups.forEach((gid, key) -> groups.put(gid, Certificate.hex(key)));
         doc.put("devices", devices);
         doc.put("groups", groups);
+        Map<String, Object> ip = Json.obj();
+        o.ip.forEach((serial, c) -> {
+            Map<String, Object> d = Json.obj();
+            d.put("auth", c.auth());
+            d.put("mgmt", c.mgmt());
+            Map<String, Object> t = Json.obj();
+            c.tunnels().forEach((pa, pw) -> t.put(String.valueOf(pa), pw));
+            d.put("tunnels", t);
+            ip.put(serial, d);
+        });
+        doc.put("ip", ip);
+        Map<String, Object> bb = Json.obj();
+        o.backbones.forEach((mc, key) -> bb.put(mc, Certificate.hex(key)));
+        doc.put("backbones", bb);
 
         byte[] plain = Json.write(doc).getBytes(StandardCharsets.UTF_8);
         byte[] iv = random(12);
@@ -532,6 +724,9 @@ public final class KeyVault {
             if (k.pending() != null) Arrays.fill(k.pending(), (byte) 0);
         });
         o.groups.values().forEach(k -> Arrays.fill(k, (byte) 0));
+        o.backbones.values().forEach(k -> Arrays.fill(k, (byte) 0));
+        o.ip.clear();
+        o.backbones.clear();
         o.devices.clear();
         o.groups.clear();
     }

@@ -79,6 +79,28 @@ class KeyVaultTest {
         assertFalse(Files.exists(file("P")));
     }
 
+    /** Zugaenge fuer KNX IP Secure: einmal erzeugt, bleiben sie ueber Sperren und Passwortwechsel gleich. */
+    @Test
+    void ipCredentialsArePersistentAndStable() throws Exception {
+        vault.unlock("P", PASSWORD.clone(), true);
+        KeyVault.IpCreds a = vault.ensureIpCreds("P", "00FA12345678", List.of(0x21F5, 0x21F6));
+        assertEquals(2, a.tunnels().size());
+        assertEquals(20, a.mgmt().length());
+        byte[] bb = vault.backboneKey("P", "224.0.23.12", true);
+        vault.lock("P");
+        vault.changePassword("P", PASSWORD.clone(), "anderes1234".toCharArray());
+        vault.lock("P");
+        vault.unlock("P", "anderes1234".toCharArray(), false);
+        KeyVault.IpCreds b = vault.ensureIpCreds("P", "00FA12345678", List.of(0x21F5, 0x21F6, 0x21F7));
+        assertEquals(a.auth(), b.auth());
+        assertEquals(a.mgmt(), b.mgmt());
+        assertEquals(a.tunnels().get(0x21F5), b.tunnels().get(0x21F5));
+        assertEquals(3, b.tunnels().size());
+        assertArrayEquals(bb, vault.backboneKey("P", "224.0.23.12", false));
+        assertNull(vault.backboneKey("P", "239.1.2.3", false));
+        assertThrows(IllegalArgumentException.class, () -> vault.backboneKey("P", "10.0.0.1", true));
+    }
+
     @Test
     void refusesShortPasswords() {
         assertThrows(IllegalArgumentException.class, () -> vault.unlock("P", "kurz".toCharArray(), true));

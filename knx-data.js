@@ -542,7 +542,9 @@ const KNX = (() => {
         medium: MEDIA[l.medium] ? l.medium : 'tp',
         note: normNote(l.note),
         segments: normSegments(l.segments, id => takeId(id, 's', seenTopo)),
-        ...(a.backbone ? { mcast: isIpV4(l.mcast) ? l.mcast : MCAST_DEFAULT } : {})
+        ...(a.backbone ? { mcast: isIpV4(l.mcast) ? l.mcast : MCAST_DEFAULT } : {}),
+        // Gesichertes Routing am Backbone (Backbone Key in der Ablage, 03/08/09 2.2.2)
+        ...(a.backbone && l.secure === true ? { secure: true } : {})
       }))
     }));
     /* Backbone nachrüsten: Ein vorhandener Bereich 0 wird zum Backbone, sonst
@@ -729,6 +731,8 @@ const KNX = (() => {
         serial: normSerial(d.serial),
         // Secure-Inbetriebnahme gewählt; Schlüssel liegen in der Ablage des Dienstes, nie hier
         ...(d.secure === true ? { secure: true } : {}),
+        // KNXnet/IP Secure: Verwaltung und Tunnel gesichert (Passwörter in der Ablage)
+        ...(d.ipSecure === true ? { ipSecure: true } : {}),
         ...(normProxyCfg(d.proxy) ? { proxy: normProxyCfg(d.proxy) } : {}),
         // Was zuletzt ins Gerät geladen wurde (Prüfsummen, siehe KNXDownload.fingerprint)
         ...withLoaded(d.loaded),
@@ -959,6 +963,8 @@ const KNX = (() => {
     if (Number.isInteger(v.pa) && v.pa > 0 && v.pa <= 0xFFFF) out.pa = v.pa;
     LOAD_PARTS.forEach(k => { if (typeof v[k] === 'string' && DIGEST.test(v[k])) out[k] = v[k]; });
     if (Number.isFinite(v.at) && v.at > 0 && v.at < 1e14) out.at = Math.trunc(v.at);
+    // Mit KNX IP Secure geladen: dann wird gesichert verbunden
+    if (v.ipSecure === true) out.ipSecure = true;
     if (Array.isArray(v.ets)) {
       const ets = LOAD_PARTS.filter(k => v.ets.includes(k));
       if (ets.length) out.ets = ets;
@@ -2162,6 +2168,10 @@ const KNX = (() => {
         if (n > cat.secure.ia)
           add('error', 'device', d.id, `Security Proxy: ${n} gesicherte Absender, die Security-IA-Tabelle des Geräts fasst ${cat.secure.ia}.`);
       }
+      if (d.ipSecure && !d.secure)
+        add('error', 'device', d.id, 'KNX IP Secure wird über die Secure-Inbetriebnahme eingerichtet — bitte auch sie wählen.');
+      if (d.ipSecure && cat && !cat.secure)
+        add('error', 'device', d.id, 'KNX IP Secure ist gewählt, die Produktdatei nennt aber keine Secure-Unterstützung.');
       if (cat && cat.proxy && !d.secure && typeof KNXProxy !== 'undefined' && KNXProxy.isCoupler(project, d))
         add('info', 'device', d.id, 'Kann als Security Proxy übersetzen — dafür braucht es die Secure-Inbetriebnahme.');
 

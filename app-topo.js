@@ -1648,6 +1648,9 @@ function actEditBackbone(l) {
     <label class="field" id="m-mcast-row"${mcastRow(l.medium)}><span>${T18('Routing-Multicast-Adresse')} <em>IPv4</em></span>
       <input class="input mono" id="m-mcast" value="${esc(l.mcast || '224.0.23.12')}" inputmode="decimal">
     </label>
+    <label class="chk" id="m-secure-row"${mcastRow(l.medium)} title="${T18('Routing-Telegramme mit dem Backbone Key verschlüsseln (KNXnet/IP Secure)')}">
+      <input type="checkbox" id="m-secure"${l.secure ? ' checked' : ''}> ${T18('Gesichertes Routing (KNX IP Secure)')}</label>
+    <p class="hint" id="m-secure-hint"${mcastRow(l.medium)}>${T18('Gilt für alle Router mit KNX IP Secure. Router ohne Backbone Key — auch fremde am selben Multicast — verstehen sie danach nicht mehr.')}</p>
     <label class="field"><span>${T18('Notiz')}</span>
       <textarea class="input note" id="m-note" rows="3" maxlength="${KNX.NOTE_MAX}"
                 placeholder="${T18('Freitext zur Dokumentation')}">${esc(l.note || '')}</textarea>
@@ -1665,12 +1668,15 @@ function actEditBackbone(l) {
     l.name = name;
     l.medium = medium;
     if (medium === 'ip') l.mcast = mcast;
+    if (medium === 'ip' && $('#m-secure').checked) l.secure = true; else delete l.secure;
     l.note = $('#m-note').value.trim();
     KNX.areaOfLine(l.id).name = name;
     KNX.touch();
     A.commit();
   });
-  $('#m-medium').addEventListener('change', e => { $('#m-mcast-row').hidden = e.target.value !== 'ip'; });
+  $('#m-medium').addEventListener('change', e => {
+    ['#m-mcast-row', '#m-secure-row', '#m-secure-hint'].forEach(s => { $(s).hidden = e.target.value !== 'ip'; });
+  });
 }
 
 function actDeleteLine(id) {

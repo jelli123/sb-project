@@ -11,6 +11,8 @@ import tuwien.auto.calimero.KNXRemoteException;
 import tuwien.auto.calimero.KNXTimeoutException;
 import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.knxnetip.Discoverer;
+import tuwien.auto.calimero.knxnetip.SecureConnection;
+import tuwien.auto.calimero.knxnetip.TcpConnection;
 import tuwien.auto.calimero.knxnetip.servicetype.SearchResponse;
 import tuwien.auto.calimero.knxnetip.util.DeviceDIB;
 import tuwien.auto.calimero.knxnetip.util.HPAI;
@@ -134,6 +136,15 @@ public final class BusService implements AutoCloseable {
             propertyWrite(dst, objIndex, pid, 1, 1, key);
         }
 
+        /**
+         * Schreibt einen nicht lesbaren Schluessel (Access Policy 008/008, etwa die KNXnet/IP-Secure-
+         * Properties 91 bis 93, 03/08/09 2.3.1). Wie beim Tool Key zaehlt nur die Antwort: sie darf
+         * 0 Elemente melden, obwohl geschrieben wurde (03/03/07 3.4.4.2, NOTE 10).
+         */
+        void writeSecret(Destination dst, int objIndex, int pid, int start, byte[] data) throws KNXException, InterruptedException {
+            propertyWrite(dst, objIndex, pid, start, 1, data);
+        }
+
         private byte[] propertyWrite(Destination dst, int objIndex, int pid, int start, int elements, byte[] data)
                 throws KNXException, InterruptedException {
             byte[] asdu = new byte[4 + data.length];
@@ -166,6 +177,8 @@ public final class BusService implements AutoCloseable {
     private volatile ExecutorService bus = newExecutor();
 
     private volatile KNXNetworkLink link;
+    /** TCP-Verbindung unter einem gesicherten Tunnel (KNXnet/IP Secure); sonst null. */
+    private volatile TcpConnection tcp;
     private volatile SharedClient client;
     private volatile SharedProcedures procedures;
     private volatile SecureLayer secure;
@@ -354,14 +367,46 @@ public final class BusService implements AutoCloseable {
 
     public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost,
                                                 String deviceAddress, String deviceSerial) throws Exception {
+        return connectTunneling(host, port, nat, localHost, deviceAddress, deviceSerial, null, "off");
+    }
+
+    /**
+     * Tunnel zur Schnittstelle. {@code secure}: "off" nur ungesichert, "on" nur gesichert (KNXnet/IP
+     * Secure ueber TCP, 03/08/09 2.2.3), "auto" erst ungesichert und - lehnt die Schnittstelle ab und
+     * kennt die Ablage ihren Zugang - dann gesichert. Gesichert wird als Verwaltung (User 1)
+     * verbunden: sie darf jeden Tunnel nutzen (2.3.1.8.3).
+     */
+    public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost,
+                                                String deviceAddress, String deviceSerial, String project,
+                                                String secure) throws Exception {
         SerialNumber serial = deviceSerial == null || deviceSerial.isBlank() ? null : Knx.serialNumber(deviceSerial);
+        String mode = secure == null ? "auto" : secure;
+        KeyVault.IpCreds creds = ipCreds(project, serial);
+        if ("on".equals(mode) && creds == null)
+            throw new IllegalStateException(serial == null
+                    ? "Fuer KNX IP Secure fehlt die Seriennummer der Schnittstelle."
+                    : "Fuer die Schnittstelle " + serial + " kennt die Schluesselablage keinen Zugang fuer KNX IP Secure"
+                    + " - ist sie entsperrt?");
         return call(() -> {
             closeLink();
             InetSocketAddress server = new InetSocketAddress(InetAddress.getByName(host), port);
             InetSocketAddress local = localHost == null || localHost.isBlank()
                     ? new InetSocketAddress(0)
                     : new InetSocketAddress(InetAddress.getByName(localHost), 0);
-            link = KNXNetworkLinkIP.newTunnelingLink(local, server, nat, new TPSettings());
+            boolean secured = false;
+            if ("on".equals(mode)) {
+                link = secureTunnel(local, server, creds);
+                secured = true;
+            } else {
+                try {
+                    link = KNXNetworkLinkIP.newTunnelingLink(local, server, nat, new TPSettings());
+                } catch (KNXException e) {
+                    if (!"auto".equals(mode) || creds == null) throw e;
+                    // Gesicherter Tunnel verlangt (03/08/09 2.2.1.4.2) - mit dem Zugang aus der Ablage
+                    link = secureTunnel(local, server, creds);
+                    secured = true;
+                }
+            }
             /* Calimero sendet mit 0.0.0, der Server setzt die zugeteilte Tunneladresse ein. Der MAC von
                KNX Secure deckt aber die Absenderadresse ab und wird hier mit der Adresse des Mediums
                gerechnet - mit 0.0.0 passt er beim Geraet nie, und es schweigt (03/03/07 3.2). */
@@ -377,9 +422,38 @@ public final class BusService implements AutoCloseable {
             d.put("port", port);
             d.put("nat", nat);
             d.put("deviceAddress", interfaceAddress);
+            d.put("secure", secured);
             description = d;
             return status();
-        }, 30);
+        }, 40);
+    }
+
+    private KeyVault.IpCreds ipCreds(String project, SerialNumber serial) {
+        KeyVault v = vault;
+        if (v == null || project == null || serial == null || !v.unlocked(project)) return null;
+        return v.ipCreds(project, serial.toString());
+    }
+
+    /** Gesicherte Sitzung ueber TCP, angemeldet als Verwaltung (User 1), darin der Tunnel. */
+    private KNXNetworkLink secureTunnel(InetSocketAddress local, InetSocketAddress server, KeyVault.IpCreds creds)
+            throws KNXException, InterruptedException {
+        char[] mgmt = creds.mgmt().toCharArray(), auth = creds.auth().toCharArray();
+        byte[] userKey = SecureConnection.hashUserPassword(mgmt);
+        byte[] authCode = SecureConnection.hashDeviceAuthenticationPassword(auth);
+        Arrays.fill(mgmt, '\0');
+        Arrays.fill(auth, '\0');
+        TcpConnection c = TcpConnection.newTcpConnection(local, server);
+        try {
+            KNXNetworkLink l = KNXNetworkLinkIP.newSecureTunnelingLink(c.newSecureSession(1, userKey, authCode), new TPSettings());
+            tcp = c;
+            return l;
+        } catch (KNXException | RuntimeException e) {
+            c.close();
+            throw e;
+        } finally {
+            Arrays.fill(userKey, (byte) 0);
+            Arrays.fill(authCode, (byte) 0);
+        }
     }
 
     public Map<String, Object> connectRouting(String multicast, String networkInterface, String ownAddress)
@@ -512,6 +586,10 @@ public final class BusService implements AutoCloseable {
         if (link != null) {
             link.close();
             link = null;
+        }
+        if (tcp != null) {
+            tcp.close();
+            tcp = null;
         }
     }
 

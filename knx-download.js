@@ -1196,6 +1196,20 @@ function plan(project, dev, item, opts = {}) {
     // Ein leerer Name hieße 30 Nullbytes im Gerät; wie die ETS gilt dann der Gerätename
     if (!String(ipCfg.name || '').trim()) ipCfg.name = dev.name || '';
     ctx.ip = ipSteps(ipCfg, dl.addAddr, errors);
+    /* KNX IP Secure (03/08/09 2.3.1) geht nur über Data Secure mit dem Tool Key. Wer Secure-
+       Inbetriebnahme hat, bekommt den Zustand immer geschrieben — auch „aus“, sonst bliebe ein
+       früher gesichertes Gerät gesichert. */
+    if (sec && dev.secure && item.secure && !(sec.summary && sec.summary.off)) {
+      const bbLine = bb && bb.lines[0];
+      const tunnels = (ipCfg.tunnelAddrs || []).filter(r => Number.isInteger(r) && r > 0);
+      ctx.ip.push({ op: 'ipSecure', serial: dev.serial, on: !!dev.ipSecure, tunnels,
+                    routing: !!(dev.ipSecure && bbLine && bbLine.medium === 'ip' && bbLine.secure),
+                    mcast: ipCfg.mcast, latency: 2000,
+                    label: dev.ipSecure ? 'KNX IP Secure einrichten' : 'KNX IP Secure ausschalten' });
+      summary.ipSecure = !!dev.ipSecure;
+    } else if (dev.ipSecure) {
+      errors.push('KNX IP Secure wird über die Secure-Inbetriebnahme eingerichtet — bitte sie am Gerät wählen.');
+    }
   }
 
   const proc = pickProcedure(prog, kind);
@@ -1267,6 +1281,8 @@ function fingerprint(project, dev, item, groups) {
     const bb = project.areas.find(a => a.backbone);
     ip = [sortedPairs(dev.ip), (bb && bb.lines[0] && bb.lines[0].mcast) || '',
           String(dev.ip.name || '').trim() ? '' : dev.name];
+    // KNX IP Secure gehört zur Konfiguration; ohne Änderung bleibt die Prüfsumme wie bisher
+    if (dev.ipSecure || (bb && bb.lines[0] && bb.lines[0].secure)) ip.push(!!dev.ipSecure, !!(bb && bb.lines[0] && bb.lines[0].secure));
   }
   const par = digest(JSON.stringify([app, sortedPairs(dev.params), ip]));
 

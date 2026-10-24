@@ -326,6 +326,8 @@ const backend = {
     certificate:       body => post('/api/secure/certificate', body),
     removeCertificate: body => post('/api/secure/certificate/remove', body),
     exportFile: project => get('/api/secure/export?project=' + encodeURIComponent(project)),
+    keyringExport: body => post('/api/secure/keyring/export', body, { timeout: 60000 }),
+    keyringImport: body => post('/api/secure/keyring/import', body, { timeout: 60000 }),
     importFile: body    => post('/api/secure/import', body)
   }
 };

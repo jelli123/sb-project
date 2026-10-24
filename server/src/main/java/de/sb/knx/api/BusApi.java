@@ -154,14 +154,17 @@ public final class BusApi implements HttpHandler {
 
     private synchronized void own(HttpExchange ex, String window) {
         ownerWindow = window;
+        ownerProject = project(ex);
+    }
+
+    /** Projekt des Fensters aus dem Kopf X-SB-Project, oder null. */
+    private static String project(HttpExchange ex) {
         String raw = ex.getRequestHeaders().getFirst("X-SB-Project");
-        String project = null;
         try {
-            if (raw != null) project = FileStore.safeId(URLDecoder.decode(raw, StandardCharsets.UTF_8));
+            return raw == null ? null : FileStore.safeId(URLDecoder.decode(raw, StandardCharsets.UTF_8));
         } catch (IllegalArgumentException e) {
-            project = null;
+            return null;
         }
-        ownerProject = project;
     }
 
     private static void refuse(HttpExchange ex, String busy, String message) throws IOException {
@@ -199,7 +202,9 @@ public final class BusApi implements HttpHandler {
                     Json.bool(body, "nat", false),
                     Json.str(body, "localHost", null),
                     Json.str(body, "deviceAddress", null),
-                    Json.str(body, "deviceSerial", null));
+                    Json.str(body, "deviceSerial", null),
+                    project(ex),
+                    Json.str(body, "secure", "auto"));
         }
         if (Boolean.TRUE.equals(status.get("connected"))) own(ex, window);
         events.log("info", "Verbunden: " + Json.write(status.get("connection")));
