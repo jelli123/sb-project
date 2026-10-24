@@ -293,6 +293,7 @@ function actEditDevice(id) {
     if (r.err) { showErr(r.err); return false; }
     const before = d.catalogId || '', next = $('#m-cat').value || '';
     Object.assign(d, r);
+    followTunnels([d]);
     let msg = '';
     if (next !== before) {
       const c = next && KNX.catalogById(next);
@@ -340,6 +341,12 @@ function actEditDevice(id) {
   });
 }
 
+/* Tunneladressen ziehen mit, wenn das Gerät die Linie wechselt oder Bereich
+   und Linie neue Nummern bekommen. */
+const followTunnels = devs => devs.forEach(d => {
+  if (KNX.deviceCanIp(d) && KNX.tunnelAddrs(d).length) KNX.ensureTunnelAddrs(d);
+});
+
 /* Gerät per Ziehen auf eine andere Linie oder in ein anderes Segment. Die Teilnehmernummer
    bleibt, wenn sie auf der neuen Linie frei ist — sonst die nächste freie, wie im Dialog. */
 function moveDevice(id, lineId, segmentId) {
@@ -363,6 +370,7 @@ function moveDevice(id, lineId, segmentId) {
   d.lineId = lineId;
   d.segmentId = segmentId && segmentId !== lineId ? segmentId : null;
   d.addr = addr;
+  followTunnels([d]);
   KNX.touch();
   state.collapsed.delete(segmentId && segmentId !== lineId ? 'seg:' + segmentId : lineId);
   A.commit();
@@ -1507,6 +1515,7 @@ function actEditArea(id) {
       });
     }
     a.addr = addr;
+    followTunnels(KNX.project().devices.filter(d => a.lines.some(l => l.id === d.lineId)));
     a.name = name;
     a.note = $('#m-note').value.trim();
     const mainLine = a.lines.find(l => l.addr === 0);
@@ -1612,6 +1621,7 @@ function actEditLine(id) {
       });
     }
     l.addr = addr;
+    followTunnels(KNX.devicesOnLine(id));
     l.name = name;
     l.medium = $('#m-medium').value;
     l.note = $('#m-note').value.trim();

@@ -1539,8 +1539,10 @@ const KNX = (() => {
   }
 
   /* Hält die Tunneladressen eines Geräts vollständig: gültige bleiben stehen,
-     fehlende kommen von oben aus der Linie (x.y.254 abwärts), damit sie sich
-     nicht mit den Teilnehmern mischen. Liefert true, wenn sich etwas ändert. */
+     solche von einer anderen Linie (Gerät verschoben, Bereich oder Linie
+     umnummeriert) behalten möglichst ihre Teilnehmernummer, fehlende kommen
+     von oben aus der Linie (x.y.254 abwärts), damit sie sich nicht mit den
+     Teilnehmern mischen. Liefert true, wenn sich etwas ändert. */
   function ensureTunnelAddrs(dev) {
     const n = tunnelCount(dev);
     const l = lineById(dev.lineId), a = areaOfLine(dev.lineId);
@@ -1552,9 +1554,11 @@ const KNX = (() => {
     });
     const onLine = r => paSplit(r)[0] === a.addr && paSplit(r)[1] === l.addr && paSplit(r)[2] > 0;
     const keep = [];
-    tunnelAddrs(dev).forEach(r => {
+    const take = r => {
       if (keep.length < n && onLine(r) && !others.has(r) && !keep.includes(r)) keep.push(r);
-    });
+    };
+    tunnelAddrs(dev).forEach(take);
+    tunnelAddrs(dev).filter(r => !onLine(r)).forEach(r => take(paJoin(a.addr, l.addr, paSplit(r)[2])));
     for (let d = 254; keep.length < n && d > 0; d--) {
       const raw = paJoin(a.addr, l.addr, d);
       if (!others.has(raw) && !keep.includes(raw)) keep.push(raw);
