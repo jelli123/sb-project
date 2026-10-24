@@ -28,7 +28,7 @@ git -C "$ROOT" diff --quiet HEAD 2>/dev/null || COMMIT="$COMMIT + nicht eingeche
 DATE=$(date +%Y-%m-%d)
 
 echo "Baue den Dienst ..."
-on_host mvn -q -B -f "$ROOT/server/pom.xml" package -DskipTests
+on_host mvn -q -B -f "$ROOT/server/pom.xml" clean package -DskipTests
 
 JAR=$ROOT/server/target/sb-server.jar
 [ -f "$JAR" ] || { echo "Dienst wurde nicht gebaut: $JAR fehlt." >&2; exit 1; }

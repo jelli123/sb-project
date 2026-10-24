@@ -10,10 +10,17 @@ on_host() {
   if [ -f /.flatpak-info ]; then flatpak-spawn --host --directory="$ROOT" "$@"; else "$@"; fi
 }
 
-if [ ! -f "$JAR" ] || [ "$1" = "--build" ]; then
-  [ "$1" = "--build" ] && shift
+# Neu gebaut wird, wenn der Jar fehlt, --build verlangt ist oder Quellen bzw. pom.xml neuer
+# sind als er. Immer mit clean: inkrementelle Builds hinterliessen schon Klassen, die nicht
+# zusammenpassten (NoClassDefFoundError beim Start, unsinnige Compilerfehler).
+BUILD=
+if [ "$1" = "--build" ]; then BUILD=1; shift; fi
+if [ ! -f "$JAR" ] || [ -n "$(find "$ROOT/server/src/main" "$ROOT/server/pom.xml" -newer "$JAR" -print -quit)" ]; then
+  BUILD=1
+fi
+if [ -n "$BUILD" ]; then
   echo "Baue den Dienst ..."
-  on_host mvn -q -B -f "$ROOT/server/pom.xml" package -DskipTests
+  on_host mvn -q -B -f "$ROOT/server/pom.xml" clean package -DskipTests
 fi
 
 on_host java -jar "$JAR" --web "$ROOT" "$@"

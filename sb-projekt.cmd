@@ -7,7 +7,7 @@ set JAR=%ROOT%server\target\sb-server.jar
 if not exist "%JAR%" (
   echo Baue den Dienst ...
   pushd "%ROOT%server"
-  call mvn -q -B package -DskipTests || goto :fail
+  call mvn -q -B clean package -DskipTests || goto :fail
   popd
 )
 
