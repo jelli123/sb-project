@@ -1503,6 +1503,17 @@ const KNX = (() => {
           label: `Linie ${area.addr}.${line.addr}` };
   }
 
+  /* Ein Koppler laut Produktdatei (IsCoupler, z. B. KNXnet/IP-Router 091A)
+     erkennt seine Linie an der Teilnehmernummer 0 — mit einer anderen bleibt
+     er für physikalisch adressierte Telegramme taub. Auf dem Backbone gibt
+     es keine Linie zu koppeln. */
+  function couplerOffZero(dev) {
+    const item = dev && dev.catalogId && catalogById(dev.catalogId);
+    if (!item || !item.coupler || !hasPa(dev) || paSplit(dev.addr)[2] === 0) return false;
+    const area = areaOfLine(dev.lineId);
+    return !!area && !area.backbone;
+  }
+
   /* Linien-Ids, die hinter dem Koppler liegen. */
   function couplerInside(dev, scope) {
     const inside = new Set();
@@ -2139,6 +2150,9 @@ const KNX = (() => {
       if (d.secure && cat && !cat.secure)
         add('warn', 'device', d.id, 'KNX Secure ist gewählt, die Produktdatei nennt aber keine Secure-Unterstützung — gegebenenfalls die .knxprod neu laden.');
 
+      if (couplerOffZero(d))
+        add('error', 'device', d.id, `Laut Produktdatei ein Koppler — der braucht die Teilnehmernummer 0 (${paStr(paJoin(...paSplit(d.addr).slice(0, 2), 0))}). Mit ${paStr(d.addr)} erkennt er seine Linie nicht und verwirft physikalisch adressierte Telegramme; Programmieren und Secure-Zugriff scheitern.`);
+
       // Security Proxy: Tabellengrößen aus der Produktdatei
       const px = proxies && proxies.proxies.get(d.id);
       if (px && cat && cat.proxy && cat.proxy.gk && px.entries.length > cat.proxy.gk)
@@ -2603,7 +2617,7 @@ const KNX = (() => {
     walk, findNode, parentOf, nodePath, rooms, roomIdsUnder,
     lineById, areaOfLine, lineLabel, deviceById, objById,
     devicesInRoom, devicesOnLine, gaLinks, gaRooms,
-    couplerScope, filterTable, powerBudget, deviceMa,
+    couplerScope, couplerOffZero, filterTable, powerBudget, deviceMa,
     addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
     INFO_STATUS, normInfo, setProjectInfo,
     catalogById, addCatalogItems, deleteCatalogItem, catalogUsers, changeProduct, proxyAnalysis,

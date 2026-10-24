@@ -753,6 +753,13 @@ async function start() {
   if (!jobs.length) { A.warn(T18('Nichts gewählt.')); return; }
   if (!conn.connected) { A.warn(T18('Bitte zuerst mit einer Schnittstelle verbinden.')); return; }
   if (BUS.busy()) { A.warn(T18('Bitte warten — es läuft noch: {0}', BUS.busy())); return; }
+  // Ein Koppler mit Teilnehmernummer ≠ 0 nähme die Adresse an und wäre danach taub
+  const off = jobs.filter(j => KNX.couplerOffZero(j.dev));
+  if (off.length) {
+    A.warn(T18('Koppler brauchen die Teilnehmernummer 0 — bitte erst die Adresse ändern: {0}',
+      off.map(j => `„${j.dev.name}“ (${j.pa})`).join(', ')));
+    return;
+  }
   // Secure-Geräte geben ohne entsperrte Schlüsselablage nichts preis
   const S = window.KNXSecure;
   if (S && jobs.some(j => S.relevant(j.dev) && j.ops.some(o => o.op !== 'pa'))) {

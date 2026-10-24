@@ -218,6 +218,9 @@ function actNewDevice(ctx) {
   const applyCat = () => {
     const c = KNX.catalogById($('#m-cat').value);
     const hint = $('#m-cat-hint');
+    // Ein Koppler gehört auf die Teilnehmernummer 0 seiner Linie, wenn sie frei ist
+    if (c && c.coupler && !$('#m-noaddr').checked && $('#m-dev').querySelector('option[value="0"]'))
+      $('#m-dev').value = '0';
     // Ein Produkt ohne physikalische Adresse legt das fest
     $('#m-noaddr').disabled = !!(c && c.noAddress);
     if (c && c.noAddress && !$('#m-noaddr').checked) {

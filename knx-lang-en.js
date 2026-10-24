@@ -1754,6 +1754,8 @@ KNXI18n.add('en', {
   'Das neue Passwort ist dasselbe wie das bisherige.': 'The new password is the same as the current one.',
   'Schlüsselablage wird neu verschlüsselt …': 'Re-encrypting the key store …',
   'Projektpasswort geändert': 'Project password changed',
+  'Koppler brauchen die Teilnehmernummer 0 — bitte erst die Adresse ändern: {0}':
+    'Couplers need device number 0 — please change the address first: {0}',
   'Das Projektpasswort schützt die Schlüsselablage mit Gerätezertifikaten, Tool Keys und Gruppenschlüsseln. Die Schlüssel bleiben erhalten; sie werden mit dem neuen Passwort neu verschlüsselt.':
     'The project password protects the key store with device certificates, tool keys and group keys. The keys are kept and re-encrypted with the new password.',
 
