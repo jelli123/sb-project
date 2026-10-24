@@ -300,6 +300,8 @@ const KNX = (() => {
     ['dhcp',   'Automatisch (DHCP / AutoIP)'],
     ['manual', 'Manuell']
   ];
+  /* Tunneladressen je Gerät: die Produktdatei bestimmt die Zahl, frei definiert höchstens 8. */
+  const TUNNELS_MAX = 64;
   const IP_FIELDS = [
     { key: 'name',    label: 'Gerätename',        kind: 'text', max: 30 },
     { key: 'mode',    label: 'IP-Adresse beziehen', kind: 'enum', v: IP_MODES },
@@ -701,7 +703,7 @@ const KNX = (() => {
       };
       if (isIpV4(v.mcast)) out.mcast = v.mcast;
       if (Array.isArray(v.tunnelAddrs))
-        out.tunnelAddrs = [...new Set(v.tunnelAddrs.filter(r => Number.isInteger(r) && r > 0 && r <= 0xFFFF))].slice(0, 8);
+        out.tunnelAddrs = [...new Set(v.tunnelAddrs.filter(r => Number.isInteger(r) && r > 0 && r <= 0xFFFF))].slice(0, TUNNELS_MAX);
       if (bad || (v.mode != null && v.mode !== out.mode) || (v.tunnels != null && +v.tunnels !== out.tunnels)) dropped.ip++;
       return out;
     };
@@ -1561,7 +1563,8 @@ const KNX = (() => {
   function tunnelCount(dev) {
     const item = dev && dev.catalogId && catalogById(dev.catalogId);
     const n = item && item.prog && item.prog.dl && item.prog.dl.addAddr;
-    if (n) return n;
+    // Die Produktdatei bestimmt die Zahl (KNX/IP-Router haben auch mehr als 8 Tunnel)
+    if (n) return Math.min(TUNNELS_MAX, n);
     return dev && dev.ip ? Math.max(0, Math.min(8, parseInt(dev.ip.tunnels, 10) || 0)) : 0;
   }
   const tunnelCountFixed = dev => {

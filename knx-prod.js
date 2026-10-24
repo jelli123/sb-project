@@ -520,7 +520,8 @@ function readProgramming(ap, cut) {
     dl: {
       v: 1,
       manu: manu ? parseInt(manu[1], 16) : 0,
-      addAddr: num(ap, 'AdditionalAddressesCount'),
+      // Tunneladressen (PID_ADDITIONAL_INDIVIDUAL_ADDRESSES); mehr als 64 hat kein Gerät
+      addAddr: Math.max(0, Math.min(64, num(ap, 'AdditionalAddressesCount') || 0)),
       segs, lp,
       opt: {
         enc: attr(options, 'TextParameterEncoding') || 'iso-8859-1',
