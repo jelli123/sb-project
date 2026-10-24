@@ -14,6 +14,8 @@ import java.util.Map;
 /**
  * Schluesselablage fuer KNX Secure: Zustand, Entsperren, Sperren, Passwort und Geraetezertifikate.
  * Schluessel gehen hier nur hinein, nie heraus - die Antworten sagen, ob etwas vorhanden ist.
+ * Einzige Ausnahme ist der Projektexport: Er bekommt die Schluesseldatei, aber nur verschluesselt
+ * und nur bei entsperrter Ablage.
  */
 public final class SecureApi implements HttpHandler {
 
@@ -88,6 +90,18 @@ public final class SecureApi implements HttpHandler {
                     String project = required(Json.str(body, "project", null), "project");
                     vault.removeCertificate(project, required(Json.str(body, "serial", null), "serial"));
                     Http.json(ex, 200, vault.status(project));
+                }
+                case "/api/secure/export" -> {
+                    String project = required(Http.query(ex).get("project"), "project");
+                    Map<String, Object> m = Json.obj();
+                    m.put("file", vault.exportFile(project));
+                    Http.json(ex, 200, m);
+                }
+                case "/api/secure/import" -> {
+                    requirePost(method);
+                    Map<String, Object> body = Json.parseObject(Http.text(ex, 6 << 20));
+                    String project = required(Json.str(body, "project", null), "project");
+                    Http.json(ex, 200, vault.importFile(project, required(Json.str(body, "file", null), "file")));
                 }
                 default -> Http.error(ex, 404, "Unbekannter Pfad");
             }

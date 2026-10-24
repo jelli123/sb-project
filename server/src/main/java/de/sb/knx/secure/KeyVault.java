@@ -261,6 +261,43 @@ public final class KeyVault {
 
     /* ---------------- Projektverwaltung ---------------- */
 
+    /**
+     * Die Schluesseldatei, so wie sie verschluesselt auf der Platte liegt - fuer den Projektexport.
+     * Nur entsperrt: Wer sie mitnimmt, soll zeigen, dass er das Passwort kennt; ohne es waere die
+     * Kopie wertlos, und kein anderer Prozess bekommt die Datei fuer einen Rateangriff ausgehaendigt.
+     */
+    public synchronized String exportFile(String project) throws IOException {
+        String id = FileStore.safeId(project);
+        require(id);
+        Path f = file(id);
+        if (!Files.isRegularFile(f)) throw new IllegalStateException("Fuer dieses Projekt gibt es keine Schluesselablage.");
+        if (Files.size(f) > MAX_FILE) throw new IOException("Schluesseldatei ist unplausibel gross.");
+        return Files.readString(f, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Uebernimmt eine Schluesseldatei aus einem Projektexport. Geprueft wird die Huelle; entschluesselt
+     * wird erst beim Entsperren mit dem Passwort des exportierten Projekts. Eine vorhandene Ablage wird
+     * nicht ueberschrieben, sondern beiseitegelegt (.replaced-Zeitstempel) - sie koennte die einzigen
+     * Tool Keys von Geraeten enthalten.
+     */
+    public synchronized Map<String, Object> importFile(String project, String text) throws IOException {
+        String id = FileStore.safeId(project);
+        envelope(text);
+        Path f = file(id);
+        Open o = open.remove(id);
+        if (o != null) wipe(o);
+        if (Files.isRegularFile(f)) {
+            String stamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Files.move(f, f.resolveSibling(f.getFileName() + ".replaced-" + stamp), StandardCopyOption.REPLACE_EXISTING);
+        }
+        Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
+        Files.writeString(tmp, text, StandardCharsets.UTF_8);
+        restrict(tmp, false);
+        Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING);
+        return status(project);
+    }
+
     /** Wird ein Projekt umbenannt, wandert seine Ablage mit. */
     public synchronized void rename(String project, String newProject) throws IOException {
         String from = FileStore.safeId(project), to = FileStore.safeId(newProject);
@@ -301,19 +338,32 @@ public final class KeyVault {
         return o;
     }
 
-    private Open read(Path f, char[] password) throws IOException, GeneralSecurityException {
-        if (!Files.isRegularFile(f)) throw new IllegalStateException("Fuer dieses Projekt gibt es keine Schluesselablage.");
-        if (Files.size(f) > MAX_FILE) throw new IOException("Schluesseldatei ist unplausibel gross.");
-        Map<String, Object> env = Json.parseObject(Files.readString(f, StandardCharsets.UTF_8));
+    /** Die verschluesselte Huelle einer Schluesseldatei, gelesen und auf Plausibilitaet geprueft. */
+    private record Envelope(int iterations, byte[] salt, byte[] iv, byte[] data) {}
+
+    private static Envelope envelope(String text) throws IOException {
+        if (text.length() > MAX_FILE) throw new IOException("Schluesseldatei ist unplausibel gross.");
+        Map<String, Object> env;
+        try {
+            env = Json.parseObject(text);
+        } catch (RuntimeException e) {
+            throw new IOException("Unbekanntes Format der Schluesseldatei.");
+        }
         if (!FORMAT.equals(Json.str(env, "format", null)) || Json.integer(env, "version", 0) != VERSION
                 || !KDF.equals(Json.str(env, "kdf", null))) {
             throw new IOException("Unbekanntes Format der Schluesseldatei.");
         }
         int iterations = Json.integer(env, "iterations", 0);
         if (iterations < MIN_ITERATIONS || iterations > MAX_ITERATIONS) throw new IOException("Schluesseldatei mit unplausibler Ableitung.");
-        byte[] salt = b64(env, "salt", 16, 64);
-        byte[] iv = b64(env, "iv", 12, 12);
-        byte[] data = b64(env, "data", 16, MAX_FILE);
+        return new Envelope(iterations, b64(env, "salt", 16, 64), b64(env, "iv", 12, 12), b64(env, "data", 16, MAX_FILE));
+    }
+
+    private Open read(Path f, char[] password) throws IOException, GeneralSecurityException {
+        if (!Files.isRegularFile(f)) throw new IllegalStateException("Fuer dieses Projekt gibt es keine Schluesselablage.");
+        if (Files.size(f) > MAX_FILE) throw new IOException("Schluesseldatei ist unplausibel gross.");
+        Envelope env = envelope(Files.readString(f, StandardCharsets.UTF_8));
+        int iterations = env.iterations();
+        byte[] salt = env.salt(), iv = env.iv(), data = env.data();
 
         SecretKey key = derive(password, salt, iterations);
         byte[] plain;

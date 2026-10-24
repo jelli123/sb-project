@@ -401,19 +401,60 @@ if ($('#btn-theme') && window.KNXTheme) {
   syncThemeButton();
 }
 
-/* ---------- Import / Export ---------- */
-$('#btn-export').addEventListener('click', () => {
-  const p = KNX.project();
-  const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
+/* ---------- Import / Export ---------- *
+ * Hat das Projekt eine Schlüsselablage (KNX Secure), wird ein ZIP daraus:
+ * Projekt-JSON und Schlüsseldatei, diese so verschlüsselt, wie sie im Dienst
+ * liegt. Ohne sie wären Geräte mit Tool Key nur per Werkszustand erreichbar. */
+const BUNDLE_PROJECT = 'projekt.knx.json', BUNDLE_KEYS = 'schluessel.keys';
+
+function download(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = p.name.toLowerCase().replace(/[^\wäöüß]+/gi, '-').replace(/^-|-$/g, '') + '.knx.json';
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  A.status(T18('Projekt exportiert.'));
+}
+
+/* Die Schlüsseldatei des offenen Projekts, null ohne Ablage; `false`, wenn
+   das Entsperren abgebrochen wurde. */
+async function exportKeys() {
+  const S = window.KNXSecure;
+  if (!S || !S.available()) return null;
+  const st = await S.refresh();
+  if (!st || st.error) throw new Error(T18('Zustand der Schlüsselablage nicht lesbar.'));
+  if (!st.exists) return null;
+  if (!(await S.ensureUnlocked())) return false;
+  return (await KNXBackend.secure.exportFile(KNXBackend.projectId)).file;
+}
+
+$('#btn-export').addEventListener('click', async () => {
+  const p = KNX.project();
+  const base = p.name.toLowerCase().replace(/[^\wäöüß]+/gi, '-').replace(/^-|-$/g, '') || 'projekt';
+  const json = JSON.stringify(p, null, 2);
+  let keys;
+  try {
+    keys = await exportKeys();
+  } catch (err) {
+    A.warn(T18('Export abgebrochen: {0}', err.message));
+    return;
+  }
+  if (keys === false) {
+    A.warn(T18('Export abgebrochen: Die Schlüsseldatei geht nur bei entsperrter Ablage mit.'));
+    return;
+  }
+  if (!keys) {
+    download(new Blob([json], { type: 'application/json' }), base + '.knx.json');
+    A.status(T18('Projekt exportiert.'));
+    return;
+  }
+  const enc = new TextEncoder();
+  const zip = KNXProd.zip.write([{ name: BUNDLE_PROJECT, data: enc.encode(json) },
+                                 { name: BUNDLE_KEYS, data: enc.encode(keys) }]);
+  download(new Blob([zip], { type: 'application/zip' }), base + '.knx.zip');
+  A.status(T18('Projekt mit Schlüsseldatei exportiert.'));
 });
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
 $('#import-file').addEventListener('change', e => {
@@ -421,6 +462,7 @@ $('#import-file').addEventListener('change', e => {
   e.target.value = '';
   if (!file) return;
   if (/\.knxproj$/i.test(file.name)) { importEts(file); return; }
+  if (/\.zip$/i.test(file.name)) { importBundle(file); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -435,6 +477,59 @@ $('#import-file').addEventListener('change', e => {
   };
   reader.readAsText(file);
 });
+
+/* Projektexport als ZIP: Projekt und, falls dabei, die Schlüsseldatei. Die
+   kommt in den Dienst, bevor das Projekt ersetzt wird — scheitert das, bleibt
+   alles beim Alten. */
+async function importBundle(file) {
+  let p, keys = null;
+  try {
+    const buf = await file.arrayBuffer();
+    const L = KNXProd.LIMITS.bundle, budget = { left: L.total };
+    const entries = KNXProd.zip.entries(buf, L);
+    const pe = entries.find(e => e.name === BUNDLE_PROJECT), ke = entries.find(e => e.name === BUNDLE_KEYS);
+    if (!pe) throw new Error(T18('Im Archiv steht keine Projektdatei ({0}).', BUNDLE_PROJECT));
+    const dec = new TextDecoder('utf-8', { fatal: true });
+    p = KNX.migrate(JSON.parse(dec.decode(await KNXProd.zip.read(buf, pe, budget, L))));
+    if (!p) throw new Error(T18('Kein KNX-Projekt'));
+    if (ke) keys = dec.decode(await KNXProd.zip.read(buf, ke, budget, L));
+  } catch (err) {
+    A.warn(T18('Datei konnte nicht gelesen werden: {0}', err && err.message ? err.message : err));
+    return;
+  }
+  const done = () => {
+    takeProject(p);
+    A.toast(T18('Projekt importiert.'));
+    showMigrationNotes();
+  };
+  if (!keys) { done(); return; }
+  const S = window.KNXSecure;
+  if (!S || !S.available()) {
+    done();
+    A.warn(T18('Die Schlüsseldatei im Archiv wurde nicht übernommen — dafür muss der lokale Dienst laufen.'));
+    return;
+  }
+  A.openModal(T18('Projekt mit Schlüsseldatei importieren'), `
+    <p>${T18('Das aktuelle Projekt („<b>{0}</b>“) wird durch „<b>{1}</b>“ ersetzt.', esc(KNX.project().name), esc(p.name))}</p>
+    <p>${T18('Die Schlüsseldatei (KNX Secure) wird übernommen. Entsperrt wird sie mit dem Projektpasswort des exportierten Projekts.')}</p>
+    <p class="hint">${T18('Eine vorhandene Schlüsselablage dieses Projekts wird nicht gelöscht, sondern im Ordner der Schlüsseldateien beiseitegelegt.')}</p>
+    <p class="hint warn" id="m-err" hidden></p>
+  `, () => {
+    const ok = $('#modal-ok');
+    ok.disabled = true;
+    KNXBackend.secure.importFile({ project: KNXBackend.projectId, file: keys }).then(() => {
+      ok.disabled = false;
+      A.closeModal();
+      done();
+      S.refresh();
+    }).catch(err => {
+      ok.disabled = false;
+      const box = $('#m-err');
+      if (box) { box.textContent = T18('Schlüsseldatei nicht übernommen: {0}', err.message); box.hidden = false; }
+    });
+    return false;
+  });
+}
 
 function takeProject(p) {
   p.isSample = false;

@@ -316,7 +316,7 @@ function deviceSection(dev) {
   if (dev.secure && !dev.serial)
     hints.push(`<p class="hint">${T18('Die Seriennummer fehlt noch — sie wird mit dem Zertifikat übernommen.')}</p>`);
   if (st && st.unlocked && st.file && (dev.secure || k))
-    hints.push(`<p class="hint">${T18('Schlüsseldatei: {0} — bitte mit dem Projekt sichern; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.', `<code>${esc(st.file)}</code>`)}</p>`);
+    hints.push(`<p class="hint">${T18('Schlüsseldatei: {0} — der Export nimmt sie verschlüsselt mit; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.', `<code>${esc(st.file)}</code>`)}</p>`);
   if (!dev.secure && k && (k.toolKey || k.pending))
     hints.push(`<p class="hint">${T18('Das Gerät hat einen Tool Key. Beim nächsten Programmieren werden Security Mode und Schlüsseltabellen zurückgenommen; der Tool Key bleibt bis zum Werkszustand.')}</p>`);
   const unlocked = st && st.unlocked;
@@ -383,7 +383,7 @@ function projectSection() {
       ${counts}
     </ul>
     ${actions ? `<div class="detail-actions" style="margin-top:10px">${actions}</div>` : ''}
-    ${st && st.exists && st.file ? `<p class="hint">${T18('Schlüsseldatei: {0} — bitte mit dem Projekt sichern; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.', `<code>${esc(st.file)}</code>`)}</p>` : ''}
+    ${st && st.exists && st.file ? `<p class="hint">${T18('Schlüsseldatei: {0} — der Export nimmt sie verschlüsselt mit; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.', `<code>${esc(st.file)}</code>`)}</p>` : ''}
     <p class="hint">${T18('Ein Entfernen des Passworts ist nicht vorgesehen: Ohne es lägen die Schlüssel unverschlüsselt auf der Platte.')}</p>`;
 }
 

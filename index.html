@@ -100,15 +100,15 @@
     </label>
     <button id="btn-theme" class="btn btn-icon" data-pt-id="btn-theme" aria-label="Darstellung"></button>
     <!-- Nur als Symbol: die Kopfleiste braucht den Platz für den KI-Schalter -->
-    <button id="btn-export" class="btn btn-icon" data-pt-id="btn-export" title="Projekt als JSON-Datei speichern" data-i18n-title
+    <button id="btn-export" class="btn btn-icon" data-pt-id="btn-export" title="Projekt speichern (JSON, mit KNX-Secure-Schlüsseldatei als ZIP)" data-i18n-title
             aria-label="Export" data-i18n-aria-label>
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5V2.5M5 5.3 8 2.3l3 3"/><path d="M2.8 9.5v3.2c0 .5.4.8.8.8h8.8c.4 0 .8-.3.8-.8V9.5"/></svg>
     </button>
-    <button id="btn-import" class="btn btn-icon" data-pt-id="btn-import" title="Projekt aus JSON-Datei oder ETS-Projekt (.knxproj) laden" data-i18n-title
+    <button id="btn-import" class="btn btn-icon" data-pt-id="btn-import" title="Projekt laden: JSON, Export mit Schlüsseldatei (.zip) oder ETS-Projekt (.knxproj)" data-i18n-title
             aria-label="Import" data-i18n-aria-label>
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M5 7.7l3 3 3-3"/><path d="M2.8 9.5v3.2c0 .5.4.8.8.8h8.8c.4 0 .8-.3.8-.8V9.5"/></svg>
     </button>
-    <input type="file" id="import-file" accept=".json,application/json,.knxproj" hidden>
+    <input type="file" id="import-file" accept=".json,application/json,.knxproj,.zip" hidden>
     <input type="file" id="prod-file" accept=".knxprod" hidden>
     <button id="btn-projects" class="btn" data-pt-id="btn-projects" hidden
             title="Projekte auf diesem Rechner verwalten" data-i18n-title data-i18n>Projekte</button>

@@ -80,8 +80,8 @@ KNXI18n.add('en', {
   /* ---------- Knöpfe der Kopfzeile ---------- */
   'Export': 'Export',
   'Import': 'Import',
-  'Projekt als JSON-Datei speichern': 'Save the project as a JSON file',
-  'Projekt aus JSON-Datei oder ETS-Projekt (.knxproj) laden': 'Load a project from a JSON file or an ETS project (.knxproj)',
+  'Projekt speichern (JSON, mit KNX-Secure-Schlüsseldatei als ZIP)': 'Save the project (JSON; as ZIP with the KNX Secure key file)',
+  'Projekt laden: JSON, Export mit Schlüsseldatei (.zip) oder ETS-Projekt (.knxproj)': 'Load a project: JSON, export with key file (.zip) or ETS project (.knxproj)',
   'Projekte': 'Projects',
   'Projekte auf diesem Rechner verwalten': 'Manage the projects on this computer',
   'Inbetriebnahme': 'Commissioning',
@@ -1260,8 +1260,23 @@ KNXI18n.add('en', {
     'The device has a tool key. The next download switches off Security Mode and clears the key tables; the tool key stays until a factory reset.',
   'Tool Key setzen, Security Mode einschalten und gesicherte Gruppenadressen laden': 'Set the tool key, switch on Security Mode and load secure group addresses',
   'Secure-Inbetriebnahme': 'Secure commissioning',
-  'Schlüsseldatei: {0} — bitte mit dem Projekt sichern; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.':
-    'Key file: {0} — please back it up with the project; without it, devices with a tool key can only be reached via a factory reset.',
+  'Schlüsseldatei: {0} — der Export nimmt sie verschlüsselt mit; ohne sie sind Geräte mit Tool Key nur per Werkszustand erreichbar.':
+    'Key file: {0} — the export takes it along, encrypted; without it, devices with a tool key can only be reached via a factory reset.',
+  'Export abgebrochen: {0}': 'Export cancelled: {0}',
+  'Export abgebrochen: Die Schlüsseldatei geht nur bei entsperrter Ablage mit.': 'Export cancelled: the key file is only included when the key store is unlocked.',
+  'Projekt mit Schlüsseldatei exportiert.': 'Project exported with key file.',
+  'Im Archiv steht keine Projektdatei ({0}).': 'The archive contains no project file ({0}).',
+  'Kein KNX-Projekt': 'Not a KNX project',
+  'Datei konnte nicht gelesen werden: {0}': 'Could not read the file: {0}',
+  'Die Schlüsseldatei im Archiv wurde nicht übernommen — dafür muss der lokale Dienst laufen.':
+    'The key file in the archive was not taken over — that needs the local service.',
+  'Projekt mit Schlüsseldatei importieren': 'Import project with key file',
+  'Das aktuelle Projekt („<b>{0}</b>“) wird durch „<b>{1}</b>“ ersetzt.': 'The current project (“<b>{0}</b>”) will be replaced by “<b>{1}</b>”.',
+  'Die Schlüsseldatei (KNX Secure) wird übernommen. Entsperrt wird sie mit dem Projektpasswort des exportierten Projekts.':
+    'The key file (KNX Secure) is taken over. It is unlocked with the project password of the exported project.',
+  'Eine vorhandene Schlüsselablage dieses Projekts wird nicht gelöscht, sondern im Ordner der Schlüsseldateien beiseitegelegt.':
+    'An existing key store of this project is not deleted but set aside in the key file folder.',
+  'Schlüsseldatei nicht übernommen: {0}': 'Key file not taken over: {0}',
   'Zertifikat ersetzen …': 'Replace certificate …',
   'Zertifikat eintragen …': 'Enter certificate …',
   'Zertifikat entfernen …': 'Remove certificate …',

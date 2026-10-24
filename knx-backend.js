@@ -324,7 +324,9 @@ const backend = {
     lock:     project => post('/api/secure/lock', { project }),
     password: body    => post('/api/secure/password', body, { timeout: 60000 }),
     certificate:       body => post('/api/secure/certificate', body),
-    removeCertificate: body => post('/api/secure/certificate/remove', body)
+    removeCertificate: body => post('/api/secure/certificate/remove', body),
+    exportFile: project => get('/api/secure/export?project=' + encodeURIComponent(project)),
+    importFile: body    => post('/api/secure/import', body)
   }
 };
 const saver = makeSaver();

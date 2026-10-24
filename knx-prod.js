@@ -21,7 +21,9 @@ const KNXProd = (() => {
    Einträge haben; die Grenze je Eintrag bleibt dieselbe. */
 const LIMITS = {
   prod: { file: 64 * 1024 * 1024, total: 256 * 1024 * 1024, entries: 2000, name: 512, xml: 256 },
-  proj: { file: 64 * 1024 * 1024, total: 512 * 1024 * 1024, entries: 20000, name: 512, xml: 4000 }
+  proj: { file: 64 * 1024 * 1024, total: 512 * 1024 * 1024, entries: 20000, name: 512, xml: 4000 },
+  // Projektexport mit Schlüsseldatei (app-init.js): Projekt-JSON und .keys, nichts sonst
+  bundle: { file: 64 * 1024 * 1024, total: 80 * 1024 * 1024, entries: 8, name: 64, xml: 0 }
 };
 
 /* ---------- ZIP ---------- */
@@ -43,6 +45,7 @@ function zipEntries(buf, lim = LIMITS.prod, opts = {}) {
   const eocd = findEocd(view);
   if (eocd < 0) throw new Error(lim === LIMITS.proj
     ? 'Keine ZIP-Struktur gefunden — ist das wirklich eine .knxproj-Datei?'
+    : lim === LIMITS.bundle ? 'Keine ZIP-Struktur gefunden — ist das wirklich ein Projektexport?'
     : 'Keine ZIP-Struktur gefunden — ist das wirklich eine .knxprod-Datei?');
 
   const count = view.getUint16(eocd + 10, true);
@@ -183,6 +186,54 @@ function crc32(bytes) {
   let c = 0xFFFFFFFF;
   for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
   return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+/* Schreibt ein ZIP ohne Kompression: `files` als [{ name, data: Uint8Array }].
+   Gebraucht nur für den Projektexport — wenige, kleine Einträge. */
+function zipWrite(files) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let at = 0;
+  const now = new Date();
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  files.forEach(f => {
+    const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+    const head = (sig, extra) => {
+      const b = new DataView(new ArrayBuffer(extra + 26));
+      b.setUint32(0, sig, true);
+      let o = 4;
+      if (extra === 20) { b.setUint16(o, 20, true); o += 2; }   // erstellt mit
+      b.setUint16(o, 20, true);                                 // nötige Version
+      b.setUint16(o + 2, 0x0800, true);                         // Namen in UTF-8
+      b.setUint16(o + 4, 0, true);                              // gespeichert
+      b.setUint16(o + 6, time, true);
+      b.setUint16(o + 8, date, true);
+      b.setUint32(o + 10, crc, true);
+      b.setUint32(o + 14, size, true);
+      b.setUint32(o + 18, size, true);
+      b.setUint16(o + 22, name.length, true);
+      return b;
+    };
+    const loc = head(SIG_LOC, 4);                               // 30 Byte
+    parts.push(new Uint8Array(loc.buffer), name, f.data);
+    const cen = head(SIG_CEN, 20);                              // 46 Byte
+    cen.setUint32(42, at, true);                                // Lage des Eintrags
+    central.push(new Uint8Array(cen.buffer), name);
+    at += 30 + name.length + size;
+  });
+  const cenSize = central.reduce((n, b) => n + b.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, SIG_EOCD, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, cenSize, true);
+  end.setUint32(16, at, true);
+  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, b) => n + b.length, 0));
+  let o = 0;
+  all.forEach(b => { out.set(b, o); o += b.length; });
+  return out;
 }
 
 /* ---------- XML-Hilfen ---------- *
@@ -1152,7 +1203,7 @@ async function read(file, prefer) {
 
 /* Für den Import eines ETS-Projekts (knx-proj.js): dasselbe Archiv- und
    Produktformat, nur mit Projektdaten daneben. */
-const zip = { entries: zipEntries, read: zipRead, crc32, CRC_TABLE };
+const zip = { entries: zipEntries, read: zipRead, write: zipWrite, crc32, CRC_TABLE };
 const xml = { tags, attr, localName, toDpt, objectName, plain };
 
 return { read, BINARY, LIMITS, zip, xml, collect, expand, compact, supported: name => LDCTRL.has(name) };

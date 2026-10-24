@@ -49,6 +49,36 @@ class KeyVaultTest {
         assertFalse(Files.exists(file("P")));
     }
 
+    /** Export nur entsperrt; der Import legt eine vorhandene Ablage beiseite und oeffnet mit dem alten Passwort. */
+    @Test
+    void exportAndImportCarryTheEncryptedFile() throws Exception {
+        vault.unlock("P", PASSWORD.clone(), true);
+        vault.putCertificate("P", cert);
+        vault.lock("P");
+        assertThrows(IllegalStateException.class, () -> vault.exportFile("P"));
+        vault.unlock("P", PASSWORD.clone(), false);
+        String text = vault.exportFile("P");
+
+        vault.unlock("Q", "anderes1234".toCharArray(), true);
+        Map<String, Object> st = vault.importFile("Q", text);
+        assertEquals(Boolean.FALSE, st.get("unlocked"));
+        try (var files = Files.list(dir.resolve("secure"))) {
+            assertEquals(1, files.filter(f -> f.getFileName().toString().startsWith("Q.keys.replaced-")).count());
+        }
+        assertThrows(IllegalArgumentException.class, () -> vault.unlock("Q", "anderes1234".toCharArray(), false));
+        vault.unlock("Q", PASSWORD.clone(), false);
+        assertNotNull(vault.device("Q", "00FA12345678").fdsk());
+    }
+
+    @Test
+    void importRejectsForeignFiles() {
+        assertThrows(java.io.IOException.class, () -> vault.importFile("P", "kein json"));
+        assertThrows(java.io.IOException.class, () -> vault.importFile("P", "{\"format\":\"sb-projekt-keys\",\"version\":1,"
+                + "\"kdf\":\"PBKDF2WithHmacSHA256\",\"iterations\":1000,\"salt\":\"AAAAAAAAAAAAAAAAAAAAAA==\","
+                + "\"iv\":\"AAAAAAAAAAAAAAAA\",\"data\":\"AAAAAAAAAAAAAAAAAAAAAA==\"}"));
+        assertFalse(Files.exists(file("P")));
+    }
+
     @Test
     void refusesShortPasswords() {
         assertThrows(IllegalArgumentException.class, () -> vault.unlock("P", "kurz".toCharArray(), true));
