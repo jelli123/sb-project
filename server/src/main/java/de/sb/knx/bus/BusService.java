@@ -362,6 +362,10 @@ public final class BusService implements AutoCloseable {
                     ? new InetSocketAddress(0)
                     : new InetSocketAddress(InetAddress.getByName(localHost), 0);
             link = KNXNetworkLinkIP.newTunnelingLink(local, server, nat, new TPSettings());
+            /* Calimero sendet mit 0.0.0, der Server setzt die zugeteilte Tunneladresse ein. Der MAC von
+               KNX Secure deckt aber die Absenderadresse ab und wird hier mit der Adresse des Mediums
+               gerechnet - mit 0.0.0 passt er beim Geraet nie, und es schweigt (03/03/07 3.2). */
+            link.getKNXMedium().assignedAddress().ifPresent(link.getKNXMedium()::setDeviceAddress);
             attach();
             interfaceAddress = deviceAddress == null || deviceAddress.isBlank() ? null : deviceAddress;
             interfaceSerial = serial;
