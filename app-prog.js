@@ -170,6 +170,8 @@ const run = { active: false, cancel: false, skip: false, force: '', job: null, o
               rows: new Map(), ids: new Set(), release: null, timer: 0, started: 0, label: '', step: '' };
 const view = { show: 'due' };
 let overlay = null, langStale = false;
+/* Hat erst der Start des Programmierens verbunden, wird danach wieder getrennt. */
+let autoConn = false;
 const q = sel => overlay.querySelector(sel);
 
 const IFACE_KEY = 'knx-prog-iface-v1';
@@ -264,7 +266,7 @@ function wire() {
   q('#pg-sound').onchange = e => { FB.savePrefs({ sound: e.target.checked }); FB.chime('ok'); };
 
   q('#pg-discover').onclick = () => discover(false);
-  q('#pg-connect').onclick = connect;
+  q('#pg-connect').onclick = () => connect();
   q('#pg-disconnect').onclick = disconnect;
   q('#pg-server').onchange = syncControls;
 
@@ -543,7 +545,7 @@ function summarize() {
   const bits = [pa && T18('{0} × Adresse', pa), dl && T18('{0} × Download', dl), other && T18('{0} × Entladen/Werkszustand', other)]
     .filter(Boolean);
   q('#pg-summary').textContent = run.active ? '' : !jobs.length ? T18('Nichts gewählt')
-    : bits.join(' · ') + (conn.connected ? '' : ' ' + T18('— erst verbinden'));
+    : bits.join(' · ') + (conn.connected ? '' : ' ' + T18('— verbindet beim Start'));
   q('#pg-run').textContent = jobs.length === 1 ? T18('1 Gerät programmieren')
     : jobs.length ? T18('{0} Geräte programmieren', jobs.length) : T18('Ausführen');
   return jobs;
@@ -563,9 +565,9 @@ function syncControls() {
   q('#pg-stop').hidden = !run.active;
   q('#pg-run').hidden = run.active;
   const jobs = summarize();
-  q('#pg-run').disabled = busy || !!other || !conn.connected || !jobs.length;
-  q('#pg-run').title = !conn.connected ? T18('Erst mit einer Schnittstelle verbinden')
-    : other ? T18('Bitte warten — es läuft noch: {0}', other) : '';
+  q('#pg-run').disabled = busy || !!other || !jobs.length;
+  q('#pg-run').title = other ? T18('Bitte warten — es läuft noch: {0}', other)
+    : !conn.connected ? T18('Verbindet beim Start mit der gewählten Schnittstelle und trennt danach wieder') : '';
 }
 
 function renderAll() {
@@ -684,13 +686,13 @@ function discover(quiet) {
   });
 }
 
-function connect() {
+function connect(quiet = false) {
   const s = conn.servers[+q('#pg-server').value];
-  if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return; }
+  if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return Promise.resolve(); }
   // Adresse und Seriennummer der Schnittstelle braucht der Dienst, um sie selbst als Ziel zu erkennen
   const opts = { mode: 'tunneling', host: s.host, port: s.port, nat: q('#pg-nat').checked,
                  deviceAddress: s.address, deviceSerial: s.serial };
-  connOp(q('#pg-connect'), T18('Verbindet …'), T18('Verbinden mit {0}', s.host), false, async () => {
+  return connOp(q('#pg-connect'), T18('Verbindet …'), T18('Verbinden mit {0}', s.host), quiet, async () => {
     applyStatus(await BUS.connect(opts));
     if (!conn.connected) return { level: 'warn', message: T18('Verbindung kam nicht zustande') };
     conn.last = opts;
@@ -706,9 +708,38 @@ function disconnect() {
   });
 }
 
+/* Verbindet für einen Programmierlauf mit der gewählten — ohne Suche bisher: der
+   zuletzt benutzten — Schnittstelle. Liefert false, wenn das nicht gelingt. */
+async function ensureConnected() {
+  if (conn.connected) return true;
+  if (!conn.servers.length) await discover(true);
+  if (!q('#pg-server').value || !conn.servers[+q('#pg-server').value]) {
+    A.warn(T18('Keine Schnittstelle gefunden — bitte suchen und auswählen.'));
+    return false;
+  }
+  await connect(true);
+  if (!conn.connected) { A.warn(T18('Verbindung zur Schnittstelle kam nicht zustande.')); return false; }
+  autoConn = true;
+  appendLog('info', T18('Für das Programmieren verbunden'));
+  return true;
+}
+
+/* Trennt eine Verbindung, die erst der Programmierstart aufgebaut hat. */
+async function dropAutoConn() {
+  if (!autoConn) return;
+  autoConn = false;
+  try {
+    applyStatus(await B.bus.disconnect());
+    appendLog('info', T18('Verbindung getrennt'));
+  } catch (e) {
+    appendLog('warn', T18('Trennen fehlgeschlagen: {0}', e.message));
+  }
+}
+
 /* Nach einem Abriss, meist weil die Schnittstelle selbst neu gestartet ist: neu suchen — sie
-   kann eine neue Adresse haben — und wieder verbinden. Das dauert, bis sie wieder antwortet. */
-async function reconnect() {
+   kann eine neue Adresse haben — und wieder verbinden. Das dauert, bis sie wieder antwortet.
+   `pa`: die Adresse, die die Schnittstelle eben bekommen hat — sie gilt vor der Suchantwort. */
+async function reconnect(pa) {
   const last = conn.last;
   if (!last) return false;
   for (let attempt = 0; attempt < 3 && !run.cancel; attempt++) {
@@ -724,6 +755,7 @@ async function reconnect() {
         fillServers();
         Object.assign(last, { host: s.host, port: s.port, deviceAddress: s.address, deviceSerial: s.serial });
       }
+      if (pa) last.deviceAddress = pa;
       applyStatus(await B.bus.connect(last));
       if (conn.connected) {
         appendLog('info', conn.linkAddress ? T18('Wieder verbunden als {0}', conn.linkAddress) : T18('Wieder verbunden'));
@@ -751,7 +783,6 @@ async function start() {
   if (run.active) return;
   const jobs = jobsFromPick();
   if (!jobs.length) { A.warn(T18('Nichts gewählt.')); return; }
-  if (!conn.connected) { A.warn(T18('Bitte zuerst mit einer Schnittstelle verbinden.')); return; }
   if (BUS.busy()) { A.warn(T18('Bitte warten — es läuft noch: {0}', BUS.busy())); return; }
   // Ein Koppler mit Teilnehmernummer ≠ 0 nähme die Adresse an und wäre danach taub
   const off = jobs.filter(j => KNX.couplerOffZero(j.dev));
@@ -765,7 +796,17 @@ async function start() {
   if (S && jobs.some(j => S.relevant(j.dev) && j.ops.some(o => o.op !== 'pa'))) {
     if (!(await S.ensureUnlocked())) return;
   }
+  // Verbunden wird erst jetzt: welches Gerät die Schnittstelle ist, braucht die Rückfrage
+  if (!(await ensureConnected())) return;
   confirmRun(jobs);
+  // Ohne Bestätigung kein Lauf — dann auch keine stehende Verbindung
+  const bd = $('#modal-backdrop');
+  const obs = new MutationObserver(() => {
+    if (bd.classList.contains('open')) return;
+    obs.disconnect();
+    if (!run.active) dropAutoConn();
+  });
+  obs.observe(bd, { attributes: true, attributeFilter: ['class'] });
 }
 
 function confirmRun(jobs) {
@@ -853,8 +894,18 @@ async function execute(jobs) {
       if (S && S.available()) {
         try { await S.bindForBus(); } catch (e) { appendLog('warn', T18('Secure-Schlüssel nicht zugeordnet: {0}', e.message)); }
       }
-      if (o.op === 'pa') await opAssign(j, o);
-      else if (o.op === 'dl') await opDownload(j, o);
+      if (o.op === 'pa') {
+        await opAssign(j, o);
+        // Hat die verbundene Schnittstelle selbst eine neue Adresse, gilt die alte Verbindung nicht mehr
+        if (!j.skipped && isInterface(j) && conn.interfaceAddress !== j.pa) {
+          appendLog('info', T18('Die Schnittstelle hat jetzt die Adresse {0} — die Verbindung wird neu aufgebaut', j.pa));
+          if (conn.connected) {
+            try { applyStatus(await B.bus.disconnect()); } catch (e) { /* neu verbunden wird ohnehin */ }
+            conn.connected = false;
+          }
+          if (!(await reconnect(j.pa))) throw new Error(T18('Nach der Adressvergabe kam die Verbindung zur Schnittstelle nicht wieder zustande.'));
+        }
+      } else if (o.op === 'dl') await opDownload(j, o);
       else await opReset(j, o);
       if (j.skipped) continue;
       j.left--;
@@ -906,6 +957,7 @@ function finishRun(jobs, aborted) {
   Object.assign(run, { active: false, job: null, onJob: null, release: null, label: '', step: '' });
   $('#btn-prog').dataset.busy = '';
   release();
+  dropAutoConn();
   if (langStale) rebuildForLanguage();
   refresh();
   renderAll();

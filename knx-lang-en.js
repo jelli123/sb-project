@@ -1754,6 +1754,14 @@ KNXI18n.add('en', {
   'Das neue Passwort ist dasselbe wie das bisherige.': 'The new password is the same as the current one.',
   'Schlüsselablage wird neu verschlüsselt …': 'Re-encrypting the key store …',
   'Projektpasswort geändert': 'Project password changed',
+  '— verbindet beim Start': '— connects on start',
+  'Verbindet beim Start mit der gewählten Schnittstelle und trennt danach wieder': 'Connects to the selected interface on start and disconnects afterwards',
+  'Keine Schnittstelle gefunden — bitte suchen und auswählen.': 'No interface found — please search and select one.',
+  'Verbindung zur Schnittstelle kam nicht zustande.': 'Could not connect to the interface.',
+  'Für das Programmieren verbunden': 'Connected for programming',
+  'Trennen fehlgeschlagen: {0}': 'Disconnecting failed: {0}',
+  'Die Schnittstelle hat jetzt die Adresse {0} — die Verbindung wird neu aufgebaut': 'The interface now has address {0} — reconnecting',
+  'Nach der Adressvergabe kam die Verbindung zur Schnittstelle nicht wieder zustande.': 'After the address assignment the connection to the interface could not be re-established.',
   'Koppler brauchen die Teilnehmernummer 0 — bitte erst die Adresse ändern: {0}':
     'Couplers need device number 0 — please change the address first: {0}',
   'Das Projektpasswort schützt die Schlüsselablage mit Gerätezertifikaten, Tool Keys und Gruppenschlüsseln. Die Schlüssel bleiben erhalten; sie werden mit dem neuen Passwort neu verschlüsselt.':
