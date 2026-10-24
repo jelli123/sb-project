@@ -1755,6 +1755,8 @@ KNXI18n.add('en', {
   'Schlüsselablage wird neu verschlüsselt …': 'Re-encrypting the key store …',
   'Projektpasswort geändert': 'Project password changed',
   '— verbindet beim Start': '— connects on start',
+  'Adresse {0} vergeben — das ist die verbundene Schnittstelle; sie startet neu, die Verbindung wird bei Bedarf neu aufgebaut':
+    'Address {0} assigned — this is the connected interface; it restarts, the connection is re-established when needed',
   'Verbindet beim Start mit der gewählten Schnittstelle und trennt danach wieder': 'Connects to the selected interface on start and disconnects afterwards',
   'Keine Schnittstelle gefunden — bitte suchen und auswählen.': 'No interface found — please search and select one.',
   'Verbindung zur Schnittstelle kam nicht zustande.': 'Could not connect to the interface.',

@@ -739,7 +739,7 @@ async function dropAutoConn() {
 /* Nach einem Abriss, meist weil die Schnittstelle selbst neu gestartet ist: neu suchen — sie
    kann eine neue Adresse haben — und wieder verbinden. Das dauert, bis sie wieder antwortet.
    `pa`: die Adresse, die die Schnittstelle eben bekommen hat — sie gilt vor der Suchantwort. */
-async function reconnect(pa) {
+async function reconnect(pa = conn.ifacePa) {
   const last = conn.last;
   if (!last) return false;
   for (let attempt = 0; attempt < 3 && !run.cancel; attempt++) {
@@ -758,6 +758,7 @@ async function reconnect(pa) {
       if (pa) last.deviceAddress = pa;
       applyStatus(await B.bus.connect(last));
       if (conn.connected) {
+        conn.ifacePa = '';
         appendLog('info', conn.linkAddress ? T18('Wieder verbunden als {0}', conn.linkAddress) : T18('Wieder verbunden'));
         return true;
       }
@@ -896,14 +897,17 @@ async function execute(jobs) {
       }
       if (o.op === 'pa') {
         await opAssign(j, o);
-        // Hat die verbundene Schnittstelle selbst eine neue Adresse, gilt die alte Verbindung nicht mehr
-        if (!j.skipped && isInterface(j) && conn.interfaceAddress !== j.pa) {
-          appendLog('info', T18('Die Schnittstelle hat jetzt die Adresse {0} — die Verbindung wird neu aufgebaut', j.pa));
+        /* Hat die verbundene Schnittstelle selbst eine neue Adresse, gilt die alte Verbindung
+           nicht mehr. Riss sie ab, verbindet der nächste Schritt neu — mit dieser Adresse. Blieb
+           sie stehen, wird sie hier erneuert. */
+        if (!j.skipped && isInterface(j) && conn.last && conn.last.deviceAddress !== j.pa) {
+          conn.ifacePa = j.pa;
           if (conn.connected) {
+            appendLog('info', T18('Die Schnittstelle hat jetzt die Adresse {0} — die Verbindung wird neu aufgebaut', j.pa));
             try { applyStatus(await B.bus.disconnect()); } catch (e) { /* neu verbunden wird ohnehin */ }
             conn.connected = false;
+            if (!(await reconnect())) throw new Error(T18('Nach der Adressvergabe kam die Verbindung zur Schnittstelle nicht wieder zustande.'));
           }
-          if (!(await reconnect(j.pa))) throw new Error(T18('Nach der Adressvergabe kam die Verbindung zur Schnittstelle nicht wieder zustande.'));
         }
       } else if (o.op === 'dl') await opDownload(j, o);
       else await opReset(j, o);
@@ -957,6 +961,7 @@ function finishRun(jobs, aborted) {
   Object.assign(run, { active: false, job: null, onJob: null, release: null, label: '', step: '' });
   $('#btn-prog').dataset.busy = '';
   release();
+  conn.ifacePa = '';
   dropAutoConn();
   if (langStale) rebuildForLanguage();
   refresh();
@@ -1036,12 +1041,17 @@ async function waitForButton(j) {
 
 /* ---------- Schritte ---------- */
 
-/* Programmiert die Schnittstelle sich selbst um, reißt die Verbindung ab. Die Schleife verbindet neu. */
+/* Programmiert die Schnittstelle sich selbst um, reißt die Verbindung ab. Die Schleife verbindet neu.
+   Bei der verbundenen Schnittstelle ist das der erwartete Verlauf, kein Hinweis. */
 function linkCheck(r, j) {
   if (!r || !r.linkLost) return;
   conn.connected = false;
-  j.warned = true;
-  appendLog('warn', r.message || T18('Verbindung verloren'));
+  if (isInterface(j)) {
+    appendLog('info', T18('Adresse {0} vergeben — das ist die verbundene Schnittstelle; sie startet neu, die Verbindung wird bei Bedarf neu aufgebaut', j.pa));
+  } else {
+    j.warned = true;
+    appendLog('warn', r.message || T18('Verbindung verloren'));
+  }
   refreshStatus();
 }
 
@@ -1073,7 +1083,7 @@ async function opAssign(j, o) {
   if (!r.ok && !r.linkLost) throw new Error(r.message || T18('Adresse nicht vergeben'));
   record(j.dev, { pa: j.addr });
   j.doneText = T18('Adresse vergeben');
-  appendLog('info', r.message || T18('Adresse {0} ist vergeben', j.pa));
+  if (!r.linkLost) appendLog('info', r.message || T18('Adresse {0} ist vergeben', j.pa));
 }
 
 async function opDownload(j, o) {
