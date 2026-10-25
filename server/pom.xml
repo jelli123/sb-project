@@ -10,6 +10,13 @@
   <packaging>jar</packaging>
   <name>SB-Project Server</name>
 
+  <licenses>
+    <license>
+      <name>GPL-3.0</name>
+      <url>https://www.gnu.org/licenses/gpl-3.0.txt</url>
+    </license>
+  </licenses>
+
   <properties>
     <!-- 17 statt 25: haelt die Bus- und Speicherschicht fuer eine spaetere
          Android-Portierung erreichbar. -->

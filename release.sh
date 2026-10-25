@@ -110,6 +110,7 @@ java -jar "%ROOT%server\sb-server.jar" --mcp-stdio %*
 EOF
 
 # ---------- Lizenzhinweise ----------
+cp "$ROOT/LICENSE" "$STAGE/LICENSE.txt"
 unzip -p "$STAGE/server/lib"/calimero-core-*.jar META-INF/LICENSE.txt > "$STAGE/lizenzen/calimero-LICENSE.txt"
 unzip -p "$STAGE/server/lib"/slf4j-api-*.jar META-INF/LICENSE.txt > "$STAGE/lizenzen/slf4j-LICENSE.txt"
 # Die Lucide-Hinweise stehen im Kopf der Icon-Datei — von dort uebernommen.
@@ -133,8 +134,9 @@ Lucide-Symbole (web/knx-icons.js)
   Lizenztext: lucide-LICENSE.txt
   Quellcode:  https://github.com/lucide-icons/lucide
 
-SB-Project selbst hat noch keine Lizenz. Bis eine gewaehlt ist, ist dieses
-Paket nur zum Testen gedacht und nicht zur Weiterverbreitung.
+SB-Project selbst steht unter der GNU General Public License Version 3
+(LICENSE.txt im Hauptordner des Pakets).
+Quellcode:  https://github.com/jelli123/sb-project (Stand $COMMIT)
 EOF
 
 # ---------- Beschreibung ----------
@@ -234,12 +236,15 @@ sb-project-mcp.sh, .cmd        MCP-Starter fuer KI-Programme (Claude Desktop)
 server/                        Dienst (Java) samt Bibliotheken
 web/                           Oberflaeche
 beispiel/                      Musterprojekt zum Importieren
+LICENSE.txt                    Lizenz von SB-Project (GPL-3.0)
 lizenzen/                      Lizenzen der fremden Bestandteile
 
 Lizenz
 ------
-Siehe lizenzen/HINWEISE.txt. SB-Project selbst ist noch nicht lizenziert
-und daher nur zum Testen ueberlassen.
+SB-Project ist freie Software unter der GNU General Public License
+Version 3, siehe LICENSE.txt. Es gibt keinerlei Gewaehrleistung.
+Quellcode: https://github.com/jelli123/sb-project (Stand $COMMIT)
+Fremde Bestandteile: siehe lizenzen/HINWEISE.txt.
 EOF
 
 # ---------- ZIP ----------

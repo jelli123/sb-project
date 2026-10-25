@@ -71,3 +71,8 @@ Das ZIP aus `release.sh` braucht beim Empfänger nur Java, kein Maven.
 - [Calimero](https://github.com/calimero-project/calimero-core) – GPL-2.0 mit Classpath Exception
 - [SLF4J](https://github.com/qos-ch/slf4j) – MIT
 - [Lucide](https://github.com/lucide-icons/lucide) – ISC/MIT
+
+## Lizenz
+
+SB-Project ist freie Software unter der
+[GNU General Public License Version 3](LICENSE) – ohne jede Gewährleistung.
