@@ -1,8 +1,7 @@
 # SB-Project
 
 Planungs- und Programmierwerkzeug für KNX-Anlagen, entstanden rund um
-[Selfbus](https://selfbus.org). Läuft lokal: ein kleiner Java-Dienst plus
-Oberfläche im Browser.
+[Selfbus](https://selfbus.org). Läuft lokal als Java-Dienst plus Oberfläche im Browser.
 
 > **Testversion:** An einer echten Anlage bitte nichts tun, das sich nicht
 > rückgängig machen lässt.
@@ -21,8 +20,7 @@ Oberfläche im Browser.
   verschlüsselter Schlüsselspeicher, Export/Import von ETS-Keyrings.
 - **KI-Unterstützung (optional):** MCP-Server für Claude Code / Claude Desktop
   und ein eingebauter KI-Chat. Zugang nur für ausdrücklich freigegebene
-  Projekte; persönliche Daten werden durch Platzhalter ersetzt, auf den Bus
-  schreibt die KI nie.
+  Projekte. Persönliche Daten werden durch Platzhalter ersetzt.
 - **Sprachen:** Oberfläche auf Deutsch und Englisch.
 
 ## Voraussetzungen
