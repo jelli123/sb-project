@@ -93,7 +93,7 @@ public final class KeyringFile {
                 }
                 body.add(devs);
             }
-            Element root = new Element("Keyring", attrs("Project", project, "CreatedBy", "sb-projekt", "Created", created));
+            Element root = new Element("Keyring", attrs("Project", project, "CreatedBy", "sb-project", "Created", created));
             root.children.addAll(body);
 
             ByteArrayOutputStream sig = new ByteArrayOutputStream();

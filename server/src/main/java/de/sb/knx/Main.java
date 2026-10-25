@@ -160,7 +160,7 @@ public final class Main {
 
         http.start();
         String url = "http://127.0.0.1:" + boundPort + "/";
-        System.out.println("SB-Projekt laeuft auf " + url);
+        System.out.println("SB-Project laeuft auf " + url);
         System.out.println("  Daten:  " + dataDir);
         System.out.println("  Web:    " + webDir);
         System.out.println("  KI:     " + url + "mcp (Zugang erst nach Freigabe im Fenster)");
@@ -186,10 +186,10 @@ public final class Main {
                 """);
     }
 
-    /** sb-projekt-mcp.sh/.cmd liegt im Repo neben der Oberflaeche, im Paket eine Ebene darueber. */
+    /** sb-project-mcp.sh/.cmd liegt im Repo neben der Oberflaeche, im Paket eine Ebene darueber. */
     private static String mcpStarter(Path webDir) {
         boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-        String name = win ? "sb-projekt-mcp.cmd" : "sb-projekt-mcp.sh";
+        String name = win ? "sb-project-mcp.cmd" : "sb-project-mcp.sh";
         for (Path dir : new Path[] {webDir, webDir.getParent()}) {
             if (dir != null && Files.isRegularFile(dir.resolve(name))) return dir.resolve(name).toString();
         }
@@ -200,9 +200,23 @@ public final class Main {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("win")) {
             String local = System.getenv("LOCALAPPDATA");
-            if (local != null && !local.isBlank()) return Paths.get(local, "SB-Projekt");
+            if (local != null && !local.isBlank()) return adoptOldDataDir(Paths.get(local, "SB-Projekt"), Paths.get(local, "SB-Project"));
         }
-        return Paths.get(System.getProperty("user.home"), ".local", "share", "sb-projekt");
+        Path share = Paths.get(System.getProperty("user.home"), ".local", "share");
+        return adoptOldDataDir(share.resolve("sb-projekt"), share.resolve("sb-project"));
+    }
+
+    /** Bis 0.2.1 hiess das Verzeichnis sb-projekt; es wird einmalig umbenannt, sonst weiter benutzt. */
+    private static Path adoptOldDataDir(Path old, Path dir) {
+        if (Files.exists(dir) || !Files.isDirectory(old)) return dir;
+        try {
+            Files.move(old, dir);
+            System.out.println("Datenverzeichnis umbenannt: " + old + " -> " + dir);
+            return dir;
+        } catch (IOException e) {
+            System.err.println("Altes Datenverzeichnis bleibt in Gebrauch (" + e.getMessage() + "): " + old);
+            return old;
+        }
     }
 
     /** Sucht die Weboberflaeche neben dem Arbeitsverzeichnis - im Projekt liegt sie eine Ebene ueber server/. */

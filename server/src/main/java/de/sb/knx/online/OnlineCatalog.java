@@ -49,7 +49,7 @@ public final class OnlineCatalog {
 
     private static final String BASE = "https://onlinecatalog.knx.org";
     private static final String MASTER = "https://update.knx.org/data/XML/project-23/knx_master.xml";
-    private static final String AGENT = "sb-projekt/0.1";
+    private static final String AGENT = "sb-project/0.1";
 
     /** Herstellerliste und Stammdaten aendern sich selten. */
     private static final long MANUFACTURERS_TTL = Duration.ofDays(30).toMillis();

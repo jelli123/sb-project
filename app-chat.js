@@ -1,10 +1,10 @@
 /* ============================================================
    KNX-Struktur — KI-Chat im Fenster
    ------------------------------------------------------------
-   Ein Gespräch mit Claude direkt in SB-Projekt, ohne externes
+   Ein Gespräch mit Claude direkt in SB-Project, ohne externes
    Werkzeug. Der Dienst startet dafür die Claude-Code-Kommando-
    zeile des Nutzers (server: chat/ChatService.java) — nur mit
-   den Werkzeugen von sb-projekt. Was die KI am Projekt sieht
+   den Werkzeugen von sb-project. Was die KI am Projekt sieht
    und ändert, läuft deshalb über denselben Weg wie jede andere
    KI-Sitzung: Freigabe am Schalter, Platzhalter, Vorschläge,
    Bestätigung. Auch die eigene Nachricht bekommt Platzhalter,

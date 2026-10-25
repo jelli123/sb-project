@@ -89,7 +89,7 @@ final class Tools {
             f("removed", list(catalogText(80), 1000)),
             f("warnings", list(text(300), 100)));
 
-    private static final String WRITE_NOTE = " Changes follow the approval mode the user set in the SB-Projekt window: "
+    private static final String WRITE_NOTE = " Changes follow the approval mode the user set in the SB-Project window: "
             + "'Vorschlag' collects them as proposals, 'Einzelschritte' waits for confirmation (the call returns "
             + "'pending' after about 45 s; check later with get_change_status), 'Auto' applies them at once. Removing "
             + "anything always waits for confirmation. One call is one undo step for the user. Keep privacy "
@@ -129,9 +129,9 @@ final class Tools {
 
     private static final List<Tool> READ_TOOLS = List.of(
             new Tool("list_projects", "List released projects",
-                    "Lists the SB-Projekt projects the user has released for AI access, with a short summary. "
+                    "Lists the SB-Project projects the user has released for AI access, with a short summary. "
                             + "Call this first; pass the returned handle as `project` to the other tools. "
-                            + "A project is only reachable while it is open in an SB-Projekt window with AI access switched on.",
+                            + "A project is only reachable while it is open in an SB-Project window with AI access switched on.",
                     obj(), obj(f("projects", list(obj(
                             f("project", Shape.handle()),
                             f("mode", word()),
@@ -256,7 +256,7 @@ final class Tools {
                     Level.READ, 30),
 
             new Tool("check_project", "Check project",
-                    "Runs the consistency check of SB-Projekt: group addresses without senders, datapoint type conflicts, "
+                    "Runs the consistency check of SB-Project: group addresses without senders, datapoint type conflicts, "
                             + "duplicate or misplaced individual addresses, devices without room, missing flags and more.",
                     obj(PROJECT, opt("level", oneOf("error", "warn", "info"), "Minimum severity. Default info (everything).")),
                     obj(f("issues", list(obj(
@@ -292,7 +292,7 @@ final class Tools {
 
             new Tool("get_ip_config", "IP configuration",
                     "Returns the IP configuration of the installation: routing multicast of the IP backbone and the "
-                            + "address settings of KNXnet/IP devices. The user is asked in the SB-Projekt window before "
+                            + "address settings of KNXnet/IP devices. The user is asked in the SB-Project window before "
                             + "anything is returned; a refusal comes back as an error. Only call this when the task needs it.",
                     obj(PROJECT),
                     obj(f("backbone", obj(f("medium", word()), f("multicast", nullable(ipv4())))),
@@ -311,7 +311,7 @@ final class Tools {
                     Level.READ, 150),
 
             new Tool("list_function_types", "List function types",
-                    "Returns the function types SB-Projekt knows (switched light, dimmed light, blind, heating …) "
+                    "Returns the function types SB-Project knows (switched light, dimmed light, blind, heating …) "
                             + "with their roles and the datapoint type each role expects. Use the type and role keys "
                             + "with change_functions.",
                     obj(PROJECT),
@@ -326,7 +326,7 @@ final class Tools {
             new Tool("list_manuals", "List product manuals",
                     "Lists the product manuals (PDF) the user uploaded, with title, page count and the products of "
                             + "this project's catalogue they belong to (catalogue ids as in list_catalog). Manuals of "
-                            + "products not in this project are listed after the others. Inside the SB-Projekt chat a "
+                            + "products not in this project are listed after the others. Inside the SB-Project chat a "
                             + "manual can be read with the Read tool using `file` as path; other clients cannot read "
                             + "them. Read the table of contents first, then only the pages needed.",
                     obj(PROJECT, opt("query", text(100), "Case-insensitive filter on title, product name and order number."),
@@ -509,7 +509,7 @@ final class Tools {
 
             new Tool("change_devices", "Change devices",
                     "Renames devices, assigns them to the room they are installed in and sets their power values, as "
-                            + "the device form in SB-Projekt does: `supply` is the rated current a power supply or choke "
+                            + "the device form in SB-Project does: `supply` is the rated current a power supply or choke "
                             + "feeds into its line (product files usually do not contain it - it depends on the power "
                             + "supply used), `busCurrent` what a device draws. check_project uses both for the power "
                             + "budget of each line. Creating devices, line and physical address stay with the user.",

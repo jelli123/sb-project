@@ -415,7 +415,7 @@ public final class McpGate implements AutoCloseable {
         Map<String, Object> out = Json.obj();
         out.put("projects", list);
         if (list.isEmpty()) {
-            out.put("hint", "No project is released. Ask the user to open the project in SB-Projekt and "
+            out.put("hint", "No project is released. Ask the user to open the project in SB-Project and "
                     + "switch AI access to 'Lesen' (read) in the top bar.");
         }
         return out;

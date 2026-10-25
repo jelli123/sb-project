@@ -124,7 +124,7 @@ class StdioBridgeTest {
 
         Map<?, ?> res = (Map<?, ?>) send(call(3, "list_projects")).get("result");
         assertEquals(true, res.get("isError"));
-        assertTrue(Json.write(res).contains("SB-Projekt laeuft nicht"));
+        assertTrue(Json.write(res).contains("SB-Project laeuft nicht"));
     }
 
     @Test

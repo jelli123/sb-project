@@ -30,9 +30,9 @@ import java.util.concurrent.TimeUnit;
  * ({@code /mcp}), dessen Antwort als eine Zeile auf stdout zurueck. Pruefen, Filtern und
  * Platzhalter bleiben Sache des Dienstes - die Bruecke selbst sieht keine Projektdaten.
  *
- * <p>Laeuft SB-Projekt (noch) nicht, beantwortet die Bruecke {@code initialize} und
+ * <p>Laeuft SB-Project (noch) nicht, beantwortet die Bruecke {@code initialize} und
  * {@code tools/list} selbst, und jeder Werkzeugaufruf meldet, dass der Dienst fehlt. So bleibt
- * der Server im KI-Programm nutzbar, sobald SB-Projekt gestartet wird. Nach einem Neustart des
+ * der Server im KI-Programm nutzbar, sobald SB-Project gestartet wird. Nach einem Neustart des
  * Dienstes meldet sie sich still neu an; den Zugangsschluessel liest sie bei jeder Anfrage aus
  * der Datei, ein erneuerter Schluessel gilt also sofort.
  */
@@ -114,7 +114,7 @@ public final class StdioBridge {
         } catch (ConnectException | HttpConnectTimeoutException e) {
             offline(id, method, msg);
         } catch (IOException e) {
-            if (id != null) write(McpApi.error(id, -32000, "SB-Projekt antwortet nicht: " + e.getMessage()));
+            if (id != null) write(McpApi.error(id, -32000, "SB-Project antwortet nicht: " + e.getMessage()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -133,7 +133,7 @@ public final class StdioBridge {
                 return;
             } catch (IOException e) {
                 String why = e instanceof ConnectException || e.getMessage() == null ? "keine Verbindung" : e.getMessage();
-                System.err.println("SB-Projekt nicht erreichbar (" + endpoint + "): " + why
+                System.err.println("SB-Project nicht erreichbar (" + endpoint + "): " + why
                         + " - die Werkzeuge melden das, bis der Dienst laeuft.");
             }
         }
@@ -173,14 +173,14 @@ public final class StdioBridge {
         }
         String msg = r.statusCode() == 401
                 ? "Zugangsschluessel abgelehnt - ist " + tokenFile + " lesbar und vom laufenden Dienst?"
-                : "SB-Projekt meldet HTTP " + r.statusCode() + ": " + detail;
+                : "SB-Project meldet HTTP " + r.statusCode() + ": " + detail;
         write(McpApi.error(id, -32000, msg));
     }
 
     /** Der Dienst ist nicht erreichbar: so antworten, dass die KI es dem Nutzer sagen kann. */
     private void offline(Object id, String method, Map<String, Object> msg) {
         if (id == null) return;
-        String hint = "SB-Projekt laeuft nicht (" + endpoint + "). Bitte SB-Projekt starten, das Projekt "
+        String hint = "SB-Project laeuft nicht (" + endpoint + "). Bitte SB-Project starten, das Projekt "
                 + "oeffnen und den KI-Zugang im Fenster auf 'Lesen' stellen.";
         switch (method == null ? "" : method) {
             case "ping" -> write(McpApi.result(id, Json.obj()));

@@ -45,6 +45,7 @@ public final class KeyVault {
     public static final int MIN_PASSWORD = 8;
     private static final int MAX_PASSWORD = 200;
 
+    /** Alte Schreibweise bleibt: FORMAT und AAD stehen in jeder gespeicherten Datei, sonst waeren die Schluessel weg. */
     private static final String FORMAT = "sb-projekt-keys";
     private static final int VERSION = 1;
     private static final String KDF = "PBKDF2WithHmacSHA256";

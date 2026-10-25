@@ -773,7 +773,7 @@ const PLANNERS = {
         const type = item.types[prm.pt] || { k: 'text' };
         const name = S(prm.t).trim();
         if (!name || type.k === 'none') throw new Error(`${x.ref} ist kein einstellbarer Parameter.`);
-        if (type.k === 'ip') throw new Error(`${name} ist eine IP-Einstellung — die vergibt der Nutzer in SB-Projekt.`);
+        if (type.k === 'ip') throw new Error(`${name} ist eine IP-Einstellung — die vergibt der Nutzer in SB-Project.`);
         if (Object.prototype.hasOwnProperty.call(r.assigned || {}, x.ref)) throw new Error(`${name} wird von der Produktdatei fest zugewiesen.`);
         if (prm.ro) throw new Error(`${name} ist schreibgeschützt.`);
         const value = paramInput(type, x.value, name);
@@ -1299,7 +1299,7 @@ function setupCommand(tokenFile) {
   const url = location.origin + '/mcp';
   const win = tokenFile.includes('\\');
   const read = win ? `$(Get-Content '${tokenFile}')` : `$(cat '${tokenFile}')`;
-  return `claude mcp add --transport http --scope user sb-projekt ${url} --header "Authorization: Bearer ${read}"`;
+  return `claude mcp add --transport http --scope user sb-project ${url} --header "Authorization: Bearer ${read}"`;
 }
 
 /* Claude Desktop startet MCP-Server als Unterprozess. Der Starter reicht alles an
@@ -1311,7 +1311,7 @@ function desktopConfig(starter) {
   const entry = /\.cmd$/i.test(starter)
     ? { command: 'cmd', args: ['/c', starter, ...args] }
     : { command: starter, args };
-  return JSON.stringify({ mcpServers: { 'sb-projekt': entry } }, null, 2);
+  return JSON.stringify({ mcpServers: { 'sb-project': entry } }, null, 2);
 }
 
 function desktopConfigFile(starter) {

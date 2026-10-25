@@ -1706,8 +1706,8 @@ KNXI18n.add('en', {
     'The product file declares the Security Proxy. The coupler translates only once it is commissioned securely.',
   'Keine Gruppenadresse ist auf einer Seite gesichert und auf der anderen nicht.':
     'No group address is secured on one side and plain on the other.',
-  'Gesperrtes öffnet SB-Projekt beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.':
-    'While programming, SB-Projekt opens what is blocked for itself, 60 s at a time (AN192). The settings are downloaded with the group addresses.',
+  'Gesperrtes öffnet SB-Project beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.':
+    'While programming, SB-Project opens what is blocked for itself, 60 s at a time (AN192). The settings are downloaded with the group addresses.',
   'An {0} trifft die Adresse auf unverschlüsselte Teilnehmer, ohne dass ein Security Proxy übersetzt.':
     'At {0} the address meets plain devices without a Security Proxy translating.',
   'Security Proxy übersetzt für die unverschlüsselte Seite: {0}': 'Security Proxy translating for the plain side: {0}',

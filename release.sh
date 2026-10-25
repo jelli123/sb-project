@@ -6,7 +6,7 @@
 #   ./release.sh              Version aus server/pom.xml
 #   ./release.sh 0.2.1-test   eigene Versionsbezeichnung
 #
-# Ergebnis: release/sb-projekt-<version>.zip
+# Ergebnis: release/sb-project-<version>.zip
 set -e
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -20,7 +20,7 @@ on_host() {
 
 VERSION=${1:-$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' "$ROOT/server/pom.xml" | head -1)}
 [ -n "$VERSION" ] || { echo "Keine Version gefunden — bitte als Argument angeben." >&2; exit 1; }
-NAME=sb-projekt-$VERSION
+NAME=sb-project-$VERSION
 STAGE=$OUT/$NAME
 
 COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unbekannt")
@@ -53,9 +53,9 @@ for f in "$ROOT"/*.knx.json; do
 done
 
 # ---------- Startskripte des Pakets: starten nur, bauen nicht ----------
-cat > "$STAGE/sb-projekt.sh" <<'EOF'
+cat > "$STAGE/sb-project.sh" <<'EOF'
 #!/bin/sh
-# Startet SB-Projekt und oeffnet die Oberflaeche im Browser.
+# Startet SB-Project und oeffnet die Oberflaeche im Browser.
 set -e
 ROOT=$(cd "$(dirname "$0")" && pwd)
 
@@ -66,11 +66,11 @@ fi
 
 exec java -jar "$ROOT/server/sb-server.jar" --web "$ROOT/web" "$@"
 EOF
-chmod +x "$STAGE/sb-projekt.sh"
+chmod +x "$STAGE/sb-project.sh"
 
-cat > "$STAGE/sb-projekt.cmd" <<'EOF'
+cat > "$STAGE/sb-project.cmd" <<'EOF'
 @echo off
-rem Startet SB-Projekt und oeffnet die Oberflaeche im Browser.
+rem Startet SB-Project und oeffnet die Oberflaeche im Browser.
 setlocal
 set ROOT=%~dp0
 
@@ -86,10 +86,10 @@ EOF
 
 # MCP-Starter fuer KI-Programme wie Claude Desktop: stdout gehoert dem Protokoll,
 # deshalb gehen Meldungen nach stderr.
-cat > "$STAGE/sb-projekt-mcp.sh" <<'EOF'
+cat > "$STAGE/sb-project-mcp.sh" <<'EOF'
 #!/bin/sh
 # MCP-Starter fuer KI-Programme, die einen Server als Unterprozess starten (Claude Desktop).
-# Reicht alles an den laufenden SB-Projekt-Dienst weiter.
+# Reicht alles an den laufenden SB-Project-Dienst weiter.
 ROOT=$(cd "$(dirname "$0")" && pwd)
 
 if ! command -v java >/dev/null 2>&1; then
@@ -99,9 +99,9 @@ fi
 
 exec java -jar "$ROOT/server/sb-server.jar" --mcp-stdio "$@"
 EOF
-chmod +x "$STAGE/sb-projekt-mcp.sh"
+chmod +x "$STAGE/sb-project-mcp.sh"
 
-cat > "$STAGE/sb-projekt-mcp.cmd" <<'EOF'
+cat > "$STAGE/sb-project-mcp.cmd" <<'EOF'
 @echo off
 rem MCP-Starter fuer KI-Programme, die einen Server als Unterprozess starten (Claude Desktop).
 setlocal
@@ -133,13 +133,13 @@ Lucide-Symbole (web/knx-icons.js)
   Lizenztext: lucide-LICENSE.txt
   Quellcode:  https://github.com/lucide-icons/lucide
 
-SB-Projekt selbst hat noch keine Lizenz. Bis eine gewaehlt ist, ist dieses
+SB-Project selbst hat noch keine Lizenz. Bis eine gewaehlt ist, ist dieses
 Paket nur zum Testen gedacht und nicht zur Weiterverbreitung.
 EOF
 
 # ---------- Beschreibung ----------
 cat > "$STAGE/README.txt" <<EOF
-SB-Projekt $VERSION
+SB-Project $VERSION
 Stand: $DATE, Quellstand: $COMMIT
 
 Was das ist
@@ -157,8 +157,8 @@ Java 17 oder neuer. Pruefen mit:  java -version
 
 Starten
 -------
-Linux, macOS:  ./sb-projekt.sh
-Windows:       sb-projekt.cmd  (Doppelklick)
+Linux, macOS:  ./sb-project.sh
+Windows:       sb-project.cmd  (Doppelklick)
 
 Der Dienst laeuft danach auf http://127.0.0.1:8420/ und ist nur von diesem
 Rechner erreichbar. Der Browser oeffnet sich von selbst. Beenden mit Strg+C
@@ -172,8 +172,8 @@ Optionen:  --port <n>   anderer Port
 
 Wo die Daten liegen
 -------------------
-Linux, macOS:  ~/.local/share/sb-projekt
-Windows:       %LOCALAPPDATA%\\SB-Projekt
+Linux, macOS:  ~/.local/share/sb-project
+Windows:       %LOCALAPPDATA%\\SB-Project
 
 Dort liegen die Projekte und der aus .knxprod-Dateien eingelesene
 Produktkatalog. Das Paket selbst enthaelt keine Herstellerdaten; Produkte
@@ -200,7 +200,7 @@ im Datenverzeichnis.
 Ohne externes Programm geht es ueber den Reiter "KI-Chat" rechts: Der
 Dienst startet dafuer die Claude-Code-Kommandozeile (aus der VS-Code-
 Erweiterung, Claude Desktop oder mit --claude <pfad>) mit der Anmeldung des
-Nutzers - nur mit den Werkzeugen von SB-Projekt. Auch die eigene Nachricht
+Nutzers - nur mit den Werkzeugen von SB-Project. Auch die eigene Nachricht
 bekommt die Platzhalter, bevor sie hinausgeht. Der Chat arbeitet nur mit
 einer Claude-Abo-Anmeldung (Pro/Max, kein Abrechnen je Nachricht); ein
 gesetzter ANTHROPIC_API_KEY bleibt aussen vor. Wer bewusst ueber die API
@@ -218,7 +218,7 @@ Rueckfrage. Gelesene Seiten gehen an den KI-Anbieter - deshalb nur
 Herstellerunterlagen hochladen.
 
 Programme, die einen MCP-Server als Unterprozess starten (Claude Desktop),
-bekommen als Befehl sb-projekt-mcp.sh bzw. sb-projekt-mcp.cmd. Der Starter
+bekommen als Befehl sb-project-mcp.sh bzw. sb-project-mcp.cmd. Der Starter
 reicht alles an den laufenden Dienst weiter; laeuft er nicht, melden die
 Werkzeuge das.
 
@@ -229,8 +229,8 @@ Ohne Import startet das Programm ohnehin mit einem Musterprojekt.
 
 Inhalt
 ------
-sb-projekt.sh, sb-projekt.cmd  Startskripte
-sb-projekt-mcp.sh, .cmd        MCP-Starter fuer KI-Programme (Claude Desktop)
+sb-project.sh, sb-project.cmd  Startskripte
+sb-project-mcp.sh, .cmd        MCP-Starter fuer KI-Programme (Claude Desktop)
 server/                        Dienst (Java) samt Bibliotheken
 web/                           Oberflaeche
 beispiel/                      Musterprojekt zum Importieren
@@ -238,7 +238,7 @@ lizenzen/                      Lizenzen der fremden Bestandteile
 
 Lizenz
 ------
-Siehe lizenzen/HINWEISE.txt. SB-Projekt selbst ist noch nicht lizenziert
+Siehe lizenzen/HINWEISE.txt. SB-Project selbst ist noch nicht lizenziert
 und daher nur zum Testen ueberlassen.
 EOF
 

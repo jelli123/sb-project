@@ -1493,7 +1493,7 @@ function proxySection(d) {
     <div class="addr-grid" style="grid-template-columns:1fr 1fr">
       ${pick('ptp', 1)}${pick('ptp', 0)}${pick('bc', 1)}${pick('bc', 0)}
     </div>
-    <p class="hint">${A.t('Gesperrtes öffnet SB-Projekt beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.')}</p>`;
+    <p class="hint">${A.t('Gesperrtes öffnet SB-Project beim Programmieren für sich selbst, jeweils für 60 s (AN192). Die Einstellungen gehen mit den Gruppenadressen ins Gerät.')}</p>`;
 }
 
 /* Busstrom einer Linie, sobald Verbraucher darauf sitzen. */

@@ -8,7 +8,7 @@
   <artifactId>sb-server</artifactId>
   <version>0.2.1</version>
   <packaging>jar</packaging>
-  <name>SB-Projekt Server</name>
+  <name>SB-Project Server</name>
 
   <properties>
     <!-- 17 statt 25: haelt die Bus- und Speicherschicht fuer eine spaetere

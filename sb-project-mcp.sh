@@ -1,6 +1,6 @@
 #!/bin/sh
 # MCP-Starter fuer KI-Programme, die einen Server als Unterprozess starten (Claude Desktop).
-# Spricht ueber stdin/stdout und reicht alles an den laufenden SB-Projekt-Dienst weiter.
+# Spricht ueber stdin/stdout und reicht alles an den laufenden SB-Project-Dienst weiter.
 # stdout gehoert dem Protokoll - alle anderen Meldungen gehen nach stderr.
 ROOT=$(cd "$(dirname "$0")" && pwd)
 JAR="$ROOT/server/target/sb-server.jar"
