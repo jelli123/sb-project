@@ -218,7 +218,7 @@ function undo() {
   status(T18('Rückgängig — noch {0} Schritte', undoStack.length));
 }
 function redo() {
-  if (!canRedo()) { toast('Nichts zu wiederholen', 900); return; }
+  if (!canRedo()) { toast(T18('Nichts zu wiederholen'), 900); return; }
   undoStack.push(baseline);
   baseline = redoStack.pop();
   applySnapshot(baseline);

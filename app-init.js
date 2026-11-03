@@ -359,6 +359,7 @@ if (langSel && window.KNXI18n) {
     langSel.value = KNXI18n.lang();
     syncThemeButton();
     window.KNXOnRender();
+    A.syncHistoryButtons();
   });
 }
 
