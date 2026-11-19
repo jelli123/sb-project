@@ -144,16 +144,47 @@ public final class Commissioning {
             throws KNXException, InterruptedException {
         boolean ok = bus.procedures().writeAddress(newAddress);
         Map<String, Object> m = Json.obj();
-        m.put("ok", ok);
         m.put("address", newAddress.toString());
         // Die Prozedur hat vorher gefragt, wer im Programmiermodus ist - das ist die alte Adresse.
         IndividualAddress[] before = bus.client().lastInProgrammingMode();
+        /* Hat das Geraet im Programmiermodus die Zieladresse schon, antwortet es unter ihr und
+           Calimero haelt sie fuer belegt ("device exists but is not in programming mode") - die
+           Vergabe ist aber schon erfuellt. Wie nach einer Vergabe wird es neu gestartet, das
+           beendet auch den Programmiermodus. */
+        boolean already = !ok && before.length == 1 && before[0].equals(newAddress);
+        if (already) restartQuietly(newAddress);
+        if (ok || already) settleAfterRestart();
+        m.put("ok", ok || already);
         if (ok && before.length == 1) m.put("previousAddress", before[0].toString());
-        m.put("message", ok
+        if (already) m.put("already", true);
+        m.put("message", already
+                ? "Das Geraet hat die Adresse " + newAddress + " bereits."
+                : ok
                 ? "Adresse " + newAddress + " vergeben."
                 : "Adresse nicht vergeben - kein oder mehr als ein Geraet im Programmiermodus, "
                         + "oder die Adresse ist bereits belegt.");
         return m;
+    }
+
+    /** Neustart ohne Folgen bei Fehlern - er ist nur Abschluss, kein Teil der Vergabe. */
+    private void restartQuietly(IndividualAddress address) throws InterruptedException {
+        try {
+            bus.withDestination(address, d -> {
+                bus.client().restart(d);
+                return null;
+            });
+        } catch (KNXException e) {
+            // Der Programmiermodus bleibt dann an - sichtbar an der LED des Geraets
+        }
+    }
+
+    /**
+     * Nach dem Neustart-Befehl startet das Geraet erst etwas spaeter wirklich neu (die sblib
+     * nach 250 ms) und braucht dann eine Weile zum Hochlaufen. Wer sofort wieder eine Verbindung
+     * aufbaut, verliert sie mitten im Neustart.
+     */
+    private static void settleAfterRestart() throws InterruptedException {
+        Thread.sleep(1_500);
     }
 
     /**
@@ -185,6 +216,7 @@ public final class Commissioning {
         } catch (KNXException e) {
             restartProblem = e.getMessage();
         }
+        if (restartProblem == null) settleAfterRestart();
         m.put("restarted", restartProblem == null);
         m.put("message", restartProblem == null
                 ? "Adresse " + newAddress + " an Seriennummer " + serial + " vergeben, Geraet neu gestartet."

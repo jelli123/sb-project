@@ -1064,6 +1064,14 @@ KNXI18n.add('en', {
   'Netzwerkschnittstellen nicht lesbar: {0}': 'Network interfaces not readable: {0}',
   'Bitte zuerst eine Schnittstelle suchen und auswählen.':
     'Please search for and select an interface first.',
+  'oder IP[:Port]': 'or IP[:port]',
+  'Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port':
+    'Interface by hand: IP address or name, optionally with port',
+  'Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen':
+    'For interfaces the search does not find (such as knxd behind a router) — press Enter to add',
+  'von Hand': 'by hand',
+  'Bitte eine IP-Adresse oder einen Rechnernamen eingeben, optional mit :Port.':
+    'Please enter an IP address or host name, optionally with :port.',
   'Verbinden mit {0}': 'Connect to {0}',
   'Verbindet …': 'Connecting …',
   'Verbunden als {0}': 'Connected as {0}',

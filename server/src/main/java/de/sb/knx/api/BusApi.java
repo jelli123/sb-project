@@ -196,9 +196,14 @@ public final class BusApi implements HttpHandler {
         } else {
             String host = Json.str(body, "host", null);
             if (host == null) throw new IllegalArgumentException("Feld host fehlt");
+            // Auch von Hand eingetragen: Rechnername, IPv4 oder IPv6, nichts sonst
+            if (!host.matches("[A-Za-z0-9.:%-]{1,253}"))
+                throw new IllegalArgumentException("Ungueltiger Rechnername oder ungueltige IP-Adresse");
+            int port = Json.integer(body, "port", 3671);
+            if (port < 1 || port > 65535) throw new IllegalArgumentException("Ungueltiger Port");
             status = bus.connectTunneling(
                     host,
-                    Json.integer(body, "port", 3671),
+                    port,
                     Json.bool(body, "nat", false),
                     Json.str(body, "localHost", null),
                     Json.str(body, "deviceAddress", null),

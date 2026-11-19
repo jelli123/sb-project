@@ -365,6 +365,22 @@ public final class BusService implements AutoCloseable {
 
     /* ---------------- Verbinden ---------------- */
 
+    /**
+     * Eigene Adresse auf dem Weg zum Server. Ohne Angabe nimmt Calimero fuer den Endpunkt im
+     * Verbindungsaufbau InetAddress.getLocalHost() - unter Linux oft 127.0.1.1 (Rechnername in
+     * /etc/hosts), und der Server antwortet ins Leere. Ein verbundener UDP-Socket sendet nichts,
+     * fragt aber die Routingtabelle. Null (Wildcard), wenn das nicht geht.
+     */
+    static InetAddress routeTo(InetSocketAddress server) {
+        try (java.net.DatagramSocket s = new java.net.DatagramSocket()) {
+            s.connect(server);
+            InetAddress a = s.getLocalAddress();
+            return a == null || a.isAnyLocalAddress() ? null : a;
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     public Map<String, Object> connectTunneling(String host, int port, boolean nat, String localHost,
                                                 String deviceAddress, String deviceSerial) throws Exception {
         return connectTunneling(host, port, nat, localHost, deviceAddress, deviceSerial, null, "off");
@@ -391,7 +407,7 @@ public final class BusService implements AutoCloseable {
             closeLink();
             InetSocketAddress server = new InetSocketAddress(InetAddress.getByName(host), port);
             InetSocketAddress local = localHost == null || localHost.isBlank()
-                    ? new InetSocketAddress(0)
+                    ? new InetSocketAddress(routeTo(server), 0)
                     : new InetSocketAddress(InetAddress.getByName(localHost), 0);
             boolean secured = false;
             if ("on".equals(mode)) {

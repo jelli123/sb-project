@@ -191,6 +191,8 @@ let autoConn = false;
 const q = sel => overlay.querySelector(sel);
 
 const IFACE_KEY = 'knx-prog-iface-v1';
+// Von Hand eingetragene Schnittstellen — die Suche per Multicast findet nicht jede
+const MANUAL_KEY = 'knx-prog-manual-v1', MANUAL_MAX = 8;
 const CANCELLED = { cancelled: true };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -214,6 +216,9 @@ function ensureOverlay() {
         <select id="pg-server" class="select" aria-label="${T18('Gefundene Schnittstelle')}">
           <option value="">${T18('— zuerst suchen —')}</option></select>
         <button id="pg-discover" class="btn btn-sm">${T18('Suchen')}</button>
+        <input id="pg-host" class="input narrow" maxlength="262" spellcheck="false" autocomplete="off"
+          placeholder="${T18('oder IP[:Port]')}" aria-label="${T18('Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port')}"
+          title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen')}">
         <label class="chk" title="${T18('Nötig, wenn die Schnittstelle hinter einem Router mit Adressumsetzung liegt')}">
           <input type="checkbox" id="pg-nat"> ${T18('NAT')}</label>
         <button id="pg-connect" class="btn btn-sm btn-primary">${T18('Verbinden')}</button>
@@ -285,6 +290,8 @@ function wire() {
   q('#pg-connect').onclick = () => connect();
   q('#pg-disconnect').onclick = disconnect;
   q('#pg-server').onchange = syncControls;
+  q('#pg-host').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addManual(); } };
+  if (manualList().length) fillServers();
 
   overlay.querySelectorAll('input[name="pg-show"]').forEach(r => r.onchange = () => {
     view.show = r.value;
@@ -571,7 +578,7 @@ function syncControls() {
   if (!overlay) return;
   const busy = run.active || conn.busy;
   const other = !run.active && !conn.busy && BUS.busy();
-  ['#pg-discover', '#pg-nat'].forEach(sel => { q(sel).disabled = busy || conn.connected; });
+  ['#pg-discover', '#pg-nat', '#pg-host'].forEach(sel => { q(sel).disabled = busy || conn.connected; });
   q('#pg-server').disabled = busy || conn.connected || !conn.servers.length;
   q('#pg-connect').hidden = conn.connected;
   q('#pg-connect').disabled = busy || !!other || !q('#pg-server').value;
@@ -646,11 +653,48 @@ function remembered() {
   try { return JSON.parse(localStorage.getItem(IFACE_KEY) || 'null'); } catch (e) { return null; }
 }
 
+/* „Host“, „Host:Port“ oder „[IPv6]:Port“; Port vorgegeben 3671. */
+function parseHost(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 262) return null;
+  const v6 = /^\[([0-9A-Fa-f:.]{2,45})\](?::(\d{1,5}))?$/.exec(t);
+  const m = v6 || /^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::(\d{1,5}))?$/.exec(t);
+  if (!m) return null;
+  const port = m[2] ? +m[2] : 3671;
+  return port >= 1 && port <= 65535 ? { host: m[1], port } : null;
+}
+
+function manualList() {
+  try {
+    const l = JSON.parse(localStorage.getItem(MANUAL_KEY) || '[]');
+    return Array.isArray(l) ? l.map(x => x && parseHost(`${String(x.host).includes(':') ? '[' + x.host + ']' : x.host}:${x.port}`))
+      .filter(Boolean).slice(0, MANUAL_MAX) : [];
+  } catch (e) { return []; }
+}
+
+function addManual() {
+  const inp = q('#pg-host');
+  const h = parseHost(inp.value);
+  if (!h) { A.warn(T18('Bitte eine IP-Adresse oder einen Rechnernamen eingeben, optional mit :Port.')); return; }
+  const l = [h, ...manualList().filter(x => x.host !== h.host || x.port !== h.port)].slice(0, MANUAL_MAX);
+  try { localStorage.setItem(MANUAL_KEY, JSON.stringify(l)); } catch (e) { /* nur Komfort */ }
+  try { localStorage.setItem(IFACE_KEY, JSON.stringify(h)); } catch (e) { /* nur Komfort */ }
+  inp.value = '';
+  fillServers();
+  syncControls();
+}
+
 function fillServers() {
+  // Von Hand eingetragene stehen hinter den gefundenen, sofern die Suche sie nicht selbst kennt
+  manualList().forEach(h => {
+    if (!conn.servers.some(s => s.host === h.host && s.port === h.port))
+      conn.servers.push({ name: '', host: h.host, port: h.port, address: '', serial: '', manual: true });
+  });
   const keep = remembered();
   q('#pg-server').innerHTML = conn.servers.length
     ? conn.servers.map((s, i) =>
-        `<option value="${i}">${esc(s.name)} — ${esc(s.host)}:${s.port} (${esc(s.address)})</option>`).join('')
+        s.manual ? `<option value="${i}">${esc(s.host)}:${s.port} (${T18('von Hand')})</option>`
+          : `<option value="${i}">${esc(s.name)} — ${esc(s.host)}:${s.port} (${esc(s.address)})</option>`).join('')
     : `<option value="">${T18('— nichts gefunden —')}</option>`;
   // Die zuletzt benutzte Schnittstelle vorwählen
   const i = keep ? conn.servers.findIndex(s => s.host === keep.host && s.port === keep.port) : -1;
@@ -696,7 +740,7 @@ function discover(quiet) {
     } finally {
       fillServers();
     }
-    const n = conn.servers.length;
+    const n = conn.servers.filter(x => !x.manual).length;
     return n
       ? { level: 'ok', message: n === 1 ? T18('1 Schnittstelle gefunden') : T18('{0} Schnittstellen gefunden', n) }
       : { level: 'warn', message: T18('Keine KNXnet/IP-Schnittstelle gefunden — Netzwerk und Firewall prüfen') };
