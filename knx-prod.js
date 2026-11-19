@@ -788,14 +788,16 @@ function readApp(ap, lang, langs) {
   if (tags(ap, 'SubModuleDefs').length) unsupported.add('SubModuleDefs');
   const dynEl = child(ap, 'Dynamic');
 
-  /* Allokatoren vergeben Argumente fortlaufend: Wiederholung k bekommt
-     Start + (k−1)·Allocates. Teilen sich mehrere Module einen Allokator,
-     zählt das nächste dort weiter, wo das vorige mit seinem Höchststand
-     aufhört (Dokumentreihenfolge) — angenommen, in keiner Produktdatei
-     bisher gesehen. */
+  /* Allokatoren vergeben Argumente wie die ETS erst zur Laufzeit: nur aktive
+     Instanzen bekommen einen Wert, fortlaufend in Dokumentreihenfolge
+     (allocate, gerechnet je Gerät). Jedes allokierte Argument trägt dafür
+     [Start, Schritt, Name, Allokator, Allokatorstart]. Start ist die
+     Vergabe, als wären alle Instanzen aktiv — die gilt nur im Katalog, wo
+     es noch keine Parametrierung gibt. */
   const allocators = new Map();
   tags(ap, 'Allocator').forEach(l => allocators.set(cut(attr(l, 'Id')),
-    { next: num(l, 'Start'), max: attr(l, 'maxInclusive') === '' ? Infinity : num(l, 'maxInclusive') }));
+    { id: cut(attr(l, 'Id')), start: num(l, 'Start'), next: num(l, 'Start'),
+      max: attr(l, 'maxInclusive') === '' ? Infinity : num(l, 'maxInclusive') }));
   const inRepeat = el => {
     for (let p = el.parentElement; p && p !== dynEl; p = p.parentElement)
       if (localName(p) === 'Repeat') return p;
@@ -808,8 +810,9 @@ function readApp(ap, lang, langs) {
     const id = cut(attr(m, 'Id'));
     const def = tags(ap, 'ModuleDef').find(x => cut(attr(x, 'Id')) === local);
     if (!mods[local] || !def || !id.startsWith(local + '_')) return;
+    // Allocates="0" heißt: belegt nichts (MSA: PCA9555D, ObjsOffsBase)
     const args = new Map(tags(def, 'Argument').map(a => [cut(attr(a, 'Id')),
-      { name: attr(a, 'Name'), step: num(a, 'Allocates') || 1 }]));
+      { name: attr(a, 'Name'), step: a.hasAttribute('Allocates') ? num(a, 'Allocates') : 1 }]));
 
     /* Wie oft: höchstens so oft, wie der Zählparameter zulässt und jeder
        beteiligte Allokator hergibt. */
@@ -835,12 +838,13 @@ function readApp(ap, lang, langs) {
       }
       const l = allocators.get(cut(attr(x, 'AllocatorRefId')));
       if (!l) { broken = true; return; }
-      times = Math.min(times, Math.max(0, Math.floor((l.max - l.next) / info.step)));
+      // Mehr Wiederholungen, als der ganze Allokator hergibt, kann es nicht geben
+      if (rp && info.step > 0) times = Math.min(times, Math.max(0, Math.floor((l.max - l.start + 1) / info.step)));
       pending.push([ref, l, info]);
     });
     if (broken) { unsupported.add('Allocator'); return; }
     pending.forEach(([ref, l, info]) => {
-      a[ref] = [l.next, info.step, info.name];
+      a[ref] = [l.next, info.step, info.name, l.id, l.start, Number.isFinite(l.max) ? l.max : null];
       l.next += times * info.step;
     });
     inst[id] = { m: local, v, n, ...(pending.length || rp ? { a, x: times } : {}) };
@@ -881,7 +885,44 @@ function readApp(ap, lang, langs) {
  * Mehrfaches Ausfalten schadet nicht.                                      */
 const EXPANDED = typeof Symbol === 'function' ? Symbol('expanded') : '__expanded';
 
-function expand(item) {
+/* Ein allokiertes Argument: [Start, Schritt, Name, Allokator, Allokatorstart, Max].
+   Vor der Laufzeitvergabe eingelesene Produkte haben nur die ersten drei. */
+const ALLOC_ID = /^[A-Za-z0-9_.-]{1,200}$/;
+const isDynArg = e => Array.isArray(e) && typeof e[3] === 'string' && ALLOC_ID.test(e[3]);
+const hasDynAlloc = item => !!(item && item.inst && typeof item.inst === 'object')
+  && Object.values(item.inst).some(i => i && i.a && typeof i.a === 'object' && Object.values(i.a).some(isDynArg));
+
+/* Vergabe wie die ETS: Die aktiven Instanzen (Schlüssel „Instanz#Wiederholung“
+   in der Reihenfolge, in der resolveProduct sie antrifft) bekommen nacheinander
+   den nächsten Wert ihres Allokators, der danach um Allocates weiterzählt.
+   Inaktive belegen nichts. Liefert { Schlüssel: { Argument: Wert } } und die
+   Instanzen, die über das Ende ihres Allokators hinausgingen. */
+function allocate(item, active) {
+  const inst = (item && item.inst) || {};
+  const next = new Map(), values = {}, over = [];
+  const seen = new Set();
+  (active || []).forEach(key => {
+    if (typeof key !== 'string' || seen.has(key)) return;
+    seen.add(key);
+    const id = key.slice(0, key.lastIndexOf('#'));
+    const i = Object.prototype.hasOwnProperty.call(inst, id) ? inst[id] : null;
+    if (!i || !i.a || typeof i.a !== 'object') return;
+    const v = {};
+    Object.keys(i.a).forEach(ref => {
+      const e = i.a[ref];
+      if (!isDynArg(e)) return;
+      const step = Math.max(0, Math.min(+e[1] || 0, 1 << 20));
+      if (!next.has(e[3])) next.set(e[3], Number.isInteger(+e[4]) ? +e[4] : 0);
+      v[ref] = next.get(e[3]);
+      next.set(e[3], v[ref] + step);
+      if (Number.isInteger(e[5]) && step > 0 && v[ref] + step - 1 > e[5]) over.push(key);
+    });
+    if (Object.keys(v).length) values[key] = v;
+  });
+  return { values, over };
+}
+
+function expand(item, alloc) {
   if (!item || typeof item !== 'object' || item[EXPANDED]) return item;
   const mods = item.mods, inst = item.inst;
   if (!mods || typeof mods !== 'object' || !inst || typeof inst !== 'object') return item;
@@ -896,13 +937,18 @@ function expand(item) {
     if (!md || !id.startsWith(i.m + '_')) return;
     views[id] = [];
     const times = Number.isInteger(i.x) ? Math.max(0, Math.min(i.x, 256)) : 1;
+    const dynamic = Object.values(i.a || {}).some(isDynArg);
     for (let rep = 1; rep <= times; rep++) {
-      // Allokierte Argumente: Start + (k−1)·Schritt
+      /* Allokierte Argumente: mit einer Vergabe (allocate) deren Werte — eine
+         Instanz ohne Wert ist inaktiv und belegt weder Speicher noch einen
+         Platz in der Objekttabelle. Ohne Vergabe: Start + (k−1)·Schritt. */
+      const got = alloc && dynamic ? (alloc[id + '#' + rep] || null) : null;
+      const placed = !alloc || !dynamic || !!got;
       const v = { ...(i.v || {}) }, n = { ...(i.n || {}) };
       Object.keys(i.a || {}).forEach(ref => {
         if (!Array.isArray(i.a[ref])) return;
         const [start, step, name] = i.a[ref];
-        v[ref] = (+start || 0) + (rep - 1) * (+step || 0);
+        v[ref] = got && Number.isInteger(got[ref]) ? got[ref] : (+start || 0) + (rep - 1) * (+step || 0);
         if (name) n[name] = String(v[ref]);
       });
       /* Ids wie im ETS-Projekt: Modul, Instanz, Wiederholung. Ohne Repeat
@@ -921,7 +967,7 @@ function expand(item) {
         delete o.b;
         objs[map(k)] = o;
       });
-      Object.keys(md.loc || {}).forEach(k => {
+      Object.keys(placed ? md.loc || {} : {}).forEach(k => {
         const l = { ...md.loc[k] };
         const shift = arg(l.b) * 8;
         l.o += shift;
@@ -929,7 +975,7 @@ function expand(item) {
         delete l.b;
         loc[map(k)] = l;
       });
-      Object.keys(md.co || {}).forEach(k => {
+      Object.keys(placed ? md.co || {} : {}).forEach(k => {
         const c = { ...md.co[k] };
         const nr = c.b ? c.n + arg(c.b) : +k;
         delete c.n; delete c.b;
@@ -951,17 +997,20 @@ function expand(item) {
     }
   });
 
-  /* Im Baum des Programms steht an Stelle jeder Instanz ihr Inhalt. Eine Wiederholung wird zu {r, rep}: rep[k] ist der Inhalt der k+1-ten
-     Wiederholung; resolveProduct nimmt so viele, wie der Parameter sagt. */
+  /* Im Baum des Programms steht an Stelle jeder Instanz ihr Inhalt, markiert
+     mit {mi: „Instanz#Wiederholung“} — daran erkennt resolveProduct, welche
+     Instanzen aktiv sind (allocate). Eine Wiederholung wird zu {r, rep}: rep[k]
+     ist der Inhalt der k+1-ten Wiederholung; resolveProduct nimmt so viele,
+     wie der Parameter sagt. */
   const place = nodes => (nodes || []).map(x => {
-    if (x.m !== undefined) return { k: (views[x.m] || [])[0] || [] };
+    if (x.m !== undefined) return { mi: x.m + '#1', k: (views[x.m] || [])[0] || [] };
     if (x.r !== undefined) {
       const kids = x.k || [];
       const n = Math.max(0, ...kids.map(c => (c.m !== undefined ? (views[c.m] || []).length : 1)));
       const rep = [];
       for (let k = 0; k < n; k++)
         rep.push(kids.flatMap(c => (c.m !== undefined
-          ? ((views[c.m] || [])[k] ? [{ k: views[c.m][k] }] : [])
+          ? ((views[c.m] || [])[k] ? [{ mi: c.m + '#' + (k + 1), k: views[c.m][k] }] : [])
           : (k === 0 ? place([c]) : []))));
       return { r: x.r, rep };
     }
@@ -1207,5 +1256,6 @@ async function read(file, prefer) {
 const zip = { entries: zipEntries, read: zipRead, write: zipWrite, crc32, CRC_TABLE };
 const xml = { tags, attr, localName, toDpt, objectName, plain };
 
-return { read, BINARY, LIMITS, zip, xml, collect, expand, compact, supported: name => LDCTRL.has(name) };
+return { read, BINARY, LIMITS, zip, xml, collect, expand, compact, allocate, hasDynAlloc,
+         supported: name => LDCTRL.has(name) };
 })();

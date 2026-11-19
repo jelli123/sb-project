@@ -284,7 +284,7 @@ function build(doc, infoDoc, products, say) {
   /* ---- Topologie und Geräte ---- */
   const areas = [], devices = [];
   const devById = new Map();            // ETS-Id → Gerät
-  const stat = { noProduct: 0, params: 0, lostParams: 0, stale: 0, lostLinks: 0, noAddr: 0 };
+  const stat = { noProduct: 0, params: 0, lostParams: 0, stale: 0, lostLinks: 0, noAddr: 0, allocDiff: 0 };
 
   tags(installation, 'Area').forEach(aEl => {
     const aAddr = int(attr(aEl, 'Address'), 0, 15);
@@ -392,7 +392,26 @@ function build(doc, infoDoc, products, say) {
       d.objs.push(o);
       return o;
     };
-    if (prod && !prod.hwOnly) KNX.resolveProduct(prod, d.params).objs.forEach(ref => mk(ref, prod.objs[ref]));
+    /* Module mit Allokatoren: Nummern nach der Vergabe dieser Parametrierung.
+       Die ETS legt die vergebenen Argumente je aktiver Instanz ab; weicht
+       unsere Vergabe davon ab, lädt der Download anders als die ETS. */
+    const view = prod && !prod.hwOnly ? KNX.productFor(prod, d.params) : prod;
+    if (view && view !== prod && view.allocValues) {
+      const mine = view.allocValues;
+      tags(dEl, 'ModuleInstance').forEach(mEl => {
+        const m = /^(.+)_MI-(\d+)$/.exec(cut(attr(mEl, 'Id')));
+        const inst = m && prod.inst[m[1]];
+        if (!inst || !inst.a) return;
+        const got = mine[m[1] + '#' + m[2]] || {};
+        const differs = tags(mEl, 'Argument').some(aEl => {
+          const ref = cut(attr(aEl, 'RefId'));
+          const e = inst.a[ref];
+          return Array.isArray(e) && typeof e[3] === 'string' && String(got[ref]) !== attr(aEl, 'Value');
+        });
+        if (differs) stat.allocDiff++;
+      });
+    }
+    if (view && !view.hwOnly) KNX.resolveProduct(view, d.params).objs.forEach(ref => mk(ref, view.objs[ref]));
 
     tags(dEl, 'ComObjectInstanceRef').forEach((oEl, i) => {
       const ref = cut(attr(oEl, 'RefId'));
@@ -401,8 +420,8 @@ function build(doc, infoDoc, products, say) {
       if (!o) {
         // Nur Objekte mit Verknüpfungen sind der Rede wert
         if (!gas.length) return;
-        if (prod && prod.objs[ref]) {
-          o = mk(ref, prod.objs[ref]);
+        if (view && view.objs[ref]) {
+          o = mk(ref, view.objs[ref]);
           o.stale = true;               // nach unserer Auswertung gerade unsichtbar
           stat.stale++;
         } else {
@@ -535,6 +554,7 @@ function build(doc, infoDoc, products, say) {
   if (stat.stale) say('{0} verknüpfte Objekte sind nach der hiesigen Auswertung der Parameter unsichtbar — sie stehen als überzählig da.', stat.stale);
   if (stat.lostLinks) say('{0} Verknüpfungen zeigen auf keine vorhandene Gruppenadresse.', stat.lostLinks);
   if (stat.noAddr) say('{0} Geräte mit ungültiger physikalischer Adresse — neu vergeben.', stat.noAddr);
+  if (stat.allocDiff) say('{0} Modulinstanzen haben in der ETS andere Allokatorwerte als hier berechnet — Objektnummern und Parameterspeicher können abweichen.', stat.allocDiff);
   if (tags(installation, 'Trade').length)
     say('Gewerke gibt es hier nicht — sie wurden nicht übernommen.');
   if (tags(installation, 'Security').some(s => attr(s, 'ToolKey') || attr(s, 'DeviceAuthenticationCode'))

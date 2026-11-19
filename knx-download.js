@@ -114,22 +114,31 @@ function encode(type, raw, opt) {
 
 /* ---------- Abbilder ---------- */
 
-/* Die Speichersegmente der Applikation, vorbelegt mit ihren Daten. `keep`
-   markiert Oktette, die laut Maske nicht geschrieben werden dürfen. */
+/* Die Speichersegmente der Applikation, vorbelegt mit ihren Daten. `mask`
+   markiert Oktette, die laut Maske nicht geschrieben werden dürfen, `used`
+   die, denen der Download einen Inhalt gibt: Daten der Produktdatei,
+   Parameter, belegte Tabellenplätze. Nur die werden geschrieben — wie bei der
+   ETS; der Rest eines Segments bleibt, wie er im Gerät ist. */
 function segmentImages(dl) {
   const out = {};
   Object.entries(dl.segs || {}).forEach(([id, [addr, size, data, mask, lsm]]) => {
     const img = new Uint8Array(size);
-    img.set(fromB64(data).slice(0, size));
+    const bytes = fromB64(data).slice(0, size);
+    img.set(bytes);
     const m = mask ? fromB64(mask) : null;
-    out[id] = { id, addr, size, img, mask: m, hasData: !!data };
+    const used = new Uint8Array(size);
+    used.fill(1, 0, bytes.length);
+    out[id] = { id, addr, size, img, mask: m, used, hasData: !!data };
     // Relatives Segment: `addr` ist der Versatz im Block der Load State Machine
     if (Number.isInteger(lsm) && lsm > 0) out[id].lsm = lsm;
   });
   return out;
 }
 
-/* Sichtbare Parameter-Referenzen bei der aktuellen Parametrierung. */
+const markUsed = (seg, from, len) => {
+  if (seg && seg.used) seg.used.fill(1, Math.max(0, from), Math.min(seg.size, from + len));
+};
+
 /* Sichtbare Referenzen und wirksame Werte. Wirksam heißt: eingestellt,
    überschrieben von den Zuweisungen (Assign) der aktiven Zweige — so lädt
    die ETS auch versteckte Parameter mit dem Wert, den die Produktdatei
@@ -203,6 +212,8 @@ function writeParams(ctx) {
       if (!seg || !putBits(seg.img, loc.o, type.n, value)) {
         skipped++;
         warn(`Parameter ${pid} liegt außerhalb seines Speichersegments.`);
+      } else {
+        markUsed(seg, loc.o >> 3, ((loc.o + type.n + 7) >> 3) - (loc.o >> 3));
       }
     } else {
       const need = Math.ceil((loc.o + type.n) / 8);
@@ -228,15 +239,19 @@ function linkModel(project, dev, item, warn) {
   const gaRaw = new Map(project.groups.map(g => [g.id, g.raw]));
   const objs = [];
   const seenNum = new Set();
+  // Mit Allokatoren zählt die Nummer der Geräteansicht — die am Gerät kann von früher stammen
+  const dynamic = typeof KNXProd !== 'undefined' && KNXProd.hasDynAlloc && KNXProd.hasDynAlloc(item);
   dev.objs.forEach(o => {
     if (o.stale) {
       if (o.gas.length) warn(`Objekt „${o.name}“ ist durch die Parametrierung entfallen — seine Adressen werden nicht geladen.`);
       return;
     }
-    if (seenNum.has(o.num)) return;
-    seenNum.add(o.num);
+    const src = (o.ref && item.objs[o.ref]) || null;
+    const num = dynamic && src && Number.isInteger(src.num) ? src.num : o.num;
+    if (seenNum.has(num)) return;
+    seenNum.add(num);
     const gas = o.gas.map(id => gaRaw.get(id)).filter(r => Number.isInteger(r) && r > 0);
-    objs.push({ num: o.num, gas, flags: o.flags, src: item.objs[o.ref] || null, name: o.name });
+    objs.push({ num, gas, flags: o.flags, src, name: o.name });
   });
   const addrs = [...new Set(objs.flatMap(o => o.gas))].sort((a, b) => a - b);
   return { objs, addrs };
@@ -401,6 +416,8 @@ function writeTables(ctx, prog, model, pa, mask) {
     seg.img[at.off] = model.addrs.length + 1;
     seg.img.set(u16(pa), at.off + 1);
     model.addrs.forEach((g, i) => seg.img.set(u16(g), at.off + 3 + 2 * i));
+    // Geschrieben werden Länge, eigene Adresse und die belegten Plätze
+    markUsed(seg, at.off, 3 + 2 * model.addrs.length);
   }
 
   if (as) {
@@ -416,6 +433,7 @@ function writeTables(ctx, prog, model, pa, mask) {
     seg.img.fill(0, as.off, Math.min(seg.size, as.off + len));
     seg.img[as.off] = final.length;
     final.forEach(([t, a], i) => { seg.img[as.off + 1 + 2 * i] = t; seg.img[as.off + 2 + 2 * i] = a; });
+    markUsed(seg, as.off, 1 + 2 * final.length);
     out.assocs = final.filter(e => e[0] !== UNUSED).length;
     out.objectCount = objectCount;
   }
@@ -574,8 +592,11 @@ function imageAt(ctx, addr, size, space) {
   return covered === size ? out : null;
 }
 
-/* Schreibbare Abschnitte eines Segments: Oktette mit Maske 00 bleiben stehen. */
-function segmentWrites(seg, label) {
+/* Schreibbare Abschnitte eines Segments: nur Oktette mit Inhalt (`used`),
+   keine mit Maske 00, und nicht über die reservierte Größe hinaus — das
+   Segment der Produktdatei kann größer sein als das, was der Ladeschritt
+   reserviert (MSA: AS-4400 mit 1023 Byte, reserviert 943). */
+function segmentWrites(seg, label, limit) {
   const steps = [];
   let start = -1;
   const flush = end => {
@@ -584,12 +605,13 @@ function segmentWrites(seg, label) {
                  verify: true, label });
     start = -1;
   };
-  for (let i = 0; i < seg.size; i++) {
-    const keep = seg.mask && i < seg.mask.length && seg.mask[i] === 0;
+  const end = Number.isInteger(limit) && limit >= 0 ? Math.min(seg.size, limit) : seg.size;
+  for (let i = 0; i < end; i++) {
+    const keep = (seg.mask && i < seg.mask.length && seg.mask[i] === 0) || (seg.used && !seg.used[i]);
     if (keep) flush(i);
     else if (start < 0) start = i;
   }
-  flush(seg.size);
+  flush(end);
   return steps;
 }
 
@@ -774,9 +796,13 @@ function translateOne(ctx, s, a, out) {
           num(a.Access) & 0xFF, num(a.MemType) & 0xFF, num(a.SegFlags) & 0xFF, 0],
           `${targetName(t)}: Segment ${addr.toString(16).toUpperCase()}h reservieren`, [2]));
         // EEPROM-Segmente mit Inhalt werden gleich danach beschrieben
-        const seg = Object.values(ctx.segs).find(x => x.addr === addr);
-        if (seg && num(a.MemType) === 3 && num(a.SegType) === 0)
-          out.push(...segmentWrites(seg, `${targetName(t)}: ${size} Byte schreiben`));
+        const seg = Object.values(ctx.segs).find(x => x.addr === addr && !x.lsm);
+        if (seg && num(a.MemType) === 3 && num(a.SegType) === 0) {
+          const w = segmentWrites(seg, '', size);
+          const n = w.reduce((s, x) => s + x.data.length / 2, 0);
+          w.forEach(x => { x.label = `${targetName(t)}: ${n < size ? n + ' von ' + size : size} Byte schreiben`; });
+          out.push(...w);
+        }
         return;
       }
       case 'LdCtrlTaskSegment': {
@@ -1129,6 +1155,10 @@ function plan(project, dev, item, opts = {}) {
   const errors = [], warnings = [];
   const warn = m => { if (!warnings.includes(m)) warnings.push(m); };
   const result = { steps: [], summary: {}, errors, warnings };
+  // Module mit Allokatoren: Nummern und Speicherorte so, wie die Parametrierung sie vergibt
+  if (item && typeof KNX !== 'undefined' && KNX.productFor) item = KNX.productFor(item, dev.params || {});
+  if (item && item.allocOver && item.allocOver.length)
+    errors.push(`Zu viele aktive Module: ${item.allocOver.length} bekommen keinen Platz mehr in ihrem Allokator.`);
   const prog = item && item.prog;
   if (!prog || !prog.dl) {
     errors.push('Zum Produkt fehlen Programmierdaten — bitte die .knxprod erneut in den Katalog laden.');

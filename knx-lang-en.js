@@ -207,6 +207,8 @@ KNXI18n.add('en', {
     '{0} links point to no existing group address.',
   '{0} Geräte mit ungültiger physikalischer Adresse — neu vergeben.':
     '{0} devices had an invalid individual address — reassigned.',
+  '{0} Modulinstanzen haben in der ETS andere Allokatorwerte als hier berechnet — Objektnummern und Parameterspeicher können abweichen.':
+    '{0} module instances have different allocator values in ETS than calculated here — object numbers and parameter memory may differ.',
   'Gewerke gibt es hier nicht — sie wurden nicht übernommen.':
     'Trades do not exist here — they were not imported.',
   'KNX-Secure-Schlüssel wurden nicht übernommen.': 'KNX Secure keys were not imported.',

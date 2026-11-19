@@ -1753,7 +1753,7 @@ const KNX = (() => {
   /* Löst auf, welche Parameter und Objekte bei der gegebenen Parametrierung
      sichtbar sind — dieselbe Mechanik wie die Produktansicht der ETS.      */
   function resolveProduct(item, values) {
-    let groups, byPath, objs, seenObj, seenParam;
+    let groups, byPath, objs, seenObj, seenParam, mods, seenMod;
 
     const group = path => {
       const label = path.map(s => String(s || '').trim())
@@ -1779,7 +1779,11 @@ const KNX = (() => {
       ? assigned[ref] : paramValue(item, values, ref));
     const walk = (nodes, path) => {
       for (const n of nodes || []) {
-        if (n.c !== undefined) {
+        if (n.mi !== undefined) {
+          // Modulinstanz im aktiven Zweig: bekommt ihre Allokatorwerte (KNXProd.allocate)
+          if (!seenMod.has(n.mi)) { seenMod.add(n.mi); mods.push(n.mi); }
+          walk(n.k, path);
+        } else if (n.c !== undefined) {
           if (inTree.has(n.c) && !seenParam.has(n.c) && !known.has(n.c)) continue;
           /* Wie in der ETS gelten alle passenden Zweige, nicht nur der erste —
              Produkte stapeln „7 8“, „7 8 9“ und „!=254“ unter einer Auswahl.
@@ -1811,6 +1815,7 @@ const KNX = (() => {
     };
     const run = () => {
       groups = []; byPath = new Map(); objs = []; seenObj = new Set(); seenParam = new Set();
+      mods = []; seenMod = new Set();
       pending = {};
       walk(item.dyn, []);
     };
@@ -1863,7 +1868,44 @@ const KNX = (() => {
     });
     // Wirksame Werte: eingestellte, überschrieben von den Zuweisungen
     return { groups: groups.filter(g => g.params.length), objs,
-             values: { ...(values || {}), ...assigned }, assigned };
+             values: { ...(values || {}), ...assigned }, assigned, mods: mods || [] };
+  }
+
+  /* Das Produkt, wie es ein Gerät mit diesen Parametern sieht. Bei Modulen mit
+     Allokatoren hängen Objektnummern, Parameteradressen und Objekttabelle davon
+     ab, welche Instanzen aktiv sind (KNXProd.allocate) — dann eine eigene
+     Ausfaltung, je Produkt und Vergabe zwischengespeichert. Sonst das Produkt
+     selbst. Ids, Sichtbarkeit und Werte sind in beiden gleich. */
+  const views = new WeakMap();
+  function productFor(item, values) {
+    if (!item || typeof KNXProd === 'undefined' || !KNXProd.hasDynAlloc || !KNXProd.hasDynAlloc(item)) return item;
+    const a = KNXProd.allocate(item, resolveProduct(item, values || {}).mods);
+    const key = JSON.stringify(a.values);
+    let m = views.get(item);
+    if (!m) { m = new Map(); views.set(item, m); }
+    let v = m.get(key);
+    if (!v) {
+      const base = KNXProd.compact(item);
+      v = KNXProd.expand(base === item ? { ...item } : base, a.values);
+      Object.defineProperty(v, 'allocOver', { value: a.over, configurable: true });
+      Object.defineProperty(v, 'allocValues', { value: a.values, configurable: true });
+      if (m.size >= 16) m.clear();
+      m.set(key, v);
+    }
+    return v;
+  }
+
+  /* Objektnummern eines Geräts nach der Vergabe seiner Parametrierung — nach
+     dem Auffrischen eines Produkts, dessen Nummern früher anders gerechnet
+     wurden. Liefert, wie viele Objekte eine neue Nummer bekamen. */
+  function renumberObjects(dev, item) {
+    const v = productFor(item, dev.params);
+    let changed = 0;
+    (dev.objs || []).forEach(o => {
+      const src = o.ref && v.objs && v.objs[o.ref];
+      if (src && Number.isInteger(src.num) && src.num !== o.num) { o.num = src.num; changed++; }
+    });
+    return changed;
   }
 
   /* Kommunikationsobjekte eines Geräts aus Produkt und Parametrierung neu
@@ -1908,6 +1950,7 @@ const KNX = (() => {
      Name, gleicher DPT: Dann wandern Adressen, Flags und Beschreibung mit.
      `orphans`: verknüpfte Objekte, die wegfallen; `dropped`: unverknüpfte. */
   function productObjects(dev, item, values) {
+    item = productFor(item, values);
     const { objs } = resolveProduct(item, values);
     // Auch überzählige: Wird ihr Objekt wieder sichtbar, leben sie mit ihren Adressen auf
     const byRef = new Map();
@@ -1976,6 +2019,8 @@ const KNX = (() => {
         c.id = old.id;
         project.catalog[project.catalog.indexOf(old)] = c;
         known.set(key(c), c);
+        // Früher eingelesen, rechnet das Produkt Objektnummern womöglich anders (Allokatoren)
+        catalogUsers(c.id).forEach(d => renumberObjects(d, c));
       } else {
         project.catalog.push(c);
         known.set(key(c), c);
@@ -2634,7 +2679,7 @@ const KNX = (() => {
     addDevice, deleteDevice, copyDevice, deleteLine, deleteArea,
     INFO_STATUS, normInfo, setProjectInfo,
     catalogById, addCatalogItems, deleteCatalogItem, catalogUsers, changeProduct, proxyAnalysis,
-    resolveProduct, applyProduct, productObjects, paramValue, testHits,
+    resolveProduct, productFor, renumberObjects, applyProduct, productObjects, paramValue, testHits,
     gaTree, issues,
     gaById, addGa, deleteGa, gasInGroup, deleteGaGroup, moveGas, freeAddress, suggestAddress,
     deleteNode, isInside, nodeMoveError, moveNode, moveFunction, setDeviceRoom, uid: nid
