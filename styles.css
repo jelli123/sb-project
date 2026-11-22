@@ -1524,7 +1524,19 @@ table.ga.pg-table { table-layout: auto; }
 /* Der Stand bricht um statt abzuschneiden: während des Ladens gibt es keinen Tooltip zum Nachlesen */
 table.ga.pg-table tbody td.pg-stand { width: 210px; min-width: 150px; white-space: normal; padding-top: 4px; padding-bottom: 4px; }
 .pg-stand .prog-bar { margin: 4px 0 0; height: 4px; }
-.pg-st { display: block; font-size: 12.5px; line-height: 1.35; overflow-wrap: anywhere; }
+/* Höchstens zwei Zeilen (der volle Text steht im Tooltip und in der Aktivitätszeile), und solange
+   ein Gerät geladen wird, immer zwei: sonst springt die Zeilenhöhe mit jedem Schritt */
+.pg-st {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.pg-st.run { min-height: calc(2 * 1.35em); }
 .pg-st.ok, .pg-st.done { color: var(--ok); }
 .pg-st.due, .pg-st.warn { color: var(--warn); }
 .pg-st.fail { color: var(--danger); }
@@ -1751,6 +1763,16 @@ table.ga.chat-hist tr.current td { background: var(--accent-weak); }
 /* Die Projektart (Muster- oder eigenes Projekt) ist nur ein Hinweis und weicht vor dem Scrollen */
 @media (max-width: 1300px) {
   #project-kind { display: none; }
+}
+/* Danach tragen Projekte, Programmieren und Neues Projekt nur noch ihr Symbol (Text im Tooltip);
+   erst wenn auch das nicht reicht, scrollt die Leiste */
+.btn-pictable .btn-pict { display: none; flex: 0 0 auto; }
+@media (max-width: 1240px) {
+  #topbar .btn-pictable { padding: 0 8px; }
+  #topbar .btn-pictable .btn-label { display: none; }
+  #topbar .btn-pictable .btn-pict { display: block; }
+  /* Während des Programmierens dreht der Kreis an Stelle des Symbols */
+  #topbar .btn-pictable[data-busy="1"] .btn-pict { display: none; }
 }
 /* Die Teile eines Downloads stehen nebeneinander, solange Platz ist */
 @media (max-width: 1260px) {
