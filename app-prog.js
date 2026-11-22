@@ -1262,9 +1262,63 @@ document.addEventListener('visibilitychange', () => {
 $('#btn-prog').addEventListener('click', () => open());
 if (window.KNXSecure) KNXSecure.onChange(() => { if (overlay && !run.active) renderAll(); });
 
+/* ---------- KI-Busfreigabe (nur mit --debug) ----------
+   Derselbe Durchgang wie über „Start“, sichtbar in diesem Fenster und dort
+   abbrechbar — nur ohne die Rückfrage, die der Nutzer mit dem Einschalten der
+   Busfreigabe vorweggenommen hat. Verbunden wird hier nicht: Welche
+   Schnittstelle, entscheidet der Nutzer. KNX Secure bleibt außen vor. */
+let aiJobs = null;
+
+async function aiRun({ device, mode = 'program', parts = null, serial = true }) {
+  if (run.active) throw new Error('A programming run is already active in the window.');
+  if (BUS.busy()) throw new Error('The window is busy: ' + BUS.busy());
+  const d = KNX.deviceById(device);
+  if (!d) throw new Error('Unknown device ' + device);
+  if (!state(d)) throw new Error('This device has no product data, it cannot be programmed.');
+  if (KNX.couplerOffZero(d)) throw new Error('Couplers need device number 0; change the address first.');
+  if (window.KNXSecure && KNXSecure.relevant(d)) throw new Error('KNX Secure devices are out of reach for AI access.');
+  await open({ devices: [d.id] });
+  try { applyStatus(await B.bus.status()); } catch (e) { /* dann gilt der letzte Stand */ }
+  if (!conn.connected) {
+    throw new Error('SB-Project is not connected to a KNX interface. The user has to connect in the Programmieren dialog.');
+  }
+  const p = pickOf(d);
+  p.mode = mode === 'program' ? 'prog' : mode;
+  if (p.mode === 'prog' && Array.isArray(parts) && parts.length) p.parts = new Set(parts.filter(k => PARTS.includes(k)));
+  p.on = p.mode !== 'prog' || p.parts.size > 0;
+  p.auto = false;
+  const jobs = jobsFromPick().filter(j => j.dev.id === d.id);
+  if (!jobs.length) throw new Error('Nothing to do for this device (nothing pending and no parts given).');
+  jobs[0].ops.forEach(o => { if (o.op === 'pa') o.serial = serial !== false && !!d.serial; });
+  appendLog('warn', T18('KI-Auftrag: {0}', `${jobs[0].pa} „${d.name}“ — ` + jobs[0].ops.map(o => o.op === 'dl' ? o.kind : o.op).join(', ')));
+  aiJobs = jobs;
+  execute(jobs);
+  return aiStatus();
+}
+
+function aiStatus() {
+  const rows = aiJobs || [];
+  const phase = id => (run.rows.get(id) || {}).phase;
+  const state = !aiJobs ? 'idle' : run.active ? 'running'
+    : rows.some(j => phase(j.dev.id) === 'fail') ? 'failed'
+    : rows.some(j => phase(j.dev.id) === 'skip') ? 'cancelled' : 'done';
+  const log = overlay ? [...q('#pg-log').children].slice(-40).map(l => ({
+    level: ['error', 'warn', 'ok'].find(c => l.classList.contains(c)) || 'info', text: l.textContent })) : [];
+  return {
+    state,
+    message: overlay ? q('#pg-activity .act-text').textContent : '',
+    devices: rows.map(j => {
+      const r = run.rows.get(j.dev.id) || {};
+      return { device: j.dev.id, name: j.dev.name, pa: j.pa, phase: r.phase || 'wait', text: r.text || '' };
+    }),
+    log
+  };
+}
+
 window.KNXProg = {
   available: true,
-  open, refresh, state, isDue, badge, deviceSection, fingerprint, record, forget, ERASES, UNLOADS
+  open, refresh, state, isDue, badge, deviceSection, fingerprint, record, forget, ERASES, UNLOADS,
+  aiRun, aiStatus, cancel
 };
 
 })();

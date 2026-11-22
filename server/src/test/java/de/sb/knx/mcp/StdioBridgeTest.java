@@ -120,7 +120,7 @@ class StdioBridgeTest {
         stdin.write("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n".getBytes(StandardCharsets.UTF_8));
 
         Map<?, ?> list = (Map<?, ?>) send("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}").get("result");
-        assertEquals(Tools.ALL.size(), ((List<?>) list.get("tools")).size());
+        assertEquals(Tools.listing().size(), ((List<?>) list.get("tools")).size());
 
         Map<?, ?> res = (Map<?, ?>) send(call(3, "list_projects")).get("result");
         assertEquals(true, res.get("isError"));

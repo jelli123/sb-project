@@ -44,22 +44,31 @@ const S = v => (typeof v === 'string' ? v
    ============================================================ */
 
 const btn = $('#btn-ai');
-const st = { mode: 'off', handle: null, sessions: 0, busy: 0, available: MODES.map(m => m.key), last: null };
+const st = { mode: 'off', handle: null, sessions: 0, busy: 0, available: MODES.map(m => m.key), last: null,
+             debug: false, busAccess: false };
 
 function paint() {
   const m = modeOf(st.mode);
   btn.hidden = false;
   btn.dataset.mode = st.mode;
   const open = proposals().length;
-  btn.querySelector('.ai-label').textContent = open
-    ? T18('KI: {0} · {1}', T18(m.label), open) : T18('KI: {0}', T18(m.label));
+  btn.querySelector('.ai-label').textContent = (open
+    ? T18('KI: {0} · {1}', T18(m.label), open) : T18('KI: {0}', T18(m.label))) + (st.busAccess ? ' + Bus' : '');
+  btn.classList.toggle('bus', st.busAccess);
   btn.classList.toggle('busy', st.busy > 0);
   const badge = btn.querySelector('.btn-badge');
   badge.hidden = !st.sessions;
   badge.textContent = st.sessions;
   btn.title = T18('KI-Zugang für dieses Projekt: {0}', T18(m.label)) + ' — '
     + (st.sessions === 1 ? T18('1 KI-Sitzung verbunden') : T18('{0} KI-Sitzungen verbunden', st.sessions))
-    + (open ? ' — ' + T18('{0} offene Vorschläge', open) : '');
+    + (open ? ' — ' + T18('{0} offene Vorschläge', open) : '')
+    + (st.busAccess ? ' — ' + T18('KI-Busfreigabe eingeschaltet') : '');
+}
+
+/* Fällt die Busfreigabe weg (aus, Neustart, Abschalten des Zugangs), gehen die Markierungen mit. */
+function busChanged(on) {
+  if (!on && st.busAccess) busMarked.clear();
+  st.busAccess = on;
 }
 
 function apply(s) {
@@ -68,6 +77,8 @@ function apply(s) {
   st.handle = s.handle || null;
   st.sessions = Array.isArray(s.sessions) ? s.sessions.length : 0;
   st.busy = s.busy || 0;
+  st.debug = !!s.debug;
+  busChanged(!!s.busAccess);
   if (Array.isArray(s.available)) st.available = s.available;
   st.last = s;
   paint();
@@ -102,6 +113,7 @@ btn.addEventListener('click', () => {
     })),
     '-',
     proposals().length && { label: T18('Vorschläge ansehen ({0}) …', proposals().length), run: openProposals },
+    st.busAccess && { label: T18('KI-Busfreigabe beenden'), run: () => setBus(false) },
     window.KNXChat && KNXChat.available && { label: T18('KI-Chat öffnen'), run: () => KNXChat.open() },
     { label: T18('KI-Zugang einrichten …'), run: openDialog }
   ]);
@@ -114,6 +126,7 @@ B.events.on('mcp', ev => {
     st.mode = ev.mode || 'off';
     st.handle = ev.handle || null;
     st.busy = ev.busy || 0;
+    busChanged(!!ev.busAccess);
   }
   paint();
   if (dialogOpen()) refreshDialogSoon();
@@ -440,6 +453,168 @@ async function run(ev) {
     body.error = String((e && e.message) || e);
   }
   try { await B.mcp.result(body); } catch (e) { console.warn('KI-Ergebnis nicht zustellbar:', e.message); }
+}
+
+/* ============================================================
+   Bus-Werkzeuge (nur mit --debug und eingeschalteter Busfreigabe)
+   ------------------------------------------------------------
+   Der Dienst lässt sie nur durch, wenn die Freigabe an ist. Hier
+   kommt hinzu: Sie wirken nur auf Geräte, die der Nutzer in diesem
+   Fenster markiert hat. Die Markierung lebt nur im Fenster und
+   fällt mit der Freigabe weg.
+   ============================================================ */
+
+const busMarked = new Set();
+
+const markedDevices = () => [...busMarked].map(id => KNX.deviceById(id)).filter(Boolean).sort(KNX.byPa);
+
+function markedByPa(pa) {
+  const d = markedDevices().find(x => paOf(x) === pa);
+  if (!d) throw new Error(`Device ${pa} is not marked for bus access in the SB-Project window.`);
+  return d;
+}
+
+function markedById(id) {
+  if (!busMarked.has(id) || !KNX.deviceById(id)) throw new Error(`Device ${id} is not marked for bus access in the SB-Project window.`);
+  return KNX.deviceById(id);
+}
+
+/* Gruppentelegramme nur an Adressen, die mit einem markierten Gerät verknüpft sind. Die Adresse
+   kommt in der Darstellung des Projekts; an den Dienst geht sie dreistufig, eindeutig. */
+function markedGroup(text) {
+  const raw = gaRaw(text);
+  const ok = markedDevices().some(d => d.objs.some(o => o.gas.some(id => {
+    const g = KNX.gaById(id);
+    return g && g.raw === raw;
+  })));
+  if (!ok) throw new Error(`Group address ${text} is not linked to any device marked for bus access.`);
+  return `${raw >> 11}/${(raw >> 8) & 7}/${raw & 255}`;
+}
+const sameGroup = (r, text) => ({ ...r, group: text });
+
+function busLog(text) {
+  console.info('[KI-Bus]', text);
+}
+
+const BUS_TOOLS = {
+  async bus_status() {
+    const s = await B.bus.status();
+    return {
+      connected: !!s.connected, linkAddress: s.linkAddress || null, busAccess: st.busAccess,
+      marked: markedDevices().map(d => ({ device: d.id, name: S(d.name), pa: paOf(d), serial: KNX.normSerial(d.serial) || null })),
+      message: s.connected ? 'Connected: ' + S(s.connection)
+        : 'Not connected. The user connects in the Programmieren dialog.'
+    };
+  },
+
+  async bus_device_info(a) {
+    markedByPa(a.address);
+    const r = await B.bus.device(a.address);
+    const dsc = r.descriptor || {}, dev = r.device || {}, leg = r.legacy || null;
+    const pv = dev.programVersion || (r.applicationProgram && r.applicationProgram.programVersion) || (leg && leg.programVersion);
+    const n = v => (v == null ? null : v);
+    return {
+      address: r.address, maskVersion: n(dsc.maskVersion), descriptorRaw: n(dsc.raw), profile: n(dsc.profile),
+      firmwareVersion: n(dsc.firmwareVersion), secured: !!r.secured, manufacturerId: n(dev.manufacturerId),
+      serial: KNX.normSerial(dev.serialNumber) || null, orderInfo: dev.orderInfo || null,
+      description: dev.description || null, programmingMode: n(dev.programmingMode), maxApduLength: n(dev.maxApduLength),
+      programVersion: pv ? { manufacturerId: pv.manufacturerId, deviceType: pv.deviceType, version: pv.version } : null,
+      interfaceObjects: (r.loadStates || r.interfaceObjects || []).map(o => ({
+        index: o.index, type: o.type, name: o.name, loadState: o.loadStateName || null })),
+      legacy: leg ? { runError: n(leg.runError), addressTableEntries: n(leg.addressTableEntries), peiType: n(leg.peiType) } : null
+    };
+  },
+
+  async bus_prog_mode() {
+    const r = await B.bus.progModeList();
+    return { devices: (r.devices || []).map(String) };
+  },
+
+  async bus_read_memory(a) {
+    markedByPa(a.address);
+    return B.bus.memory({ address: a.address, op: 'read', start: a.start, count: a.count });
+  },
+
+  async bus_write_memory(a) {
+    markedByPa(a.address);
+    busLog(`memory write ${a.address} @${a.start}: ${a.data.length / 2} bytes`);
+    return B.bus.memory({ address: a.address, op: 'write', start: a.start, data: a.data, verify: a.verify !== false });
+  },
+
+  async bus_read_property(a) {
+    markedByPa(a.address);
+    return B.bus.property({ address: a.address, op: 'read', objIndex: a.objIndex, pid: a.pid,
+                            start: a.start == null ? 1 : a.start, count: a.count || 1 });
+  },
+
+  async bus_write_property(a) {
+    markedByPa(a.address);
+    busLog(`property write ${a.address} obj ${a.objIndex} pid ${a.pid}`);
+    return B.bus.property({ address: a.address, op: 'write', objIndex: a.objIndex, pid: a.pid,
+                            start: a.start == null ? 1 : a.start, count: a.count || 1, data: a.data });
+  },
+
+  async bus_load_state(a) {
+    markedByPa(a.address);
+    const r = await B.bus.loadState(a.address, a.objectType);
+    return { loadState: r.loadState, loadStateName: r.loadStateName || null, message: S(r.message) };
+  },
+
+  async bus_restart(a) {
+    markedByPa(a.address);
+    busLog(`restart ${a.address} ${a.eraseCode || ''}`);
+    const r = await B.bus.restart({ address: a.address, eraseCode: a.eraseCode || null, channel: a.channel || 0 });
+    return { ok: r.ok !== false, message: S(r.message) };
+  },
+
+  async bus_group_read(a) {
+    const group = markedGroup(a.group);
+    return sameGroup(await B.bus.group({ group, op: 'read', timeoutMs: a.timeoutMs || 3000 }), a.group);
+  },
+
+  async bus_group_write(a) {
+    const group = markedGroup(a.group);
+    if ((a.value == null) === (a.data == null)) throw new Error('Give either value or data.');
+    busLog(`group write ${a.group}`);
+    return sameGroup(await B.bus.group(a.value != null ? { group, op: 'write', value: a.value }
+                                                       : { group, op: 'write', data: a.data }), a.group);
+  },
+
+  async bus_monitor(a) {
+    return B.bus.monitor(a.after, a.limit, a.address);
+  },
+
+  async bus_program(a) {
+    const d = markedById(a.device);
+    if (!window.KNXProg || !KNXProg.available || !KNXProg.aiRun) throw new Error('Programming is not available in this window.');
+    busLog(`program ${paOf(d)} ${a.mode || 'program'}`);
+    return KNXProg.aiRun({ device: d.id, mode: a.mode || 'program', parts: a.parts || null, serial: a.serial !== false });
+  },
+
+  async bus_program_status() {
+    if (!window.KNXProg || !KNXProg.aiStatus) throw new Error('Programming is not available in this window.');
+    return KNXProg.aiStatus();
+  }
+};
+
+/* Die Werkzeuge prüfen beim Aufruf: Ohne Freigabe kommt hier nichts an, doch das Fenster sieht es selbst auch. */
+Object.entries(BUS_TOOLS).forEach(([k, fn]) => {
+  TOOLS[k] = (args, ev) => {
+    if (!st.busAccess) throw new Error('Bus access for AI is off in this window.');
+    return fn(args, ev);
+  };
+});
+
+async function setBus(on) {
+  try {
+    apply(await B.mcp.bus(B.projectId, on));
+    if (!st.busAccess) busMarked.clear();
+    A.toast(on ? T18('KI-Busfreigabe eingeschaltet') : T18('KI-Busfreigabe beendet'));
+  } catch (e) {
+    A.warn(T18('Busfreigabe nicht umschaltbar: {0}', e.message));
+    refresh();
+  }
+  if (dialogOpen()) paintBus();
 }
 
 B.events.on('mcp-call', run);
@@ -1343,6 +1518,12 @@ function paintDialog() {
       </tbody></table>`
     : `<p class="hint">${T18('Für dieses Projekt noch keine Aufrufe.')}</p>`;
   if (s.tokenFile) $('#mcp-cmd').textContent = setupCommand(s.tokenFile);
+  // Erst nach Einschalten von --debug bekannt: Abschnitt nachreichen
+  if (st.debug && !$('#mcp-bus-sec')) {
+    $('#mcp-dlg section').insertAdjacentHTML('afterend', busSection());
+    wireBus();
+  }
+  paintBus();
 }
 
 function readTerms() {
@@ -1365,6 +1546,64 @@ async function preview() {
   }
 }
 
+/* Abschnitt „Debug: Bus“ im Dialog — nur, wenn der Dienst mit --debug läuft. */
+const busFilter = { text: '' };
+
+function busSection() {
+  if (!st.debug) return '';
+  return `<section id="mcp-bus-sec">
+    <h4>${T18('Debug: Bus')}</h4>
+    <p class="hint warn">${T18('Mit der Busfreigabe darf eine KI-Sitzung die markierten Geräte ohne weitere Rückfrage programmieren, zurücksetzen, ihren Speicher und ihre Eigenschaften beschreiben und Gruppentelegramme an deren Gruppenadressen senden. Das kann Geräte unbrauchbar machen und echte Lasten schalten. Seriennummern der markierten Geräte gehen an den KI-Anbieter; die KI ist angewiesen, sie nirgends zu speichern. KNX Secure bleibt ausgenommen. Die Freigabe endet mit dem Ausschalten, dem Schließen des Fensters und jedem Neustart des Dienstes.')}</p>
+    <p class="mcp-row"><button class="btn btn-sm btn-danger" id="mcp-bus-btn"></button> <span id="mcp-bus-state" class="hint"></span></p>
+    <div id="mcp-bus-pick">
+      <input class="input" id="mcp-bus-filter" placeholder="${esc(T18('Geräte filtern …'))}" spellcheck="false">
+      <div id="mcp-bus-devs" class="mcp-bus-devs"></div>
+    </div>
+  </section>`;
+}
+
+let busArmed = false;
+function paintBus() {
+  const b = $('#mcp-bus-btn');
+  if (!b) return;
+  b.textContent = st.busAccess ? T18('Busfreigabe beenden')
+    : busArmed ? T18('Wirklich einschalten? Die KI schreibt dann ohne Rückfrage auf den Bus') : T18('Busfreigabe einschalten …');
+  b.classList.toggle('btn-danger', !st.busAccess);
+  b.disabled = !st.busAccess && st.mode === 'off';
+  $('#mcp-bus-state').textContent = st.busAccess
+    ? T18('Eingeschaltet — {0} Geräte markiert', busMarked.size)
+    : st.mode === 'off' ? T18('Zuerst den KI-Zugang einschalten.') : T18('Aus');
+  $('#mcp-bus-pick').hidden = !st.busAccess;
+  if (!st.busAccess) return;
+  const f = lower(busFilter.text);
+  const devs = P().devices.filter(d => paOf(d)).sort(KNX.byPa)
+    .filter(d => busMarked.has(d.id) || has(f, paOf(d), d.name, d.order));
+  $('#mcp-bus-devs').innerHTML = devs.length ? devs.map(d => `
+    <label class="mcp-bus-dev"><input type="checkbox" data-dev="${esc(d.id)}" ${busMarked.has(d.id) ? 'checked' : ''}>
+      <code>${esc(paOf(d))}</code> <span>${esc(S(d.name))}</span>${window.KNXSecure && KNXSecure.relevant(d) ? ` <span class="hint">(${T18('Secure — ausgenommen')})</span>` : ''}</label>`).join('')
+    : `<p class="hint">${T18('Keine Geräte mit Adresse.')}</p>`;
+  $('#mcp-bus-devs').querySelectorAll('input[data-dev]').forEach(c => {
+    c.onchange = () => {
+      if (c.checked) busMarked.add(c.dataset.dev); else busMarked.delete(c.dataset.dev);
+      $('#mcp-bus-state').textContent = T18('Eingeschaltet — {0} Geräte markiert', busMarked.size);
+    };
+  });
+}
+
+function wireBus() {
+  const b = $('#mcp-bus-btn');
+  if (!b) return;
+  busArmed = false;
+  b.onclick = () => {
+    if (st.busAccess) { setBus(false); return; }
+    if (!busArmed) { busArmed = true; paintBus(); return; }
+    busArmed = false;
+    setBus(true);
+  };
+  $('#mcp-bus-filter').oninput = e => { busFilter.text = e.target.value; paintBus(); };
+  paintBus();
+}
+
 function openDialog() {
   const p = P();
   const current = (p.privacy && p.privacy.terms) || [];
@@ -1382,6 +1621,7 @@ function openDialog() {
             </label>`).join('')}
         </div>
       </section>
+      ${busSection()}
       <section>
         <h4>${T18('Datenschutz')}</h4>
         <p class="hint">${T18('Nie an den KI-Anbieter gehen: Notizen, Objektbeschreibungen, Seriennummern, KNX-Secure-Angaben, Einstellungen und Dateipfade. IP-Adressen nur nach Rückfrage. Projekt- und Liegenschaftsname, erkannte Anschriften, Telefonnummern und E-Mail-Adressen werden durch Platzhalter wie «Name1» ersetzt — die Zuordnung bleibt auf diesem Rechner.')}</p>
@@ -1428,6 +1668,7 @@ function openDialog() {
   $('#mcp-dlg').querySelectorAll('input[name="mcp-mode"]').forEach(r =>
     r.addEventListener('change', () => { if (r.checked) setMode(r.value); }));
   $('#mcp-preview-btn').onclick = preview;
+  wireBus();
   $('#mcp-dlg').querySelectorAll('[data-copy]').forEach(b => {
     b.onclick = () => navigator.clipboard.writeText($('#' + b.dataset.copy).textContent)
       .then(() => A.toast(T18('Kopiert')))

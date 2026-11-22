@@ -103,6 +103,8 @@ public final class McpGate implements AutoCloseable {
     private static final class Release {
         final String project;
         Mode mode;
+        /** Busfreigabe fuer die Fehlersuche (nur mit --debug); faellt mit der Freigabe weg. */
+        boolean bus;
         String window;
         long since;
 
@@ -111,7 +113,7 @@ public final class McpGate implements AutoCloseable {
         }
     }
 
-    private record Pending(String window, String project, String session,
+    private record Pending(String window, String project, String session, boolean bus,
                            CompletableFuture<Map<String, Object>> future) {}
 
     private static final Tools.Tool SUMMARY = new Tools.Tool("summary", "Summary", "", Shape.obj(),
@@ -144,6 +146,44 @@ public final class McpGate implements AutoCloseable {
         this.token = new AccessToken(dir);
         this.audit = new Audit(dir);
         events.onLeave(this::windowLeft);
+    }
+
+    /** Dienst mit --debug gestartet: Bus-Werkzeuge sind gelistet und freischaltbar. */
+    private volatile boolean debug;
+
+    public void debug(boolean on) {
+        debug = on;
+    }
+
+    public boolean debug() {
+        return debug;
+    }
+
+    /**
+     * Busfreigabe aus dem Fenster: nur mit --debug, nur zusaetzlich zu einer bestehenden Freigabe.
+     * Aus faellt sie mit der Freigabe, beim Schliessen des Fensters und nach jedem Neustart.
+     */
+    public void setBus(String project, String window, boolean on) {
+        if (on && !debug) throw new IllegalStateException("Busfreigabe gibt es nur, wenn der Dienst mit --debug laeuft.");
+        if (window == null || !events.windowsOf(project).contains(window)) {
+            throw new IllegalStateException("Das Fenster ist nicht an der Ereignisleitung angemeldet");
+        }
+        synchronized (this) {
+            Release r = releases.get(project);
+            if (r == null || r.mode == Mode.OFF) {
+                if (on) throw new IllegalStateException("Zuerst den KI-Zugang einschalten.");
+            } else {
+                r.bus = on;
+            }
+        }
+        if (!on) failPending(p -> p.project.equals(project) && p.bus, "Der Nutzer hat die Busfreigabe beendet.");
+        events.log(on ? "warn" : "info", "KI-Busfreigabe fuer " + project + ": " + (on ? "ein" : "aus"));
+        publish(project);
+    }
+
+    private synchronized boolean busOf(String project) {
+        Release r = releases.get(project);
+        return debug && r != null && r.mode != Mode.OFF && r.bus;
     }
 
     public boolean authorized(String authorization) {
@@ -235,6 +275,8 @@ public final class McpGate implements AutoCloseable {
         m.put("mode", r == null ? Mode.OFF.key : r.mode.key);
         m.put("since", r == null ? null : r.since);
         m.put("handle", handles.get(project));
+        m.put("debug", debug);
+        m.put("busAccess", r != null && r.bus && debug);
         List<Object> modes = Json.arr();
         for (Mode x : AVAILABLE) modes.add(x.key);
         m.put("available", modes);
@@ -261,7 +303,11 @@ public final class McpGate implements AutoCloseable {
         failPending(p -> p.window.equals(window), "Das Fenster mit dem Projekt wurde geschlossen.");
         List<String> affected = new ArrayList<>();
         synchronized (this) {
-            for (Release r : releases.values()) if (window.equals(r.window)) affected.add(r.project);
+            for (Release r : releases.values()) {
+                if (!window.equals(r.window)) continue;
+                affected.add(r.project);
+                r.bus = false; // markierte Geraete lebten nur im Fenster: Busfreigabe endet sofort
+            }
         }
         if (affected.isEmpty()) return;
         // Schonfrist: Beim Neuladen meldet sich das Fenster gleich wieder an
@@ -333,6 +379,12 @@ public final class McpGate implements AutoCloseable {
                 throw new ToolError(e.getMessage());
             }
             args.remove("project");
+            if (tool.level() == Tools.Level.BUS && !busOf(project)) {
+                throw new ToolError(debug
+                        ? "Bus access for AI is off. The user has to switch it on in the SB-Project window "
+                          + "(KI-Zugang einrichten -> Debug: Bus) and mark the devices."
+                        : "Bus tools need SB-Project started with --debug.");
+            }
             if (tool.level() == Tools.Level.WRITE && !WRITING.contains(modeOf(project))) {
                 throw new ToolError("Der KI-Zugang dieses Projekts steht auf 'Lesen'. Aendern geht erst, wenn der "
                         + "Nutzer im Fenster Vorschlag, Einzelschritte oder Auto waehlt.");
@@ -456,7 +508,7 @@ public final class McpGate implements AutoCloseable {
             s.pending++;
         }
         String call = HexFormat.of().formatHex(randomBytes(12));
-        Pending p = new Pending(window, project, s.id, new CompletableFuture<>());
+        Pending p = new Pending(window, project, s.id, tool.level() == Tools.Level.BUS, new CompletableFuture<>());
         pending.put(call, p);
         try {
             Map<String, Object> ev = Json.obj();
@@ -593,6 +645,7 @@ public final class McpGate implements AutoCloseable {
             Release r = releases.get(project);
             m.put("project", project);
             m.put("mode", r == null ? Mode.OFF.key : r.mode.key);
+            m.put("busAccess", r != null && r.bus && debug);
             m.put("handle", handles.get(project));
             m.put("sessions", sessions.size());
         }

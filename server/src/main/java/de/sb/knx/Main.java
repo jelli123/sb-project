@@ -95,6 +95,7 @@ public final class Main {
         KeyVault vault = new KeyVault(dataDir);
         bus.vault(vault);
         McpGate mcp = new McpGate(dataDir, events);
+        mcp.debug(debug);
 
         HttpServer http = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         http.setExecutor(Executors.newCachedThreadPool(r -> {
@@ -110,7 +111,7 @@ public final class Main {
         http.createContext("/api/secure", new SecureApi(vault, boundPort));
         http.createContext("/api/catalog", new CatalogApi(catalog, boundPort));
         http.createContext("/api/online", new OnlineApi(online, jobs, events, boundPort));
-        http.createContext("/api/bus", new BusApi(bus, jobs, events, boundPort));
+        http.createContext("/api/bus", new BusApi(bus, jobs, events, boundPort, debug));
         http.createContext("/api/events", ex -> {
             if (!Http.localOnly(ex, boundPort)) return;
             Map<String, String> q = Http.query(ex);

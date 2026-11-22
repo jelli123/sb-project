@@ -143,6 +143,7 @@ class ShapeTest {
             String json = Json.write(t.input().schema());
             assertTrue(Json.parseObject(json).get("type").equals("object"), t.name());
         }
-        assertEquals(Tools.ALL.size(), Tools.listing().size());
+        assertEquals(Tools.ALL.size(), Tools.listing(true).size());
+        assertTrue(Tools.listing().size() < Tools.ALL.size(), "Bus-Werkzeuge nur mit --debug");
     }
 }

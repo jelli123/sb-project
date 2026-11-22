@@ -7,11 +7,13 @@ import de.sb.knx.bus.Commissioning;
 import de.sb.knx.bus.DeviceInfoReader;
 import de.sb.knx.bus.Download;
 import de.sb.knx.bus.Knx;
+import de.sb.knx.bus.RawAccess;
 import de.sb.knx.http.Events;
 import de.sb.knx.http.Http;
 import de.sb.knx.http.Jobs;
 import de.sb.knx.json.Json;
 import de.sb.knx.store.FileStore;
+import tuwien.auto.calimero.GroupAddress;
 import tuwien.auto.calimero.IndividualAddress;
 import tuwien.auto.calimero.SerialNumber;
 import tuwien.auto.calimero.mgmt.ManagementClient.EraseCode;
@@ -47,7 +49,11 @@ public final class BusApi implements HttpHandler {
     private final AtomicInteger inFlight = new AtomicInteger();
     private static final Set<String> BUS_JOBS = Set.of("scan", "download");
 
-    public BusApi(BusService bus, Jobs jobs, Events events, int port) {
+    /** Rohe Zugriffe (Speicher, Properties, Gruppen, Mitschnitt) - nur mit --debug. */
+    private final RawAccess raw;
+
+    public BusApi(BusService bus, Jobs jobs, Events events, int port, boolean debug) {
+        this.raw = debug ? new RawAccess(bus) : null;
         this.bus = bus;
         this.info = new DeviceInfoReader(bus);
         this.commissioning = new Commissioning(bus);
@@ -126,6 +132,10 @@ public final class BusApi implements HttpHandler {
             case "/api/bus/unload" -> unload(ex, method);
             case "/api/bus/loadstate" -> loadState(ex);
             case "/api/bus/keys" -> keys(ex, method);
+            case "/api/bus/memory" -> memory(ex, method);
+            case "/api/bus/property" -> property(ex, method);
+            case "/api/bus/group" -> group(ex, method);
+            case "/api/bus/monitor" -> monitor(ex);
             default -> {
                 if (path.startsWith("/api/bus/jobs/")) job(ex, method, path);
                 else Http.error(ex, 404, "Unbekannter Pfad");
@@ -137,7 +147,8 @@ public final class BusApi implements HttpHandler {
 
     /** Alles, was den Bus benutzt oder eine Verbindung aendert. Zustand und Suche im Netz nicht. */
     private static boolean usesBus(String path) {
-        if (path.equals("/api/bus/status") || path.equals("/api/bus/discover") || path.equals("/api/bus/interfaces")) {
+        if (path.equals("/api/bus/status") || path.equals("/api/bus/discover") || path.equals("/api/bus/interfaces")
+                || path.equals("/api/bus/monitor")) {
             return false;
         }
         if (path.startsWith("/api/bus/jobs/")) return path.endsWith("/cancel");
@@ -211,7 +222,10 @@ public final class BusApi implements HttpHandler {
                     project(ex),
                     Json.str(body, "secure", "auto"));
         }
-        if (Boolean.TRUE.equals(status.get("connected"))) own(ex, window);
+        if (Boolean.TRUE.equals(status.get("connected"))) {
+            own(ex, window);
+            if (raw != null) raw.watch();
+        }
         events.log("info", "Verbunden: " + Json.write(status.get("connection")));
         Http.json(ex, 200, status);
     }
@@ -460,6 +474,94 @@ public final class BusApi implements HttpHandler {
         IndividualAddress addr = Knx.address(requiredParam(ex, "address"));
         int type = objectType(intParam(ex, "objectType", 3));
         Http.json(ex, 200, run(() -> commissioning.loadState(addr, type), 30));
+    }
+
+    /* ---------------- Rohe Zugriffe (--debug) ---------------- */
+
+    private RawAccess raw() {
+        if (raw == null) throw new IllegalStateException("Nur verfuegbar, wenn der Dienst mit --debug gestartet wurde.");
+        return raw;
+    }
+
+    private static byte[] hexData(Map<String, Object> body, int max) {
+        String hex = Json.str(body, "data", null);
+        if (hex == null) throw new IllegalArgumentException("Feld data fehlt");
+        hex = hex.replaceAll("[\\s:]", "");
+        if (!hex.matches("([0-9A-Fa-f]{2}){1," + max + "}")) {
+            throw new IllegalArgumentException("data: 1 bis " + max + " Oktette in Hex erwartet");
+        }
+        return java.util.HexFormat.of().parseHex(hex);
+    }
+
+    private void memory(HttpExchange ex, String method) throws Exception {
+        requirePost(method);
+        RawAccess r = raw();
+        Map<String, Object> body = Http.jsonBody(ex);
+        IndividualAddress addr = Knx.address(Json.str(body, "address", null));
+        int start = Json.integer(body, "start", -1);
+        if ("write".equals(Json.str(body, "op", "read"))) {
+            byte[] data = hexData(body, RawAccess.MAX_BYTES);
+            boolean verify = Json.bool(body, "verify", true);
+            events.log("warn", "Debug: Speicher schreiben " + addr + " @" + Integer.toHexString(start) + " (" + data.length + " Byte)");
+            Http.json(ex, 200, run(() -> r.writeMemory(addr, start, data, verify), 120));
+        } else {
+            int count = Json.integer(body, "count", 0);
+            Http.json(ex, 200, run(() -> r.readMemory(addr, start, count), 120));
+        }
+    }
+
+    private void property(HttpExchange ex, String method) throws Exception {
+        requirePost(method);
+        RawAccess r = raw();
+        Map<String, Object> body = Http.jsonBody(ex);
+        IndividualAddress addr = Knx.address(Json.str(body, "address", null));
+        int oi = Json.integer(body, "objIndex", -1), pid = Json.integer(body, "pid", -1);
+        int start = Json.integer(body, "start", 1), count = Json.integer(body, "count", 1);
+        if ("write".equals(Json.str(body, "op", "read"))) {
+            byte[] data = hexData(body, 255);
+            events.log("warn", "Debug: Property schreiben " + addr + " Objekt " + oi + " PID " + pid);
+            Http.json(ex, 200, run(() -> r.writeProperty(addr, oi, pid, start, count, data), 30));
+        } else {
+            Http.json(ex, 200, run(() -> r.readProperty(addr, oi, pid, start, count), 30));
+        }
+    }
+
+    private void group(HttpExchange ex, String method) throws Exception {
+        requirePost(method);
+        RawAccess r = raw();
+        Map<String, Object> body = Http.jsonBody(ex);
+        String text = Json.str(body, "group", null);
+        if (text == null || !text.matches("\\d{1,5}(/\\d{1,4}){0,2}")) throw new IllegalArgumentException("Gruppenadresse fehlt oder ist ungueltig");
+        GroupAddress ga;
+        try {
+            ga = new GroupAddress(text);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Gruppenadresse ungueltig: " + text);
+        }
+        if ("write".equals(Json.str(body, "op", "read"))) {
+            Integer small = body.get("value") == null ? null : Json.integer(body, "value", -1);
+            byte[] data = small == null ? hexData(body, 14) : null;
+            events.log("info", "Debug: Gruppentelegramm an " + ga);
+            Http.json(ex, 200, run(() -> r.groupWrite(ga, small, data), 20));
+        } else {
+            int timeout = Json.integer(body, "timeoutMs", 3000);
+            Http.json(ex, 200, run(() -> r.groupRead(ga, timeout), 20));
+        }
+    }
+
+    private void monitor(HttpExchange ex) throws Exception {
+        RawAccess r = raw();
+        Map<String, String> q = Http.query(ex);
+        long after;
+        try {
+            after = Math.max(0, Long.parseLong(q.getOrDefault("after", "0")));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("after: ganze Zahl erwartet");
+        }
+        int limit = clamp(intParam(ex, "limit", 100), 1, 500);
+        String address = q.get("address");
+        if (address != null) address = Knx.address(address).toString();
+        Http.json(ex, 200, r.monitor(after, limit, address));
     }
 
     /* ---------------- KNX Secure ---------------- */

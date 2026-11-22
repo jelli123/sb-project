@@ -44,6 +44,13 @@ public final class McpUiApi implements HttpHandler {
                     gate.setMode(project, window, Json.str(body, "mode", ""));
                     Http.json(ex, 200, gate.status(project));
                 }
+                case "/api/mcp/bus" -> {
+                    requirePost(method);
+                    Map<String, Object> body = Http.jsonBody(ex);
+                    String project = project(Json.str(body, "project", null));
+                    gate.setBus(project, window, Json.bool(body, "on", false));
+                    Http.json(ex, 200, gate.status(project));
+                }
                 case "/api/mcp/result" -> {
                     requirePost(method);
                     gate.result(window, Json.parseObject(Http.text(ex, MAX_RESULT_BYTES)));

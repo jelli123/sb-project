@@ -36,6 +36,17 @@ public final class McpApi implements HttpHandler {
             Programming devices on the KNX bus is not possible through these tools; the user does that in \
             the 'Programmieren' dialog of SB-Project.""";
 
+    /** Zusatz, wenn der Dienst mit --debug laeuft: die Bus-Werkzeuge und ihre Grenzen. */
+    private static final String DEBUG_INSTRUCTIONS = """
+
+            Debug mode: the bus_* tools reach the real KNX bus for debugging devices - reading and writing \
+            memory and properties, restarts, group telegrams, the telegram monitor and programming through the \
+            'Programmieren' sequence. They work only while the user has switched on bus access in the SB-Project \
+            window, and only on the devices marked there; KNX Secure stays out of reach. Say what you are about \
+            to write before you do it.
+            Serial numbers appear in bus tool results. Use them only within the current task: never write them \
+            to memory, notes, files, commit messages or any other place that persists beyond this conversation.""";
+
     private final McpGate gate;
     private final int port;
     private final String version;
@@ -133,7 +144,7 @@ public final class McpApi implements HttpHandler {
             case "ping" -> reply(ex, 200, result(id, Json.obj()));
             case "tools/list" -> {
                 Map<String, Object> r = Json.obj();
-                r.put("tools", Tools.listing());
+                r.put("tools", Tools.listing(gate.debug()));
                 reply(ex, 200, result(id, r));
             }
             case "tools/call" -> call(ex, id, s, params);
@@ -152,7 +163,7 @@ public final class McpApi implements HttpHandler {
         }
         McpGate.Session s = gate.openSession(client, proto);
         ex.getResponseHeaders().set("Mcp-Session-Id", s.id());
-        reply(ex, 200, result(id, initializeResult(proto, version)));
+        reply(ex, 200, result(id, initializeResult(proto, version, gate.debug())));
     }
 
     /** Die gewuenschte Protokollversion, wenn unterstuetzt - sonst die neueste, die der Dienst kann. */
@@ -163,6 +174,10 @@ public final class McpApi implements HttpHandler {
 
     /** Antwort auf initialize; auch die stdio-Bruecke gibt sie, solange der Dienst nicht laeuft. */
     static Map<String, Object> initializeResult(String proto, String version) {
+        return initializeResult(proto, version, false);
+    }
+
+    static Map<String, Object> initializeResult(String proto, String version, boolean debug) {
         Map<String, Object> r = Json.obj();
         r.put("protocolVersion", proto);
         Map<String, Object> caps = Json.obj();
@@ -175,13 +190,14 @@ public final class McpApi implements HttpHandler {
         info.put("title", "SB-Project (KNX)");
         info.put("version", version == null ? "dev" : version);
         r.put("serverInfo", info);
-        r.put("instructions", INSTRUCTIONS);
+        r.put("instructions", debug ? INSTRUCTIONS + DEBUG_INSTRUCTIONS : INSTRUCTIONS);
         return r;
     }
 
     private void call(HttpExchange ex, Object id, McpGate.Session s, Map<String, Object> params) throws IOException {
         String name = Json.str(params, "name", null);
         Tools.Tool tool = name == null ? null : Tools.byName(name);
+        if (tool != null && tool.level() == Tools.Level.BUS && !gate.debug()) tool = null;
         if (tool == null) {
             reply(ex, 200, error(id, -32602, "Unbekanntes Werkzeug: " + (name == null ? "(kein Name)" : Shape.clean(name, 60))));
             return;

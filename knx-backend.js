@@ -284,13 +284,20 @@ const backend = {
     unload:      body    => post('/api/bus/unload', body, { timeout: 70000 }),
     loadState:   (address, objectType) =>
       get('/api/bus/loadstate?address=' + encodeURIComponent(address) + '&objectType=' + objectType),
-    keys:        body    => post('/api/bus/keys', body)
+    keys:        body    => post('/api/bus/keys', body),
+    // Nur mit --debug (Fehlersuche, KI-Busfreigabe)
+    memory:      body    => post('/api/bus/memory', body, { timeout: 130000 }),
+    property:    body    => post('/api/bus/property', body, { timeout: 70000 }),
+    group:       body    => post('/api/bus/group', body, { timeout: 40000 }),
+    monitor:     (after, limit, address) => get('/api/bus/monitor?after=' + (after || 0) + '&limit=' + (limit || 100)
+      + (address ? '&address=' + encodeURIComponent(address) : ''))
   },
 
   /* KI-Zugang (MCP). Der Zugangsschlüssel selbst kommt hier nie vorbei. */
   mcp: {
     status:  project       => get('/api/mcp/status?project=' + encodeURIComponent(project)),
     mode:    (project, mode) => post('/api/mcp/mode', { project, mode }),
+    bus:     (project, on)   => post('/api/mcp/bus', { project, on }),
     result:  body          => post('/api/mcp/result', body, { timeout: 30000 }),
     preview: body          => post('/api/mcp/preview', body, { timeout: 30000 }),
     rotateToken: ()        => post('/api/mcp/token', {})

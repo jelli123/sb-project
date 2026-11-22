@@ -1648,6 +1648,11 @@ table.ga.pg-table tbody td.pg-stand { width: 210px; min-width: 150px; white-spac
 }
 .mcp-preview { max-height: 260px; overflow: auto; }
 .mcp-cmd { user-select: all; }
+#mcp-bus-pick { display: flex; flex-direction: column; gap: 6px; }
+#mcp-bus-pick[hidden] { display: none; }
+.mcp-bus-devs { max-height: 200px; overflow: auto; border: 1px solid var(--border2); border-radius: var(--radius); padding: 4px 8px; }
+.mcp-bus-dev { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; padding: 1px 0; }
+#topbar #btn-ai.bus { outline: 2px solid var(--danger); outline-offset: 1px; }
 
 /* Rückfragen und Bestätigungen einer KI-Sitzung: rechts oben gestapelt, über
    allem, auch über einem offenen Dialog. */

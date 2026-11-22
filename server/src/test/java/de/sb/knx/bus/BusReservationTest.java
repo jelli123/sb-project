@@ -52,7 +52,7 @@ class BusReservationTest {
         bus = new BusService(events);
         links = FakeLink.pair(TOOL, DEV);
         bus.connectLink(links[0]);
-        BusApi api = new BusApi(bus, new Jobs(events), events, port);
+        BusApi api = new BusApi(bus, new Jobs(events), events, port, false);
         server.createContext("/api/events", ex -> {
             Map<String, String> q = Http.query(ex);
             events.subscribe(ex, q.get("window"), q.get("project"));

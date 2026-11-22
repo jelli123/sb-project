@@ -89,6 +89,21 @@ public abstract class Shape {
         return new Token("\\d{1,5}(?:/\\d{1,5}){0,2}", "Gruppenadresse");
     }
 
+    /** Oktette als Hex, hoechstens {@code max} (Buszugriffe im Debug-Modus). */
+    static Shape hex(int max) {
+        return new Token("(?:[0-9A-Fa-f]{2}){0," + max + "}", "Hex-Oktette");
+    }
+
+    /** Ziel eines Telegramms: physikalische oder Gruppenadresse. */
+    static Shape busAddr() {
+        return new Token("\\d{1,2}\\.\\d{1,2}\\.\\d{1,3}|\\d{1,5}(?:/\\d{1,5}){0,2}", "Adresse");
+    }
+
+    /** Seriennummer eines Geraets, 6 Oktette hex - nur in den Bus-Werkzeugen des Debug-Modus. */
+    static Shape serial() {
+        return new Token("[0-9A-Fa-f]{12}", "Seriennummer (12 Hexziffern)");
+    }
+
     static Shape dpt() {
         return new Token("\\d{1,3}(?:\\.\\d{3,5})?", "Datenpunkttyp");
     }

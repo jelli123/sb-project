@@ -619,6 +619,11 @@ public final class BusService implements AutoCloseable {
         return require(procedures);
     }
 
+    /** Der Link selbst - fuer Gruppentelegramme und den Telegrammpuffer (RawAccess). */
+    KNXNetworkLink link() {
+        return require(link);
+    }
+
     SecureLayer secure() {
         return require(secure);
     }

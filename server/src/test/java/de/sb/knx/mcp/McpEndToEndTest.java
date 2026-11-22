@@ -396,4 +396,49 @@ class McpEndToEndTest {
         assertEquals(400, forged.statusCode());
         assertEquals(false, pendingCall.get(5, TimeUnit.SECONDS).get("isError"));
     }
+
+    @Test
+    void busToolsAreHiddenWithoutDebug() throws Exception {
+        release("auto");
+        initialize();
+        assertFalse(rpc("tools/list", Map.of(), true).body().contains("bus_read_memory"));
+        String unknown = rpc("tools/call", Map.of("name", "bus_status", "arguments", Map.of()), true).body();
+        assertTrue(unknown.contains("\"error\""), unknown);
+        assertEquals(400, post("/api/mcp/bus", Map.of("project", PROJECT, "on", true),
+                Map.of("X-SB-Window", WINDOW)).statusCode());
+    }
+
+    @Test
+    void busToolsNeedTheBusReleaseAndPassSerials() throws Exception {
+        gate.debug(true);
+        release("read");
+        initialize();
+        assertTrue(rpc("tools/list", Map.of(), true).body().contains("bus_read_memory"));
+        boolean[] reached = {false};
+        window = call -> {
+            reached[0] = true;
+            return Json.parseObject("""
+                    {"ok":true,"names":[],"data":{"address":"1.1.5","maskVersion":"0701","descriptorRaw":"0701",
+                     "profile":null,"firmwareVersion":1,"secured":false,"manufacturerId":76,
+                     "serial":"00FA1234ABCD","orderInfo":null,"description":null,"programmingMode":false,
+                     "maxApduLength":15,"programVersion":null,"interfaceObjects":[],"legacy":null,"extra":"x"}}""");
+        };
+        Map<?, ?> res = callTool("bus_device_info", Map.of("address", "1.1.5"));
+        assertEquals(true, res.get("isError"));
+        assertTrue(text(res).contains("Debug: Bus"), text(res));
+        assertFalse(reached[0]);
+
+        assertEquals(200, post("/api/mcp/bus", Map.of("project", PROJECT, "on", true),
+                Map.of("X-SB-Window", WINDOW)).statusCode());
+        res = callTool("bus_device_info", Map.of("address", "1.1.5"));
+        assertEquals(false, res.get("isError"), text(res));
+        assertTrue(text(res).contains("00FA1234ABCD"), text(res));
+        assertFalse(text(res).contains("extra"), text(res));
+
+        release("off");
+        release("read");
+        reached[0] = false;
+        assertEquals(true, callTool("bus_device_info", Map.of("address", "1.1.5")).get("isError"));
+        assertFalse(reached[0], "die Busfreigabe muss mit dem KI-Zugang enden");
+    }
 }
