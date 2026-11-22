@@ -413,6 +413,10 @@ function writeTables(ctx, prog, model, pa, mask) {
       throw new Error(`${model.addrs.length} Gruppenadressen, das Gerät fasst ${at.max}.`);
     const len = 3 + 2 * (at.max || model.addrs.length);
     seg.img.fill(0, at.off, Math.min(seg.size, at.off + len));
+    // Die Daten der Produktdatei fuer den Tabellenplatz gelten nicht: geschrieben wird nur
+    // die Tabelle. Sonst ueberschreiben die freien Plaetze, was dahinter liegt (sblib 0701:
+    // Load States und Tabellenzeiger ab 4270h, mitten im 511-Byte-Segment der Zuordnungstabelle).
+    if (seg.used) seg.used.fill(0, at.off, Math.min(seg.size, at.off + len));
     seg.img[at.off] = model.addrs.length + 1;
     seg.img.set(u16(pa), at.off + 1);
     model.addrs.forEach((g, i) => seg.img.set(u16(g), at.off + 3 + 2 * i));
@@ -431,6 +435,7 @@ function writeTables(ctx, prog, model, pa, mask) {
       throw new Error(`${final.length} Zuordnungen, das Gerät fasst ${max}.`);
     const len = 1 + 2 * max;
     seg.img.fill(0, as.off, Math.min(seg.size, as.off + len));
+    if (seg.used) seg.used.fill(0, as.off, Math.min(seg.size, as.off + len));   // wie bei der Adresstabelle
     seg.img[as.off] = final.length;
     final.forEach(([t, a], i) => { seg.img[as.off + 1 + 2 * i] = t; seg.img[as.off + 2 + 2 * i] = a; });
     markUsed(seg, as.off, 1 + 2 * final.length);
