@@ -409,7 +409,7 @@ class McpEndToEndTest {
     }
 
     @Test
-    void busToolsNeedTheBusReleaseAndPassSerials() throws Exception {
+    void busToolsNeedTheBusReleaseAndHideSerials() throws Exception {
         gate.debug(true);
         release("read");
         initialize();
@@ -432,7 +432,8 @@ class McpEndToEndTest {
                 Map.of("X-SB-Window", WINDOW)).statusCode());
         res = callTool("bus_device_info", Map.of("address", "1.1.5"));
         assertEquals(false, res.get("isError"), text(res));
-        assertTrue(text(res).contains("00FA1234ABCD"), text(res));
+        assertFalse(text(res).contains("00FA1234ABCD"), text(res));
+        assertTrue(text(res).contains("\"serial\":\"«SN1»\""), text(res));
         assertFalse(text(res).contains("extra"), text(res));
 
         release("off");

@@ -548,8 +548,8 @@ final class Tools {
 
     private static final String BUS_NOTE = " Acts on the real KNX bus. Only available while the user has switched on "
             + "bus access for AI in the SB-Project window (debug mode), and only for the devices marked there. "
-            + "Serial numbers in results are for this task only: never store them in memory, notes, files or "
-            + "commit messages.";
+            + "Serial numbers appear only as placeholders such as «SN1» (equal placeholder = equal number); "
+            + "programming by serial number fills in the real number by itself.";
 
     static final Shape.Obj PROGRAM_STATUS = obj(
             f("state", oneOf("idle", "running", "done", "failed", "cancelled")),

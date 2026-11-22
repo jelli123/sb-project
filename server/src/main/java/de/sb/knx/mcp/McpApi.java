@@ -44,8 +44,9 @@ public final class McpApi implements HttpHandler {
             'Programmieren' sequence. They work only while the user has switched on bus access in the SB-Project \
             window, and only on the devices marked there; KNX Secure stays out of reach. Say what you are about \
             to write before you do it.
-            Serial numbers appear in bus tool results. Use them only within the current task: never write them \
-            to memory, notes, files, commit messages or any other place that persists beyond this conversation.""";
+            Serial numbers appear only as placeholders such as «SN1»: equal placeholders mean equal numbers, so you \
+            can compare the device on the bus with the project. Programming by serial number fills in the real \
+            number without you; serial number placeholders are never accepted as input.""";
 
     private final McpGate gate;
     private final int port;

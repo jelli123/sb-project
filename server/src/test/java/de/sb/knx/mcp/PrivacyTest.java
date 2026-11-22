@@ -146,4 +146,27 @@ class PrivacyTest {
         String s = mask("Haus Müller-Lüdenscheidt", "Müller", "Müller-Lüdenscheidt");
         assertEquals("Haus «Name1»", s);
     }
+
+    @Test
+    void serialNumbersBecomePlaceholdersAndAreNeverRestored() {
+        Privacy p = new Privacy();
+        assertEquals("«SN1»", p.serial("00fa1234abcd"));
+        assertEquals("«SN1»", p.serial("00FA:1234ABCD"));
+        assertEquals("«SN2»", p.serial("00FA1234ABCE"));
+        assertEquals("Adresse 1.1.1 an Seriennummer «SN1» vergeben.",
+                p.mask("Adresse 1.1.1 an Seriennummer 00fa:1234abcd vergeben.", null));
+        assertEquals("Deadbeefcafe bleibt", p.mask("Deadbeefcafe bleibt", null));
+        assertThrows(IllegalArgumentException.class, () -> p.restore("Gerät «SN1»"));
+        assertThrows(IllegalArgumentException.class, () -> p.serial("1234"));
+    }
+
+    @Test
+    void serialPlaceholdersSurviveARestart(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        Privacy p = new Privacy();
+        p.serial("00FA1234ABCD");
+        p.saveIfChanged(dir.resolve("p.json"));
+        Privacy q = Privacy.load(dir.resolve("p.json"));
+        assertEquals("«SN1»", q.serial("00fa1234abcd"));
+        assertEquals("«SN2»", q.serial("00FA1234ABCE"));
+    }
 }

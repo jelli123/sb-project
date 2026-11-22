@@ -99,9 +99,35 @@ public abstract class Shape {
         return new Token("\\d{1,2}\\.\\d{1,2}\\.\\d{1,3}|\\d{1,5}(?:/\\d{1,5}){0,2}", "Adresse");
     }
 
-    /** Seriennummer eines Geraets, 6 Oktette hex - nur in den Bus-Werkzeugen des Debug-Modus. */
+    /**
+     * Seriennummer eines Geraets: Das Fenster liefert 12 Hexziffern, hinaus geht nur ein Platzhalter
+     * («SN1»). Als Eingabe nimmt die KI nie eine Seriennummer an.
+     */
     static Shape serial() {
-        return new Token("[0-9A-Fa-f]{12}", "Seriennummer (12 Hexziffern)");
+        return new Serial();
+    }
+
+    private static final class Serial extends Shape {
+        private static final Pattern HEX = Pattern.compile("[0-9A-Fa-f]{4}:?[0-9A-Fa-f]{8}");
+
+        @Override
+        Object out(Object v, Out ctx, String path) {
+            if (!(v instanceof String s) || !HEX.matcher(s).matches() || ctx.privacy == null) return ctx.drop(path);
+            return ctx.privacy.serial(s);
+        }
+
+        @Override
+        Object in(Object v, Privacy privacy, String path) {
+            throw bad(path, "Seriennummern nimmt kein Werkzeug als Eingabe an");
+        }
+
+        @Override
+        Map<String, Object> schema() {
+            Map<String, Object> m = Json.obj();
+            m.put("type", "string");
+            m.put("description", "Placeholder such as «SN1»; equal placeholders mean equal serial numbers.");
+            return m;
+        }
     }
 
     static Shape dpt() {

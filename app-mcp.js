@@ -1553,7 +1553,7 @@ function busSection() {
   if (!st.debug) return '';
   return `<section id="mcp-bus-sec">
     <h4>${T18('Debug: Bus')}</h4>
-    <p class="hint warn">${T18('Mit der Busfreigabe darf eine KI-Sitzung die markierten Geräte ohne weitere Rückfrage programmieren, zurücksetzen, ihren Speicher und ihre Eigenschaften beschreiben und Gruppentelegramme an deren Gruppenadressen senden. Das kann Geräte unbrauchbar machen und echte Lasten schalten. Seriennummern der markierten Geräte gehen an den KI-Anbieter; die KI ist angewiesen, sie nirgends zu speichern. KNX Secure bleibt ausgenommen. Die Freigabe endet mit dem Ausschalten, dem Schließen des Fensters und jedem Neustart des Dienstes.')}</p>
+    <p class="hint warn">${T18('Mit der Busfreigabe darf eine KI-Sitzung die markierten Geräte ohne weitere Rückfrage programmieren, zurücksetzen, ihren Speicher und ihre Eigenschaften beschreiben und Gruppentelegramme an deren Gruppenadressen senden. Das kann Geräte unbrauchbar machen und echte Lasten schalten. Seriennummern sieht die KI nur als Platzhalter wie «SN1»; beim Programmieren setzt SB-Project die echte Nummer selbst ein. KNX Secure bleibt ausgenommen. Die Freigabe endet mit dem Ausschalten, dem Schließen des Fensters und jedem Neustart des Dienstes.')}</p>
     <p class="mcp-row"><button class="btn btn-sm btn-danger" id="mcp-bus-btn"></button> <span id="mcp-bus-state" class="hint"></span></p>
     <div id="mcp-bus-pick">
       <input class="input" id="mcp-bus-filter" placeholder="${esc(T18('Geräte filtern …'))}" spellcheck="false">

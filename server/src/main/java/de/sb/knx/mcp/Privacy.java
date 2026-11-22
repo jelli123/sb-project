@@ -42,7 +42,7 @@ public final class Privacy {
     static final int MAX_TERMS = 2000;
 
     public enum Kind {
-        NAME("Name"), ADDRESS("Adresse"), PHONE("Tel"), MAIL("Mail"), IP("IP");
+        NAME("Name"), ADDRESS("Adresse"), PHONE("Tel"), MAIL("Mail"), IP("IP"), SERIAL("SN");
 
         final String tag;
 
@@ -61,6 +61,10 @@ public final class Privacy {
     private record Rule(Kind kind, Pattern pattern) {}
 
     private static final List<Rule> RULES = List.of(
+            // KNX-Seriennummer in einem Text (Meldungen der Adressvergabe): 12 Hexziffern, auch 4:8
+            // getrennt, mit mindestens einer Ziffer - ein Wort wie „Deadbeefcafe“ bleibt stehen
+            new Rule(Kind.SERIAL, Pattern.compile(
+                    NOT_WORD_BEFORE + "(?=[0-9A-Fa-f:]{0,12}\\d)[0-9A-Fa-f]{4}:?[0-9A-Fa-f]{8}" + NOT_WORD_AFTER)),
             new Rule(Kind.MAIL, Pattern.compile(
                     "[\\p{L}\\p{N}._%+-]{1,64}@[\\p{L}\\p{N}-]{1,63}(?:\\.[\\p{L}\\p{N}-]{1,63})+")),
             new Rule(Kind.IP, Pattern.compile(
@@ -107,7 +111,7 @@ public final class Privacy {
             "beispiel", "muster", "demo", "knx", "home", "house", "project", "building", "office", "the",
             "and", "new", "old", "liegenschaft", "anlage", "kopie", "copy", "stand", "version", "entwurf");
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("«(Name|Adresse|Tel|Mail|IP)(\\d{1,5})»");
+    private static final Pattern PLACEHOLDER = Pattern.compile("«(Name|Adresse|Tel|Mail|IP|SN)(\\d{1,5})»");
 
     private final Map<String, String> byText = new HashMap<>();
     private final Map<String, String> byTag = new HashMap<>();
@@ -241,7 +245,19 @@ public final class Privacy {
         }
     }
 
+    /**
+     * Platzhalter fuer eine Seriennummer (12 Hexziffern). Die KI sieht nur «SN1», kann so aber
+     * vergleichen, ob Bus und Projekt dieselbe Nummer nennen. Einsetzen laesst sie sich nie.
+     */
+    public synchronized String serial(String hex) {
+        if (hex == null) return null;
+        String norm = hex.replace(":", "").strip().toUpperCase(Locale.ROOT);
+        if (!norm.matches("[0-9A-F]{12}")) throw new IllegalArgumentException("Seriennummer: 12 Hexziffern erwartet");
+        return placeholder(Kind.SERIAL, norm);
+    }
+
     private String placeholder(Kind kind, String original) {
+        if (kind == Kind.SERIAL) original = original.replace(":", "").strip().toUpperCase(Locale.ROOT);
         String key = original.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
         String known = byText.get(key);
         if (known != null) return known;
@@ -265,6 +281,10 @@ public final class Privacy {
         while (m.find()) {
             String original = byTag.get(m.group());
             if (original == null) throw new IllegalArgumentException("Unbekannter Platzhalter " + m.group());
+            // Eine eingesetzte Seriennummer kaeme beim naechsten Lesen eines Namens im Klartext zurueck
+            if ("SN".equals(m.group(1))) {
+                throw new IllegalArgumentException("Seriennummern-Platzhalter wie " + m.group() + " lassen sich nicht einsetzen");
+            }
             m.appendReplacement(out, Matcher.quoteReplacement(original));
         }
         m.appendTail(out);
