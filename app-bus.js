@@ -1381,7 +1381,9 @@ function doProgram(dev, plan, what) {
       state.textContent = T18('fertig, Verbindung neu aufbauen');
       return { level: 'warn', message: res.message };
     }
-    state.textContent = T18('fertig · {0} Byte · {1} s', res.bytes || 0, res.seconds || 0);
+    state.textContent = res.unchanged
+      ? T18('fertig · {0} Byte, {1} Byte schon aktuell · {2} s', res.bytes || 0, res.unchanged, res.seconds || 0)
+      : T18('fertig · {0} Byte · {1} s', res.bytes || 0, res.seconds || 0);
     return { level: (res.notes || []).length ? 'warn' : 'ok',
              message: T18('{0} ({1}): {2} geladen', dev.name, pa, what)
                + ((res.notes || []).length ? ' — ' + T18('mit Hinweisen im Protokoll') : '') };

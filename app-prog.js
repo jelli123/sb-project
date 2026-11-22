@@ -1200,7 +1200,8 @@ async function opDownload(j, o) {
   // Mit KNX IP Secure geladen: ab jetzt verlangt die Schnittstelle gesicherte Verbindungen
   if ('ipSecure' in plan.summary) markIpSecure(dev, plan.summary.ipSecure);
   j.doneText = o.kind === 'unload' ? T18('entladen')
-    : T18('programmiert') + (res.seconds ? ` · ${res.seconds} s` : '');
+    : T18('programmiert') + (res.seconds ? ` · ${res.seconds} s` : '')
+      + (res.unchanged ? ' · ' + T18('{0} Byte schon aktuell', res.unchanged) : '');
   if (res.linkLost) linkCheck({ linkLost: true, message: res.message }, j);
 }
 

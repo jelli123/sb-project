@@ -40,6 +40,13 @@ public final class Download {
      */
     private static final int PROP_CHUNK = 10;
 
+    /**
+     * Zu pruefende Bloecke werden vorab gelesen: Stimmen sie schon, entfallen Schreiben und Zuruecklesen.
+     * Bleiben die ersten so vielen Bloecke eines Schritts ohne Treffer, ist der Speicher neu oder
+     * geloescht - dann wird der Rest des Schritts ohne Vorab-Lesen geschrieben.
+     */
+    private static final int READ_FIRST_PROBE = 8;
+
     /** Uebergaenge der Load State Machine duerfen bis zu 30 s dauern (03/05/01 4.23.2.1). */
     private static final long LSM_TIMEOUT_MS = 30_000;
     /** Nachlesen hoechstens alle 3 s, damit die Transportverbindung lebt (03/05/01 4.23.2.4.1). */
@@ -81,6 +88,10 @@ public final class Download {
     private boolean restarted;
     private SecureLayer.KeyKind secureKind;
     private long written;
+    /** Oktette, die das Geraet schon so enthielt und die darum nicht geschrieben wurden. */
+    private long unchanged;
+    /** Das Geraet beantwortet das Vorab-Lesen nicht - fuer den Rest des Downloads ohne. */
+    private boolean readFirstOff;
     private final List<String> notes = new ArrayList<>();
     /** Aus dem Geraet gelesene Werte (LdCtrlLoadImageProp), gegen die spaeter verglichen wird. */
     private final Map<String, byte[]> images = new java.util.HashMap<>();
@@ -135,6 +146,7 @@ public final class Download {
         m.put("address", target.toString());
         m.put("steps", steps.size());
         m.put("bytes", written);
+        m.put("unchanged", unchanged);
         m.put("restarted", restarted);
         m.put("seconds", (System.currentTimeMillis() - started) / 1000);
         m.put("notes", notes);
@@ -320,24 +332,57 @@ public final class Download {
         writeRange(addr, data, verify);
     }
 
+    /**
+     * Schreibt in Bloecken von hoechstens MEM_CHUNK Oktetten. Mit Pruefung wird jeder Block zuerst
+     * gelesen: Enthaelt das Geraet ihn schon, ist er geprueft und wird nicht neu geschrieben. Das
+     * stuetzt sich auf den tatsaechlichen Inhalt, nicht auf einen gemerkten Stand - nach dem Entladen
+     * ist der Speicher laut Standard undefiniert, und mancher Hersteller loescht ihn.
+     */
     private void writeRange(int addr, byte[] data, boolean verify) throws KNXException, InterruptedException {
+        boolean readFirst = verify && !readFirstOff;
+        int probed = 0, hits = 0;
         for (int off = 0, n; off < data.length; off += n) {
+            if (Thread.interrupted()) throw new InterruptedException();
             // Ueber 64 KiB nimmt Calimero A_MemoryExtended_Write; ein Block teilt sich an der Grenze
             int at = addr + off;
             n = at > 0xFFFF ? EXT_MEM_CHUNK : Math.min(MEM_CHUNK, 0x10000 - at);
             n = Math.min(n, data.length - off);
             byte[] chunk = Arrays.copyOfRange(data, off, off + n);
-            bus.client().writeMemory(dst(), addr + off, chunk);
+            if (readFirst) {
+                byte[] now = readBeforeWrite(at, n);
+                probed++;
+                if (now != null && Arrays.equals(now, chunk)) {
+                    hits++;
+                    unchanged += n;
+                    continue;
+                }
+                if (now == null || (hits == 0 && probed >= READ_FIRST_PROBE)) readFirst = false;
+            }
+            bus.client().writeMemory(dst(), at, chunk);
             if (verify) {
-                byte[] back = bus.client().readMemory(dst(), addr + off, chunk.length);
+                byte[] back = bus.client().readMemory(dst(), at, chunk.length);
                 if (!Arrays.equals(back, chunk)) {
                     throw new IllegalStateException(String.format(
                             "Pruefung bei %04Xh fehlgeschlagen: geschrieben %s, gelesen %s",
-                            addr + off, Knx.hex(chunk), Knx.hex(back)));
+                            at, Knx.hex(chunk), Knx.hex(back)));
                 }
             }
             written += chunk.length;
-            if (Thread.interrupted()) throw new InterruptedException();
+        }
+    }
+
+    /** Liest einen Block vor dem Schreiben; null, wenn das Geraet nicht antwortet (dann ohne weiter). */
+    private byte[] readBeforeWrite(int at, int n) throws KNXException, InterruptedException {
+        try {
+            return bus.client().readMemory(dst(), at, n);
+        } catch (KNXDisconnectException e) {
+            throw e;
+        } catch (KNXException e) {
+            readFirstOff = true;
+            notes.add(String.format("Speicher bei %04Xh vorab nicht lesbar (%s) - es wird ohne Abgleich geschrieben.",
+                    at, describe(e)));
+            reconnectIfLost();
+            return null;
         }
     }
 

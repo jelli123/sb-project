@@ -245,7 +245,15 @@ select:focus-visible,
   padding: 0 14px;
   background: var(--bar-bg);
   color: var(--bar-fg);
+  /* Reicht die Breite trotz der Stufen unten nicht, scrollt die Leiste waagerecht -
+     sonst laegen die Knoepfe rechts unerreichbar hinter dem Fensterrand (body: overflow hidden) */
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(100% 0 0 / 0.3) transparent;
 }
+#topbar > :not(.spacer) { flex-shrink: 0; }
 #topbar .brand {
   display: flex;
   align-items: center;
@@ -1236,6 +1244,9 @@ textarea.input.note {
   border-radius: 8px;
   box-shadow: var(--shadow);
   width: 100%;
+  /* Schmaler als der Inhalt darf die Karte werden - breite Tabellen scrollen in ihrem Bereich,
+     Kopf- und Fußzeile mit den Knöpfen bleiben sichtbar */
+  min-width: 0;
   max-width: 980px;
   max-height: 94vh;
   display: flex;
@@ -1510,9 +1521,10 @@ table.ga.pg-table { table-layout: auto; }
 .pchip.implied.due::before { background: var(--accent); }
 .pchip:disabled { cursor: default; }
 
-.pg-stand { width: 210px; max-width: 210px; }
+/* Der Stand bricht um statt abzuschneiden: während des Ladens gibt es keinen Tooltip zum Nachlesen */
+table.ga.pg-table tbody td.pg-stand { width: 210px; min-width: 150px; white-space: normal; padding-top: 4px; padding-bottom: 4px; }
 .pg-stand .prog-bar { margin: 4px 0 0; height: 4px; }
-.pg-st { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.pg-st { display: block; font-size: 12.5px; line-height: 1.35; overflow-wrap: anywhere; }
 .pg-st.ok, .pg-st.done { color: var(--ok); }
 .pg-st.due, .pg-st.warn { color: var(--warn); }
 .pg-st.fail { color: var(--danger); }
@@ -1730,6 +1742,15 @@ table.ga.chat-hist tr.current td { background: var(--accent-weak); }
 }
 @media (max-width: 1540px) {
   #btn-ai .ai-label { display: none; }
+}
+/* Darunter wird der Projektname schmaler, bevor die Leiste scrollen muss */
+@media (max-width: 1440px) {
+  #topbar { gap: 10px; }
+  #project-name { min-width: 120px; width: 160px; }
+}
+/* Die Projektart (Muster- oder eigenes Projekt) ist nur ein Hinweis und weicht vor dem Scrollen */
+@media (max-width: 1300px) {
+  #project-kind { display: none; }
 }
 /* Die Teile eines Downloads stehen nebeneinander, solange Platz ist */
 @media (max-width: 1260px) {

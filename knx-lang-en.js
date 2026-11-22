@@ -1169,6 +1169,8 @@ KNXI18n.add('en', {
     'Programming of {0} cancelled — the device is only partly loaded',
   'fertig, Verbindung neu aufbauen': 'finished, re-establish the connection',
   'fertig · {0} Byte · {1} s': 'finished · {0} bytes · {1} s',
+  'fertig · {0} Byte, {1} Byte schon aktuell · {2} s': 'finished · {0} bytes, {1} bytes already up to date · {2} s',
+  '{0} Byte schon aktuell': '{0} bytes already up to date',
   '{0} ({1}): {2} geladen': '{0} ({1}): {2} loaded',
   'mit Hinweisen im Protokoll': 'with warnings in the log',
   'Wirklich ausführen?': 'Really execute?',

@@ -30,7 +30,7 @@ final class SimulatedSystemBDevice extends SimulatedDevice {
     final Obj[] objects = {
         new Obj(0, 0), new Obj(1, 0x4000), new Obj(2, 0x4100), new Obj(9, 0x4200), new Obj(3, 0xFFF0), new Obj(4, 0x20000)
     };
-    volatile int standardWrites, extendedWrites;
+    volatile int standardWrites, extendedWrites, standardReads;
     volatile boolean restarted;
     /** Kippt beim Schreiben ein Bit an dieser Adresse - fuer die Pruefsumme. */
     volatile int faultyAddress = -1;
@@ -55,6 +55,7 @@ final class SimulatedSystemBDevice extends SimulatedDevice {
             return null;
         }
         if ((apci & 0x3C0) == 0x200) {                                   // A_Memory_Read
+            standardReads++;
             int n = apci & 0x3F, addr = ((a[2] & 0xFF) << 8) | (a[3] & 0xFF);
             byte[] r = apdu(0x240 | n, a[2], a[3]);
             byte[] out = Arrays.copyOf(r, r.length + n);
