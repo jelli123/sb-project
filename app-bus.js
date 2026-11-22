@@ -318,6 +318,9 @@ function ensureOverlay() {
             <button id="bus-discover" class="btn btn-sm">${T18('Schnittstellen suchen')}</button>
             <select id="bus-server" class="select" aria-label="${T18('Gefundene Schnittstelle')}">
               <option value="">${T18('— zuerst suchen —')}</option></select>
+            <input id="bus-host" class="input host" maxlength="262" spellcheck="false" autocomplete="off"
+              placeholder="${T18('oder IP[:Port]')}" aria-label="${T18('Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port')}"
+              title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen')}">
             <label class="chk" title="${T18('Nötig, wenn die Schnittstelle hinter einem Router mit Adressumsetzung liegt')}">
               <input type="checkbox" id="bus-nat"> ${T18('NAT')}</label>
           </div>
@@ -502,6 +505,16 @@ function wire() {
   q('#bus-disconnect').onclick = disconnect;
   q('#bus-reconnect').onclick = reconnect;
   q('#bus-server').onchange = syncControls;
+  q('#bus-host').onkeydown = e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const h = manualIfaces.add(e.target.value);
+    if (!h) return;
+    e.target.value = '';
+    fillServers(h);
+    syncControls();
+  };
+  if (manualIfaces.list().length) fillServers();
 
   overlay.querySelectorAll('input[name="bus-mode"]').forEach(r => r.onchange = () => {
     syncControls();
@@ -565,7 +578,7 @@ function syncControls() {
   overlay.querySelectorAll('[data-mode]').forEach(r =>
     r.hidden = r.dataset.mode !== (routing ? 'routing' : 'tunneling'));
   overlay.querySelectorAll('input[name="bus-mode"]').forEach(r => r.disabled = setup);
-  ['#bus-discover', '#bus-nat', '#bus-nic', '#bus-own'].forEach(sel => q(sel).disabled = setup);
+  ['#bus-discover', '#bus-nat', '#bus-nic', '#bus-own', '#bus-host'].forEach(sel => q(sel).disabled = setup);
   q('#bus-server').disabled = setup || !bus.servers.length;
 
   q('#bus-connect').hidden = conn;
@@ -778,19 +791,69 @@ function discover(quiet) {
     } finally {
       fillServers();
     }
-    const n = bus.servers.length;
+    const n = bus.servers.filter(x => !x.manual).length;
     return n
       ? { level: 'ok', message: n === 1 ? T18('1 Schnittstelle gefunden') : T18('{0} Schnittstellen gefunden', n) }
       : { level: 'warn', message: T18('Keine KNXnet/IP-Schnittstelle gefunden — Netzwerk und Firewall prüfen') };
   });
 }
 
-function fillServers() {
+function fillServers(select) {
+  manualIfaces.merge(bus.servers);
   q('#bus-server').innerHTML = bus.servers.length
-    ? bus.servers.map((s, i) =>
-        `<option value="${i}">${esc(s.name)} — ${esc(s.host)}:${s.port} (${esc(s.address)})</option>`).join('')
-    : '<option value="">— nichts gefunden —</option>';
+    ? bus.servers.map((s, i) => `<option value="${i}">${esc(manualIfaces.label(s))}</option>`).join('')
+    : `<option value="">${T18('— nichts gefunden —')}</option>`;
+  const i = select ? bus.servers.findIndex(s => s.host === select.host && s.port === select.port) : -1;
+  if (i >= 0) q('#bus-server').value = String(i);
 }
+
+/* ---------- Von Hand eingetragene Schnittstellen ----------
+ * Die Suche per Multicast findet nicht jede (knxd hinter einem Router). Die
+ * Einträge gelten für beide Dialoge und bleiben im Browser gespeichert.     */
+const MANUAL_KEY = 'knx-prog-manual-v1', MANUAL_MAX = 8;
+
+/* „Host“, „Host:Port“ oder „[IPv6]:Port“; Port vorgegeben 3671. */
+function parseHost(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 262) return null;
+  const v6 = /^\[([0-9A-Fa-f:.]{2,45})\](?::(\d{1,5}))?$/.exec(t);
+  const m = v6 || /^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::(\d{1,5}))?$/.exec(t);
+  if (!m) return null;
+  const port = m[2] ? +m[2] : 3671;
+  return port >= 1 && port <= 65535 ? { host: m[1], port } : null;
+}
+
+const manualIfaces = {
+  parse: parseHost,
+  list() {
+    try {
+      const l = JSON.parse(localStorage.getItem(MANUAL_KEY) || '[]');
+      return Array.isArray(l) ? l.map(x => x && parseHost(`${String(x.host).includes(':') ? '[' + x.host + ']' : x.host}:${x.port}`))
+        .filter(Boolean).slice(0, MANUAL_MAX) : [];
+    } catch (e) { return []; }
+  },
+  // Übernimmt eine Eingabe; null und ein Hinweis, wenn sie keine Adresse ist
+  add(text) {
+    const h = parseHost(text);
+    if (!h) { A.warn(T18('Bitte eine IP-Adresse oder einen Rechnernamen eingeben, optional mit :Port.')); return null; }
+    const l = [h, ...manualIfaces.list().filter(x => x.host !== h.host || x.port !== h.port)].slice(0, MANUAL_MAX);
+    try { localStorage.setItem(MANUAL_KEY, JSON.stringify(l)); } catch (e) { /* nur Komfort */ }
+    return h;
+  },
+  // Hängt die von Hand eingetragenen an, sofern die Suche sie nicht selbst kennt
+  merge(servers) {
+    manualIfaces.list().forEach(h => {
+      if (!servers.some(s => s.host === h.host && s.port === h.port))
+        servers.push({ name: '', host: h.host, port: h.port, address: '', serial: '', manual: true });
+    });
+    return servers;
+  },
+  label: s => {
+    const hp = `${String(s.host).includes(':') ? '[' + s.host + ']' : s.host}:${s.port}`;
+    return s.manual ? `${hp} (${T18('von Hand')})`
+      : [s.name, hp].filter(Boolean).join(' — ') + (s.address ? ` (${s.address})` : '');
+  }
+};
 
 async function loadInterfaces() {
   try {
@@ -1530,7 +1593,7 @@ $('#btn-bus').addEventListener('click', openOverlay);
 window.KNXBus = {
   available: true, debug: DEBUG, open: openOverlay, openProjects, program: programDevice,
   busy: () => (task.current ? task.current.label : ''),
-  lock, connect: connectBus,
+  lock, connect: connectBus, manualIfaces,
   feedback: { prefs, savePrefs, chime, unlockAudio, canNotify, isAway, desktopNotify, setTitleBadge, toggleDesktop }
 };
 
