@@ -3,8 +3,13 @@
 # und Lizenzhinweise. Der Empfaenger braucht nur Java 17 oder neuer, weder Maven
 # noch dieses Repo.
 #
-#   ./release.sh              Version aus server/pom.xml
-#   ./release.sh 0.2.1-test   eigene Versionsbezeichnung
+#   ./release.sh 0.3.0        Version als Argument
+#   ./release.sh              Version aus dem Git-Tag v<version> auf HEAD
+#
+# Die Version steht sonst nirgends im Repo: Sie geht als -Drevision an Maven
+# (Jar-Manifest, /api/info) und in Name und README des Pakets. Die GitHub
+# Action .github/workflows/release.yml ruft das Skript beim Pushen eines Tags
+# v* auf und haengt das ZIP an ein GitHub-Release.
 #
 # Ergebnis: release/sb-project-<version>.zip
 set -e
@@ -18,8 +23,13 @@ on_host() {
   if [ -f /.flatpak-info ]; then flatpak-spawn --host --directory="$ROOT" "$@"; else "$@"; fi
 }
 
-VERSION=${1:-$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' "$ROOT/server/pom.xml" | head -1)}
-[ -n "$VERSION" ] || { echo "Keine Version gefunden — bitte als Argument angeben." >&2; exit 1; }
+TAG=$(git -C "$ROOT" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)
+VERSION=${1:-${TAG#v}}
+[ -n "$VERSION" ] || { echo "Keine Version: bitte als Argument angeben (./release.sh 0.3.0) oder HEAD mit v<version> taggen." >&2; exit 1; }
+# Landet in Datei-, Ordner- und Manifestnamen: nur Ziffern, Buchstaben, . - +
+if ! printf '%s' "$VERSION" | grep -Eq '^[0-9][0-9A-Za-z.+-]{0,39}$'; then
+  echo "Ungueltige Version '$VERSION' — erwartet z. B. 0.3.0 oder 0.3.0-rc1." >&2; exit 1
+fi
 NAME=sb-project-$VERSION
 STAGE=$OUT/$NAME
 
@@ -28,7 +38,7 @@ git -C "$ROOT" diff --quiet HEAD 2>/dev/null || COMMIT="$COMMIT + nicht eingeche
 DATE=$(date +%Y-%m-%d)
 
 echo "Baue den Dienst ..."
-on_host mvn -q -B -f "$ROOT/server/pom.xml" clean package -DskipTests
+on_host mvn -q -B -f "$ROOT/server/pom.xml" clean package -DskipTests -Drevision="$VERSION"
 
 JAR=$ROOT/server/target/sb-server.jar
 [ -f "$JAR" ] || { echo "Dienst wurde nicht gebaut: $JAR fehlt." >&2; exit 1; }

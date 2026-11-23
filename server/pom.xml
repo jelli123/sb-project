@@ -6,7 +6,8 @@
 
   <groupId>de.sb.knx</groupId>
   <artifactId>sb-server</artifactId>
-  <version>0.2.1</version>
+  <!-- Kommt beim Paketbau aus release.sh (-Drevision=...); lokal steht "dev". -->
+  <version>${revision}</version>
   <packaging>jar</packaging>
   <name>SB-Project Server</name>
 
@@ -18,6 +19,7 @@
   </licenses>
 
   <properties>
+    <revision>dev</revision>
     <!-- 17 statt 25: haelt die Bus- und Speicherschicht fuer eine spaetere
          Android-Portierung erreichbar. -->
     <maven.compiler.release>17</maven.compiler.release>

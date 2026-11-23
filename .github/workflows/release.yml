@@ -1,0 +1,45 @@
+# Baut beim Pushen eines Tags v<version> das Paket aus release.sh und
+# veroeffentlicht es als GitHub-Release:
+#   git tag v0.3.0 && git push origin v0.3.0
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Tests
+        run: |
+          mvn -B -q -f server/pom.xml test
+          for t in test/*.test.js; do node "$t"; done
+
+      - name: Paket bauen
+        run: ./release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: GitHub-Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "release/sb-project-$VERSION.zip" \
+            --title "SB-Project $VERSION" --generate-notes $PRE

@@ -59,10 +59,21 @@ Ein Musterprojekt zum Ausprobieren liegt bei: `haus-musterstraße-12.knx.json`
 ```sh
 mvn -f server/pom.xml clean package      # Dienst bauen und Java-Tests ausführen
 node test/knx-proxy.test.js              # JS-Tests, ohne Abhängigkeiten
-./release.sh                             # ZIP zum Weitergeben in release/
+./release.sh 0.3.0                       # ZIP zum Weitergeben in release/
 ```
 
-Das ZIP aus `release.sh` braucht beim Empfänger nur Java, kein Maven.
+Das ZIP aus `release.sh` braucht beim Empfänger nur Java, kein Maven. Die
+Versionsnummer steht nirgends im Repo; sie kommt als Argument oder aus dem
+Git-Tag `v<version>` auf dem aktuellen Commit. Ein veröffentlichtes Release
+entsteht durch einen Tag:
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Die GitHub Action `.github/workflows/release.yml` führt dann die Tests aus,
+baut das ZIP und legt es an ein GitHub-Release mit erzeugten Release Notes.
+Tags mit Bindestrich (`v0.3.0-rc1`) werden als Vorabversion markiert.
 
 ## Fremde Bestandteile
 
