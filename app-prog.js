@@ -218,7 +218,7 @@ function ensureOverlay() {
         <button id="pg-discover" class="btn btn-sm">${T18('Suchen')}</button>
         <input id="pg-host" class="input host" maxlength="262" spellcheck="false" autocomplete="off"
           placeholder="${T18('oder IP[:Port]')}" aria-label="${T18('Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port')}"
-          title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen')}">
+          title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Enter oder „Verbinden“ übernimmt die Eingabe')}">
         <label class="chk" title="${T18('Nötig, wenn die Schnittstelle hinter einem Router mit Adressumsetzung liegt')}">
           <input type="checkbox" id="pg-nat"> ${T18('NAT')}</label>
         <button id="pg-connect" class="btn btn-sm btn-primary">${T18('Verbinden')}</button>
@@ -291,6 +291,7 @@ function wire() {
   q('#pg-disconnect').onclick = disconnect;
   q('#pg-server').onchange = syncControls;
   q('#pg-host').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addManual(); } };
+  q('#pg-host').addEventListener('input', e => { e.target.classList.remove('invalid'); syncControls(); });
   if (MI.list().length) fillServers();
 
   overlay.querySelectorAll('input[name="pg-show"]').forEach(r => r.onchange = () => {
@@ -581,7 +582,7 @@ function syncControls() {
   ['#pg-discover', '#pg-nat', '#pg-host'].forEach(sel => { q(sel).disabled = busy || conn.connected; });
   q('#pg-server').disabled = busy || conn.connected || !conn.servers.length;
   q('#pg-connect').hidden = conn.connected;
-  q('#pg-connect').disabled = busy || !!other || !q('#pg-server').value;
+  q('#pg-connect').disabled = busy || !!other || (!q('#pg-server').value && !q('#pg-host').value.trim());
   q('#pg-disconnect').hidden = !conn.connected;
   q('#pg-disconnect').disabled = busy || !!other;
   ['#pg-sel-due', '#pg-sel-none', '#pg-serial'].forEach(sel => { q(sel).disabled = run.active; });
@@ -653,14 +654,18 @@ function remembered() {
   try { return JSON.parse(localStorage.getItem(IFACE_KEY) || 'null'); } catch (e) { return null; }
 }
 
+/* Übernimmt die von Hand eingetippte Schnittstelle (Enter oder Verbinden).
+   Leeres Feld: nichts zu tun. false, wenn die Eingabe keine Adresse ist. */
 function addManual() {
   const inp = q('#pg-host');
+  if (!inp.value.trim()) return true;
   const h = MI.add(inp.value);
-  if (!h) return;
+  if (!h) { inp.classList.add('invalid'); return false; }
   try { localStorage.setItem(IFACE_KEY, JSON.stringify(h)); } catch (e) { /* nur Komfort */ }
   inp.value = '';
   fillServers();
   syncControls();
+  return true;
 }
 
 function fillServers() {
@@ -721,6 +726,7 @@ function discover(quiet) {
 }
 
 function connect(quiet = false) {
+  if (!addManual()) return Promise.resolve();
   const s = conn.servers[+q('#pg-server').value];
   if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return Promise.resolve(); }
   // Adresse und Seriennummer der Schnittstelle braucht der Dienst, um sie selbst als Ziel zu erkennen

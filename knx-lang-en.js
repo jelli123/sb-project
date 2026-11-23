@@ -1067,8 +1067,8 @@ KNXI18n.add('en', {
   'oder IP[:Port]': 'or IP[:port]',
   'Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port':
     'Interface by hand: IP address or name, optionally with port',
-  'Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen':
-    'For interfaces the search does not find (such as knxd behind a router) — press Enter to add',
+  'Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Enter oder „Verbinden“ übernimmt die Eingabe':
+    'For interfaces the search does not find (such as knxd behind a router) — Enter or “Connect” adopts the entry',
   'von Hand': 'by hand',
   'Bitte eine IP-Adresse oder einen Rechnernamen eingeben, optional mit :Port.':
     'Please enter an IP address or host name, optionally with :port.',
@@ -1384,6 +1384,8 @@ KNXI18n.add('en', {
   'Noch nie programmiert': 'Never programmed',
   'Zum Produkt fehlen Programmierdaten — bitte die .knxprod erneut in den Katalog laden.':
     'The product lacks programming data — please load the .knxprod into the catalogue again.',
+  'Die Produktdaten stammen aus einer älteren Version und nennen die Byte-Reihenfolge der Parameter nicht — bitte die .knxprod erneut in den Katalog laden.':
+    'The product data come from an older version and do not state the parameter byte order — please load the .knxprod into the catalogue again.',
   'Programmierdaten fehlen': 'Programming data missing',
   'Adresse, Applikation, Parameter und Gruppenadressen ins Gerät laden':
     'Load address, application, parameters and group addresses into the device',

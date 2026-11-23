@@ -112,6 +112,20 @@ function encode(type, raw, opt) {
   }
 }
 
+/* Options/ParameterByteOrder="LittleEndian": Zahlen (Ganzzahl, Gleitkomma)
+   mit mehr als einem Oktett liegen niederwertiges Oktett zuerst im Speicher —
+   so lädt die ETS etwa die MSA, deren Firmware die Parameter direkt als
+   Strukturen des Cortex-M0 liest. Text, Binärdaten und IP-Adressen bleiben,
+   wie sie sind. */
+const NUMERIC = new Set(['u', 's', 'f9', 'f32', 'f64', undefined]);
+function littleEndian(type, value) {
+  const bits = type.n || 0;
+  if (!NUMERIC.has(type.e) || bits <= 8 || bits % 8) return value;
+  let out = 0n;
+  for (let i = 0; i < bits / 8; i++) out = (out << 8n) | ((value >> BigInt(8 * i)) & 0xFFn);
+  return out;
+}
+
 /* ---------- Abbilder ---------- */
 
 /* Die Speichersegmente der Applikation, vorbelegt mit ihren Daten. `mask`
@@ -221,6 +235,9 @@ function writeParams(ctx) {
       warn(`Parameter ${pid}: ${e.message} — nicht geschrieben.`);
       return;
     }
+    if (dl.opt && dl.opt.le) value = littleEndian(type, value);
+    else if (dl.opt && !('le' in dl.opt) && littleEndian(type, 1n) !== 1n)
+      warn('Die Produktdaten stammen aus einer älteren Version und nennen die Byte-Reihenfolge der Parameter nicht — bitte die .knxprod erneut in den Katalog laden.');
     if (loc.w.startsWith('s:')) {
       const seg = segs[loc.w.slice(2)];
       if (!seg || !putBits(seg.img, loc.o, type.n, value)) {
@@ -432,7 +449,12 @@ function writeTables(ctx, prog, model, pa, mask) {
     // Load States und Tabellenzeiger ab 4270h, mitten im 511-Byte-Segment der Zuordnungstabelle).
     if (seg.used) seg.used.fill(0, at.off, Math.min(seg.size, at.off + len));
     seg.img[at.off] = model.addrs.length + 1;
-    seg.img.set(u16(pa), at.off + 1);
+    /* Eintrag 0 ist die eigene Adresse nur, wo die Tabelle am festen Platz 0116h
+       der BCU liegt (BCU1/BCU2: dort liest das Gerät seine Adresse). Eine
+       verschobene Tabelle (BIM M112, sblib 0701/0705) lässt ihn leer — die
+       Adresse steht im Systembereich, und die ETS schreibt hier 00 00. */
+    const fixed = BCU1_MASKS.has(mask) || seg.addr + at.off === 0x0116;
+    seg.img.set(u16(fixed ? pa : 0), at.off + 1);
     model.addrs.forEach((g, i) => seg.img.set(u16(g), at.off + 3 + 2 * i));
     // Geschrieben werden Länge, eigene Adresse und die belegten Plätze
     markUsed(seg, at.off, 3 + 2 * model.addrs.length);

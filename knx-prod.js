@@ -526,7 +526,8 @@ function readProgramming(ap, cut) {
       opt: {
         enc: attr(options, 'TextParameterEncoding') || 'iso-8859-1',
         zt: attr(options, 'TextParameterZeroTerminate') === 'true',
-        lc912: attr(options, 'LineCoupler0912NewProgrammingStyle') === 'true'
+        lc912: attr(options, 'LineCoupler0912NewProgrammingStyle') === 'true',
+        le: attr(options, 'ParameterByteOrder') === 'LittleEndian'
       }
     }
   };

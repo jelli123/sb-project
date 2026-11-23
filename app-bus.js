@@ -320,7 +320,7 @@ function ensureOverlay() {
               <option value="">${T18('— zuerst suchen —')}</option></select>
             <input id="bus-host" class="input host" maxlength="262" spellcheck="false" autocomplete="off"
               placeholder="${T18('oder IP[:Port]')}" aria-label="${T18('Schnittstelle von Hand: IP-Adresse oder Name, optional mit Port')}"
-              title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Eingabe mit Enter übernehmen')}">
+              title="${T18('Für Schnittstellen, die die Suche nicht findet (etwa knxd hinter einem Router) — Enter oder „Verbinden“ übernimmt die Eingabe')}">
             <label class="chk" title="${T18('Nötig, wenn die Schnittstelle hinter einem Router mit Adressumsetzung liegt')}">
               <input type="checkbox" id="bus-nat"> ${T18('NAT')}</label>
           </div>
@@ -508,12 +508,9 @@ function wire() {
   q('#bus-host').onkeydown = e => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    const h = manualIfaces.add(e.target.value);
-    if (!h) return;
-    e.target.value = '';
-    fillServers(h);
-    syncControls();
+    adoptHost();
   };
+  q('#bus-host').addEventListener('input', syncControls);
   if (manualIfaces.list().length) fillServers();
 
   overlay.querySelectorAll('input[name="bus-mode"]').forEach(r => r.onchange = () => {
@@ -582,7 +579,7 @@ function syncControls() {
   q('#bus-server').disabled = setup || !bus.servers.length;
 
   q('#bus-connect').hidden = conn;
-  q('#bus-connect').disabled = busy || (!routing && !q('#bus-server').value);
+  q('#bus-connect').disabled = busy || (!routing && !q('#bus-server').value && !q('#bus-host').value.trim());
   q('#bus-disconnect').hidden = !conn;
   q('#bus-disconnect').disabled = busy;
 
@@ -866,6 +863,19 @@ async function loadInterfaces() {
   }
 }
 
+/* Übernimmt die von Hand eingetippte Schnittstelle in die Auswahl und wählt sie.
+   Leeres Feld: nichts zu tun. false, wenn die Eingabe keine Adresse ist. */
+function adoptHost() {
+  const inp = q('#bus-host');
+  if (!inp.value.trim()) return true;
+  const h = manualIfaces.add(inp.value);
+  if (!h) { inp.classList.add('invalid'); return false; }
+  inp.value = '';
+  fillServers(h);
+  syncControls();
+  return true;
+}
+
 function connect() {
   let opts;
   if (mode() === 'routing') {
@@ -873,6 +883,7 @@ function connect() {
     if (own && !readPa('#bus-own')) return;
     opts = { mode: 'routing', networkInterface: q('#bus-nic').value || null, ownAddress: parsePa(own) };
   } else {
+    if (!adoptHost()) return;
     const s = bus.servers[+q('#bus-server').value];
     if (!s) { A.warn(T18('Bitte zuerst eine Schnittstelle suchen und auswählen.')); return; }
     // Adresse und Seriennummer der Schnittstelle merkt sich der Dienst, um das
