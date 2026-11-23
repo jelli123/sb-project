@@ -165,8 +165,9 @@ function paramValue(item, values, pid, loc, visible, refIds) {
 
 /* Schreibt alle Parameter in Segment- und Property-Abbilder.
    Unions: nur das sichtbare Mitglied (sonst das Standardmitglied) wird
-   geschrieben. Übrige Parameter werden alle geschrieben, sichtbare zuletzt —
-   so gewinnt bei Überlappung der Wert, den die Oberfläche zeigt.           */
+   geschrieben. Übrige Parameter: die aktiven und die, die der dynamische
+   Baum nicht kennt; sichtbare zuletzt — so gewinnt bei Überlappung der
+   Wert, den die Oberfläche zeigt.                                          */
 function writeParams(ctx) {
   const { item, dl, values, visible, segs, props, warn } = ctx;
   const refsOf = new Map();
@@ -176,6 +177,19 @@ function writeParams(ctx) {
   });
   const isVisible = pid => !visible || (refsOf.get(pid) || []).some(r => visible.has(r));
 
+  /* Wie die ETS: Ein Parameter, dessen Referenzen im dynamischen Baum stehen,
+     aber in keinem aktiven Zweig, wird nicht geladen. Sonst landen die
+     Vorgaben inaktiver Zweige in Speicher, den aktive Parameter nur teilweise
+     belegen — die MSA legt Eingang, Ausgang, PWM und DHT eines Pins
+     übereinander, und die DHT-Vorgaben (60, 15, 225) blieben in den
+     ungenutzten Bits der 2-Bit-Aktionen stehen (0x3C|3 statt 3). Parameter,
+     die der Baum gar nicht zeigt, sind interne Schalter und werden geladen. */
+  const inTree = new Set();
+  (function f(nodes) {
+    (nodes || []).forEach(n => { if (n.p) inTree.add(n.p); f(n.k); f(n.w); (n.rep || []).forEach(f); });
+  })(item.dyn);
+  const isInactive = pid => !!visible && !isVisible(pid) && (refsOf.get(pid) || []).some(r => inTree.has(r));
+
   const unions = new Map();
   const plain = [];
   Object.entries(dl.loc || {}).forEach(([pid, loc]) => {
@@ -183,7 +197,7 @@ function writeParams(ctx) {
       const key = loc.uk || (loc.w + '@union');
       if (!unions.has(key)) unions.set(key, []);
       unions.get(key).push([pid, loc]);
-    } else {
+    } else if (!isInactive(pid)) {
       plain.push([pid, loc]);
     }
   });
