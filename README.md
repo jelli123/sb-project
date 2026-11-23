@@ -64,16 +64,18 @@ node test/knx-proxy.test.js              # JS-Tests, ohne Abhängigkeiten
 
 Das ZIP aus `release.sh` braucht beim Empfänger nur Java, kein Maven. Die
 Versionsnummer steht nirgends im Repo; sie kommt als Argument oder aus dem
-Git-Tag `v<version>` auf dem aktuellen Commit. Ein veröffentlichtes Release
+Git-Tag (`0.3.0` oder `v0.3.0`) auf dem aktuellen Commit. Ein veröffentlichtes Release
 entsteht durch einen Tag:
 
 ```sh
-git tag v0.3.0 && git push origin v0.3.0
+git tag 0.3.0 && git push origin 0.3.0
 ```
 
 Die GitHub Action `.github/workflows/release.yml` führt dann die Tests aus,
 baut das ZIP und legt es an ein GitHub-Release mit erzeugten Release Notes.
-Tags mit Bindestrich (`v0.3.0-rc1`) werden als Vorabversion markiert.
+Tags mit Bindestrich (`0.3.0-rc1`) werden als Vorabversion markiert. Für einen
+schon vorhandenen Tag startet man die Action von Hand: Actions → Release →
+Run workflow, Tag angeben.
 
 ## Fremde Bestandteile
 

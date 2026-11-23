@@ -4,12 +4,12 @@
 # noch dieses Repo.
 #
 #   ./release.sh 0.3.0        Version als Argument
-#   ./release.sh              Version aus dem Git-Tag v<version> auf HEAD
+#   ./release.sh              Version aus dem Git-Tag auf HEAD (0.3.0 oder v0.3.0)
 #
 # Die Version steht sonst nirgends im Repo: Sie geht als -Drevision an Maven
 # (Jar-Manifest, /api/info) und in Name und README des Pakets. Die GitHub
-# Action .github/workflows/release.yml ruft das Skript beim Pushen eines Tags
-# v* auf und haengt das ZIP an ein GitHub-Release.
+# Action .github/workflows/release.yml ruft das Skript beim Pushen eines
+# Versions-Tags auf und haengt das ZIP an ein GitHub-Release.
 #
 # Ergebnis: release/sb-project-<version>.zip
 set -e
@@ -23,9 +23,11 @@ on_host() {
   if [ -f /.flatpak-info ]; then flatpak-spawn --host --directory="$ROOT" "$@"; else "$@"; fi
 }
 
-TAG=$(git -C "$ROOT" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)
+# Liegen mehrere Versions-Tags auf HEAD, gilt der hoechste.
+TAG=$(git -C "$ROOT" tag --points-at HEAD --sort=-v:refname | grep -E '^v?[0-9]' | head -1 || true)
 VERSION=${1:-${TAG#v}}
-[ -n "$VERSION" ] || { echo "Keine Version: bitte als Argument angeben (./release.sh 0.3.0) oder HEAD mit v<version> taggen." >&2; exit 1; }
+VERSION=${VERSION#v}
+[ -n "$VERSION" ] || { echo "Keine Version: bitte als Argument angeben (./release.sh 0.3.0) oder HEAD mit der Version taggen." >&2; exit 1; }
 # Landet in Datei-, Ordner- und Manifestnamen: nur Ziffern, Buchstaben, . - +
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9][0-9A-Za-z.+-]{0,39}$'; then
   echo "Ungueltige Version '$VERSION' — erwartet z. B. 0.3.0 oder 0.3.0-rc1." >&2; exit 1

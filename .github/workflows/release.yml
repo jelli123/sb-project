@@ -1,11 +1,20 @@
-# Baut beim Pushen eines Tags v<version> das Paket aus release.sh und
-# veroeffentlicht es als GitHub-Release:
-#   git tag v0.3.0 && git push origin v0.3.0
+# Baut beim Pushen eines Versions-Tags (0.3.0 oder v0.3.0) das Paket aus
+# release.sh und veroeffentlicht es als GitHub-Release:
+#   git tag 0.3.0 && git push origin 0.3.0
+# Fuer einen schon vorhandenen Tag: Actions > Release > Run workflow.
 name: Release
 
 on:
   push:
-    tags: ['v[0-9]*']
+    tags: ['[0-9]*', 'v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Vorhandener Tag, z. B. 0.2.3'
+        required: true
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -15,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/setup-java@v4
         with:
@@ -32,14 +43,14 @@ jobs:
           for t in test/*.test.js; do node "$t"; done
 
       - name: Paket bauen
-        run: ./release.sh "${GITHUB_REF_NAME#v}"
+        run: ./release.sh "${TAG#v}"
 
       - name: GitHub-Release anlegen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "release/sb-project-$VERSION.zip" \
+          gh release create "$TAG" "release/sb-project-$VERSION.zip" \
             --title "SB-Project $VERSION" --generate-notes $PRE
