@@ -359,6 +359,16 @@ function patchObjectTable(ctx, tab, model, mask) {
     if (Number.isInteger(src.z) && src.z >= 0) img[at + 1] = src.z;
     patched++;
   });
+  /* Wie die ETS: Objekte, die die Applikation in dieser Parametrierung hat, die
+     aber ausgeblendet sind, verlieren das Kommunikationsflag; der Rest ihres
+     Oktetts bleibt, wie die Produktdatei ihn vorgibt (MSA: DFh → DBh). Plätze
+     ohne Objekt — etwa die inaktiver Modulinstanzen — bleiben unberührt. */
+  const shown = new Set(model.objs.map(o => o.num));
+  Object.keys((ctx.dl && ctx.dl.co) || {}).map(Number).forEach(n => {
+    if (!Number.isInteger(n) || n < 0 || n >= count || shown.has(n)) return;
+    const at = first + n * step + (bcu1 ? 1 : 2);
+    if (at < img.length) img[at] &= ~0x04;
+  });
   return patched;
 }
 
