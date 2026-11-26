@@ -40,7 +40,7 @@ function dptOptions(sel) {
   return KNX.dptGroups().map(g =>
     `<optgroup label="${esc(g.label)}">` + g.items.map(d =>
       `<option value="${d.id}"${d.id === String(sel) ? ' selected' : ''}>` +
-      `${d.id} — ${esc(d.name)}</option>`).join('') + '</optgroup>').join('');
+      `${d.id} — ${esc(d.name)}${d.extra ? ' ' + esc(T18('(aus Produktdatei)')) : ''}</option>`).join('') + '</optgroup>').join('');
 }
 
 function showErr(msg) {

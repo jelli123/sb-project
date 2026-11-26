@@ -1050,6 +1050,7 @@ function collect(docs, prefer) {
 
   const MEDIUM = { 'MT-0': 'tp', 'MT-1': 'pl', 'MT-2': 'rf', 'MT-5': 'ip' };
   const docLangs = new Map();      // Dokument → { de, en } Übersetzungskarten
+  const dptNames = new Map();      // "14.068" / "14" → Text aus knx_master.xml
 
   docs.forEach(doc => {
     tags(doc, 'Manufacturer').forEach(m => {
@@ -1071,6 +1072,27 @@ function collect(docs, prefer) {
       en: buildTranslations(doc, LANG_EN, true)
     };
     docLangs.set(doc, langs);
+    /* Namen der Datenpunkttypen aus den Stammdaten (knx_master.xml): Haupttyp
+       unter "14", Untertyp unter "14.068". Sie wandern mit den Produkten in
+       den Katalog, damit DPTs ausserhalb des eingebauten Katalogs lesbar sind. */
+    tags(doc, 'DatapointType').forEach(t => {
+      const n = attr(t, 'Number');
+      if (!/^\d{1,3}$/.test(n)) return;
+      const tid = attr(t, 'Id');
+      if (!dptNames.has(n)) {
+        const v = pair(langs.de.get(tid + '|Text'), langs.en.get(tid + '|Text') || attr(t, 'Text'));
+        if (plain(v)) dptNames.set(n, v);
+      }
+      tags(t, 'DatapointSubtype').forEach(st => {
+        const sub = attr(st, 'Number');
+        if (!/^\d{1,3}$/.test(sub)) return;
+        const key = n + '.' + sub.padStart(3, '0');
+        if (dptNames.has(key)) return;
+        const v = pair(langs.de.get(attr(st, 'Id') + '|Text'),
+          langs.en.get(attr(st, 'Id') + '|Text') || attr(st, 'Text'));
+        if (plain(v)) dptNames.set(key, v);
+      });
+    });
     tags(doc, 'ApplicationProgram').forEach(ap => {
       const id = attr(ap, 'Id');
       if (!id || apps.has(id)) return;
@@ -1165,10 +1187,25 @@ function collect(docs, prefer) {
       noAddress: !!(hw && hw.noAddress),
       hwOnly: app === NO_APP
     });
+    e.dpts = dptsOf(e, app.mods);
     // Gezählt wird ausgefaltet — so viele Objekte hat das Gerät wirklich
     e.objCount = Object.keys(e.objs).length;
     e.paramCount = Object.keys(e.params).length;
     return e;
+  };
+
+  /* Die Namen genau der DPTs, die das Produkt an seinen Objekten benutzt —
+     samt Haupttyp. Alle Stammdaten mitzunehmen wäre ein Vielfaches davon. */
+  const dptsOf = (e, mods) => {
+    const out = {};
+    const take = o => {
+      const id = o && typeof o.dpt === 'string' ? o.dpt : '';
+      if (!id) return;
+      [id, id.split('.')[0]].forEach(k => { if (dptNames.has(k)) out[k] = dptNames.get(k); });
+    };
+    Object.values(e.objs || {}).forEach(take);
+    Object.values(mods || {}).forEach(md => Object.values((md && md.objs) || {}).forEach(take));
+    return out;
   };
 
   /* Drosseln, Netzteile und passives Zubehör haben keine Applikation, gehören

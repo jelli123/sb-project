@@ -973,7 +973,7 @@ function gaRow(ga) {
 
   const tdD = document.createElement('td');
   tdD.className = 'cell-dpt';
-  tdD.innerHTML = '<span class="dpt-tag" title="' + esc(A.t(dpt.name) + ' — ' + A.t(dpt.desc)) + '">' + dpt.id + '</span>';
+  tdD.innerHTML = '<span class="dpt-tag" title="' + esc((dpt.extra ? dpt.name : A.t(dpt.name)) + ' — ' + A.t(dpt.desc)) + '">' + dpt.id + '</span>';
 
   const tdO = document.createElement('td');
   tdO.className = 'cell-objs';

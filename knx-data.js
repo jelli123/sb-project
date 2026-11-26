@@ -66,7 +66,14 @@ const KNX = (() => {
     { id: '12.001', name: 'Zählwert (4 Byte)',    desc: 'vorzeichenlos' },
     { id: '13.010', name: 'Wirkarbeit (Wh)',      desc: 'Energiezähler' },
     { id: '13.013', name: 'Wirkarbeit (kWh)',     desc: 'Energiezähler' },
+    { id: '14.019', name: 'Strom (A)',            desc: 'Messwert' },
+    { id: '14.027', name: 'Spannung (V)',         desc: 'Messwert' },
+    { id: '14.033', name: 'Frequenz (Hz)',        desc: 'Netzfrequenz' },
     { id: '14.056', name: 'Leistung (W)',         desc: 'Momentanleistung' },
+    { id: '14.057', name: 'Leistungsfaktor (cos φ)', desc: 'Messwert' },
+    { id: '14.068', name: 'Temperatur (°C)',      desc: 'Messwert, 4-Byte-Gleitkomma' },
+    { id: '14.069', name: 'Absolute Temperatur (K)', desc: 'Messwert' },
+    { id: '14.070', name: 'Temperaturdifferenz (K)', desc: 'Messwert' },
     { id: '14.076', name: 'Volumen (m³)',         desc: 'Zählerstand' },
     { id: '16.000', name: 'Zeichenkette (ASCII)', desc: '14 Zeichen' },
     { id: '17.001', name: 'Szenennummer',         desc: 'Szene 1–64 aufrufen' },
@@ -103,30 +110,51 @@ const KNX = (() => {
     let d = DPT_EXTRA.get(key);
     if (!d) {
       const main = +m[1];
-      d = { id: key, main, name: 'DPT ' + key, desc: 'nicht im Katalog',
-            group: DPT_MAIN[main] || ('Hauptnummer ' + main), extra: true };
+      // Namen kommen aus den Stammdaten der Produktdateien im Katalog — erst
+      // beim Lesen nachgeschlagen, weil Katalog und Sprache sich ändern.
+      d = { id: key, main, extra: true,
+            get name() { return dptText(key) || 'DPT ' + key; },
+            get desc() { return dptText(key) ? 'aus Produktdatei' : 'nicht im Katalog'; },
+            get group() { return DPT_MAIN[main] || dptText(String(main)) || ('Hauptnummer ' + main); } };
       DPT_EXTRA.set(key, d);
     }
     return d;
   };
   const DPT_EXTRA = new Map();
 
-  /* DPT-Katalog nach Hauptnummer gruppiert — für <optgroup>. Im Projekt
-     verwendete Fremd-DPTs kommen hinten dazu, damit sie wählbar bleiben.   */
+  /* Text eines DPT aus den Katalogprodukten ("14.068" oder Haupttyp "14"). */
+  function dptText(key) {
+    if (!project || !Array.isArray(project.catalog)) return '';
+    for (const c of project.catalog) {
+      if (!c.dpts || !Object.prototype.hasOwnProperty.call(c.dpts, key)) continue;
+      const v = c.dpts[key];
+      return typeof KNXI18n !== 'undefined' ? KNXI18n.pick(v)
+        : (typeof v === 'string' ? v : (v.de || v.en || ''));
+    }
+    return '';
+  }
+
+  /* DPT-Katalog nach Hauptnummer gruppiert — für <optgroup>. Fremd-DPTs, die
+     das Projekt benutzt oder deren Namen ein Katalogprodukt mitbringt, stehen
+     in ihrer Hauptgruppe, damit sie wählbar bleiben.                       */
+  const dptSub = d => +d.id.split('.')[1];
   function dptGroups() {
+    const extra = new Map();
+    const see = id => { const d = dptById(id); if (d.extra) extra.set(d.id, d); };
+    if (project) {
+      project.devices.forEach(dev => dev.objs.forEach(o => see(o.dpt)));
+      project.groups.forEach(g => see(g.dpt));
+      (project.catalog || []).forEach(c => Object.keys(c.dpts || {})
+        .forEach(k => { if (k.includes('.')) see(k); }));
+    }
+    const all = [...DPT, ...extra.values()]
+      .sort((a, b) => a.main - b.main || dptSub(a) - dptSub(b));
     const out = [];
     let cur = null;
-    DPT.forEach(d => {
-      if (!cur || cur.label !== d.group) { cur = { label: d.group, items: [] }; out.push(cur); }
+    all.forEach(d => {
+      if (!cur || cur.main !== d.main) { cur = { label: d.group, main: d.main, items: [] }; out.push(cur); }
       cur.items.push(d);
     });
-    if (project) {
-      project.devices.forEach(dev => dev.objs.forEach(o => dptById(o.dpt)));
-      project.groups.forEach(g => dptById(g.dpt));
-    }
-    if (DPT_EXTRA.size)
-      out.push({ label: 'Aus Produktdateien', items: [...DPT_EXTRA.values()]
-        .sort((a, b) => a.main - b.main || a.id.localeCompare(b.id)) });
     return out;
   }
 
@@ -796,7 +824,8 @@ const KNX = (() => {
         powerSupply: !!c.powerSupply,
         choke: !!c.choke,
         noAddress: !!c.noAddress,
-        hwOnly: !!c.hwOnly
+        hwOnly: !!c.hwOnly,
+        dpts: normDpts(c.dpts)
       };
     }).map(expandItem)
     /* Dieselbe Bedingung wie beim Einlesen der Produktdatei (knx-prod.js).
@@ -893,6 +922,27 @@ const KNX = (() => {
   /* Namen aus einer .knxprod können zweisprachig sein ({de, en}) — dann bleiben
      sie es, damit die Oberfläche beim Sprachwechsel mitzieht. Beide Seiten
      werden einzeln begrenzt; sind sie gleich, wird wieder ein Text daraus. */
+  /* DPT-Namen aus den Stammdaten einer Produktdatei: Schlüssel "14" oder
+     "14.068", Wert ein Text oder ein Paar {de, en}. Alles andere fällt weg. */
+  const DPT_NAMES_MAX = 600;
+  const normDpts = v => {
+    const out = {};
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    let n = 0;
+    for (const k of Object.keys(v)) {
+      if (n >= DPT_NAMES_MAX) break;
+      if (!/^\d{1,3}(\.\d{3})?$/.test(k)) continue;
+      const x = v[k];
+      const ok = typeof x === 'string'
+        || (x && typeof x === 'object' && !Array.isArray(x)
+            && ['de', 'en'].every(l => x[l] == null || typeof x[l] === 'string'));
+      const name = ok ? normName(x, '') : '';
+      if (!name) continue;
+      out[k] = name;
+      n++;
+    }
+    return out;
+  };
   const normName = (v, dflt) => {
     if (v && typeof v === 'object' && (v.de != null || v.en != null)) {
       const de = String(v.de || '').trim().slice(0, NAME_MAX);
@@ -2011,7 +2061,8 @@ const KNX = (() => {
         powerSupply: !!it.powerSupply,
         choke: !!it.choke,
         noAddress: !!it.noAddress,
-        hwOnly: !!it.hwOnly
+        hwOnly: !!it.hwOnly,
+        dpts: normDpts(it.dpts)
       };
       expandItem(c);
       const old = known.get(key(c));

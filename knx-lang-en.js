@@ -26,6 +26,10 @@ KNXI18n.add('en', {
   '{0} · Verbaut in: {1} → {2}': '{0} · installed in: {1} → {2}',
   '{0} · Einspeisung: {1} → {2}': '{0} · supply: {1} → {2}',
   '{0} · Busstrom: {1} → {2}': '{0} · bus current: {1} → {2}',
+  /* ---------- Datenpunkttypen aus Produktdateien ---------- */
+  '(aus Produktdatei)': '(from product file)',
+  'aus Produktdatei': 'from product file',
+  'nicht im Katalog': 'not in the catalog',
   /* ---------- Handbücher (app-manuals.js) ---------- */
   'Die KI kennt das frühere Gespräch nicht mehr und beginnt neu – was oben steht, siehst nur du.': 'The AI no longer knows the earlier conversation and starts afresh – only you can see what is above.',
   '„{0}“ ist keine PDF-Datei.': '“{0}” is not a PDF file.',

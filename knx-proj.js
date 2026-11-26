@@ -275,7 +275,8 @@ function build(doc, infoDoc, products, say) {
         types: k.types, params: k.params, objs: k.objs, dyn: k.dyn, prog: k.prog,
         ...(k.mods ? { mods: k.mods, inst: k.inst } : {}),
         mask: k.mask, ip: k.ip, medium: k.medium, ma: k.ma, coupler: k.coupler,
-        powerSupply: k.powerSupply, choke: k.choke, noAddress: k.noAddress, hwOnly: k.hwOnly
+        powerSupply: k.powerSupply, choke: k.choke, noAddress: k.noAddress, hwOnly: k.hwOnly,
+        dpts: k.dpts
       });
     }
     return catIdOf.get(p);
